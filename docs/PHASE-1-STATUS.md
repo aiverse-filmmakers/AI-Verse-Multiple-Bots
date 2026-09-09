@@ -4,245 +4,171 @@
 
 **Phase:** 1
 
-**Overall status:** in progress
+**Overall status:** in progress, approximately 80%
 
 This file is the implementation ledger for Phase 1. It records what is actually on `main`, what has been tested, and what remains before the Phase 1 completion milestone is claimed.
+
+See `BUILD-MAP.md` for the full Phase 0-5 product roadmap.
 
 ## Phase 1 completion milestone
 
 Phase 1 is complete only when:
 
-> Two persistent Bots can independently exist, talk asynchronously, delegate real work to each other, hand responsibility between each other, work together in a Room, and survive a Coordination Gateway restart without losing coordination state.
+> Two persistent Bots can independently exist, communicate asynchronously, delegate real work, transfer responsibility safely, collaborate in a Room/Thread, execute through a real runtime adapter, respect enforced policy/limits/approvals, recover from restart, and cancel/fail without losing coordination integrity.
 
-That milestone is **not yet claimed**. The direct Bot-to-Bot execution path is now working. Room/Thread collaboration, stronger safety enforcement, handoff atomicity, and a real external/model runtime adapter still remain.
+That milestone is **not yet claimed**.
 
-## Implementation history
+## What is working now
 
-Architecture and initial core:
+### Core runtime and persistence
 
-- `02caedf9abba45c2bfb0431d8eb0d8a171eff51e` - record canonical implementation roadmap
-- `66edcb49ea1af973fea3c6c0d28cd6cc78811aec` - mark Phase 1 started in README
-- `75df9011751bdb9245806eaeaba6ed3d8f14cd23` - first runnable coordination core on `main`
-- `9603f7cdc4a78064d6f27ac5503376b13bc051f8` - expose network-facing Coordination Gateway API and SSE event stream
-- `ac4e8ae653ed6ae0f898569f4c254d4779cf0ba0` - add typed delegation, capability leases and explicit handoff ownership transitions
-
-Execution vertical slice:
-
-- `608e9a8fde23c866b01fad981af433ba338fb5cd` - persistent execution queue
-- `66b731ad4935dc73279726eb54247fb6e96f4176` - runtime adapter contract + deterministic adapter
-- `09ae4560f08b1dea21a47db34920d2546dd872f8` - Bot runner execution lifecycle
-- `02ea4707964b0d125a3ff81605ae6184f90c1e1d` - delegation automatically enqueues executable Tasks
-- `10aec158f31c39bf799d653f7bcf6a3d53702583` - expose execution through localhost Gateway
-- `afe72f55246e15d5d028ef2bfceed6fa3e680c56` - queued-target discovery for restart wake-up
-- `be85bd837cca7bea5dd279c629581bd7204d4530` - event-driven execution supervisor
-- `dd1721528ecd8dd5d38040dacf24e9e754d52a84` - wire supervisor into server lifecycle
-- `6ef20efbc9e30f9a975d000fddca4fd4154f0e78` - preserve queued work when runtime adapter is unavailable
-- `071546d26d4b7dbae85d2426de66a1015d4cace8` - wake queued work when a Bot becomes available
-
-Testing/CI:
-
-- `7c1b4914611054e10a4810af5ad8941247b433d8` - execution lifecycle + expired lease tests
-- `66bd054982e062417bf8dce1925973f10e3188e3` - event-driven supervisor test
-- `8e34fd0954d38f56a5ad8d5b8e45b16b5a9220cd` - add GitHub Actions CI
-- `8b18133b0319549fd174e38b37f2bb727422de84` - fix CI lockfile-dependent npm-cache setup
-- `b49fc3cea8817d1f1cbcc34646de89f6d4afec7a` - pin TypeScript 5.8.3
-
-## Implemented and tested
-
-### Repository/runtime skeleton
-
-- Node.js / TypeScript project
-- strict TypeScript configuration
-- runtime exports
-- CLI entrypoint
-- dependency-light core
-- GitHub Actions CI on `main` and pull requests
-
-### SQLite coordination store
-
-Current persistent substrate includes:
-
-- generic typed protocol object storage
-- Bot manifests
-- Messages
-- Tasks
-- Handoffs
-- capability/environment leases and other protocol objects
-- Artifacts
-- append-only coordination events
-- asynchronous conversational delivery/mailbox queue
-- persistent execution queue
-- idempotency records
-- per-Room sequence counters
-
-The SQLite database is coordination-service state. It is not AI-Verse canonical domain truth.
-
-### Event substrate
-
-Implemented:
-
-- global append sequence
-- independent monotonic per-Room ordering
-- workspace/run/task/Room/Thread correlation columns
-- correlation, causation and trace IDs
-- replay from sequence number
-- idempotent event append
-- in-process event subscription
-- SSE event replay + live push
-
-### Bot registry substrate
-
-Implemented:
-
-- protocol-aligned Bot validation
-- create Bot
-- get Bot
-- list Bots
-- workspace-indexed persistence
-- runtime/execution/permission/coordination metadata persistence
-- `bot.created` event
-
-### Asynchronous conversational mailbox
-
-Implemented delivery states:
-
-```text
-queued
-accepted
-delivered
-processing
-replied
-expired
-failed
-canceled
-```
-
-Implemented:
-
-- persistent queued delivery record
-- target mailbox reads
-- state update substrate
+- Node.js + TypeScript package
+- localhost Coordination Gateway
+- SQLite coordination state
+- protocol objects
+- persistent Bots
+- persistent Messages/Tasks/Handoffs/Artifacts/leases
+- conversational mailbox
+- separate executable Task queue
+- append-only events
+- global and per-Room ordering
+- idempotency
 - restart persistence
-- task-result notifications use the same normal Bot-to-Bot mailbox path
+- SSE event stream
+- GitHub Actions CI
 
-Conversational Messages are intentionally separate from executable Tasks. Message-driven autonomous action is not yet enabled by default.
-
-### Delegation
-
-Implemented:
-
-- typed delegation input
-- Task creation
-- explicit child `owner_id`
-- parent/creator remains recorded separately
-- root objective preservation
-- required constraints
-- expected-output contract
-- capability lease creation
-- task-scoped tools/connections
-- lease expiry
-- hop/max-hop metadata
-- persistent execution enqueue
-- `task.assigned` event
-- HTTP delegation endpoint
-
-### Runtime adapter contract
-
-Implemented:
-
-- runtime-neutral adapter interface
-- typed execution context
-- typed structured result
-- adapter registry
-- cancellation hook in interface
-- deterministic test adapter
-- adapter availability is checked before work is claimed
-
-The deterministic adapter exists to validate orchestration semantics without coupling tests to a model provider.
-
-### Persistent Task execution
+### Persistent Bot execution
 
 Implemented lifecycle:
 
 ```text
 Task assigned
   -> execution queued
-  -> Bot wake-up
-  -> atomic queue claim
+  -> Bot wakes from event
+  -> queue claim
   -> Task running
   -> runtime adapter
   -> Artifact published
   -> Task completed
-  -> execution completed
-  -> creator notified
+  -> creator/Room notified
 ```
 
-Implemented enforcement:
+Implemented safeguards:
 
-- Bot must exist and be active
+- active Bot required
 - assignee/owner match
-- executable Task status
-- capability lease exists
-- lease issued to correct Bot
-- lease scoped to correct Task
-- lease expiry checked before execution
-- optional environment lease lookup
-- failures create `task.failed` and no successful Artifact
+- capability lease validation
+- lease expiry enforcement
+- environment lease lookup
+- runtime availability checked before claim
+- canceled/failed execution cannot publish a normal completion Artifact
 
-### Event-driven execution supervisor
+### Runtime adapter boundary
 
 Implemented:
 
-- no polling loop
-- wakes on `task.assigned`
-- serial drain per Bot
-- avoids duplicate in-process runners for the same Bot
-- skips unavailable runtime adapters without consuming work
-- startup scan for queued targets
-- `bot.created` retrigger for work queued before the Bot became available
-- graceful wait-for-idle on shutdown
+- provider-neutral adapter interface
+- structured execution context
+- structured result
+- runtime registry
+- deterministic reference adapter
+- abort signal
+- optional runtime cancellation hook
+- execution deadline support
 
-### Restart behavior
+A real external/model runtime adapter is intentionally still deferred until the remaining safety controls are present.
 
-Proven by test:
-
-- Bot/Task/lease/execution queue survive SQLite close/reopen
-- queued delegated work can be claimed and completed after reopen
-- result Artifact and completion events are preserved
-
-Important remaining hardening:
-
-- a process crash after execution reaches `running` cannot yet be blindly retried because an external runtime may already have caused side effects
-- stale claimed/running recovery needs an explicit lease/heartbeat/resume policy rather than unsafe automatic retry
-- multi-process runner ownership still needs hardening
-
-### Handoff
+### Delegation
 
 Implemented:
 
-- explicit handoff object
+- explicit assignee and owner
+- root objective
+- parent Task lineage
+- inherited constraints
+- hop/max-hop controls
+- scoped capability lease
+- tools/connections
+- response target
+- deadline field
+- automatic execution enqueue
+- Room-backed Task delegation
+
+### Rooms and Threads
+
+Implemented:
+
+- Room creation/list/get
+- workspace-scoped membership
+- active Bot validation
+- Room leaders
+- aliases and `@mentions`
+- visible unresolved/ambiguous mention failures
+- Thread creation and Thread replies
+- pass semantics
+- bounded selective speaker scheduling
+- active work owner/collaborators
+- Room messages as canonical protocol objects/events
+- mentioned Bot work becomes real Tasks
+- Bot result Artifact publishes back into Room/Thread
+- independent Room sequence
+- Room/Thread replay storage
+- `GET /v1/rooms/:id/events`
+
+### Strict coordination policy
+
+The installable localhost Gateway now enables strict coordination policy by default.
+
+Enforced:
+
+- registered Bot requirement
+- active Bot requirement
+- workspace boundary
+- peer allowlists
+- tool grants
+- connection grants
+- parent/root-objective lineage
+- inherited constraints
+- hop ceilings
+- duplicate active Task prevention
+- deadline validity
+
+### Cancellation and deadlines
+
+Implemented:
+
+- persistent execution cancellation
+- cancellation of queued, claimed, or running Task work
+- abort signal delivered to runtime adapter
+- optional adapter-specific cancellation hook
+- explicit cancellation API: `POST /v1/tasks/:id/cancel`
+- cancellation authorization for operator/creator/owner/assignee
+- recursive parent -> child cancellation propagation
+- runtime-vs-cancel race handling
+- Task execution deadlines
+- deadline-triggered adapter cancellation
+- `task.deadline_exceeded`
+- `task.canceled`
+- canceled/deadline-exceeded Task produces no successful Artifact
+
+### Handoff core
+
+Implemented:
+
+- Handoff object
 - requested state
-- target-owner validation
-- rejection of acceptance by unrelated actors
-- accepted state
-- work-item ownership mutation only after acceptance
+- target-only acceptance
+- ownership changes only after target accepts
 - `handoff.requested`
 - `handoff.accepted`
 - `ownership.changed`
 - HTTP request/accept endpoints
 
-Still required:
+This remains one of the main unfinished Phase 1 areas because the transition is not yet transactionally atomic across all related state.
 
-- transactionally atomic handoff state + ownership + event transition
-- reject flow
-- return policy execution
-- capability/environment lease intersection/transfer
-- execution-queue retargeting where appropriate
-- adapter failure rollback
+## Current HTTP surface
 
-### Network-facing Coordination Gateway
-
-Implemented:
+Implemented main endpoints include:
 
 - `GET /health`
 - `GET /v1/bots`
@@ -250,98 +176,102 @@ Implemented:
 - `POST /v1/messages`
 - `GET /v1/mailbox/:id`
 - `POST /v1/delegations`
+- `POST /v1/tasks/:id/cancel`
 - `POST /v1/handoffs`
 - `POST /v1/handoffs/:id/accept`
 - `GET /v1/execution/:id`
 - `POST /v1/bots/:id/run-next`
+- `GET /v1/rooms`
+- `POST /v1/rooms`
+- `GET /v1/rooms/:id`
+- `GET /v1/rooms/:id/events`
+- `POST /v1/rooms/:id/messages`
+- `POST /v1/rooms/:id/threads`
+- `POST /v1/rooms/:id/pass`
+- `POST /v1/rooms/:id/work-owner`
 - `GET /v1/events`
-- `GET /v1/events/stream` via Server-Sent Events
+- `GET /v1/events/stream`
 
 Default binding remains localhost-oriented.
 
 ## Test and CI status
 
-GitHub Actions run `34325360530` completed successfully on Node.js 22.23.2.
+Latest verified GitHub Actions suite after cancellation/deadline work: **16/16 passing**.
 
-Current complete suite: **9/9 passing**.
+Newly proven behavior includes:
 
-Covered behavior:
+- strict Gateway rejects unregistered Bot routing
+- Room replay API works
+- explicit cancellation aborts running execution
+- running cancellation produces no successful Artifact
+- deadline expiry cancels execution and records evidence
+- parent cancellation propagates to active child Tasks
 
-1. delegation creates capability lease + child-owned Task
-2. handoff changes ownership only after target acceptance
-3. persistent Bots + conversational mailbox survive store reopen
-4. delegated Task survives restart, executes, publishes Artifact, and notifies creator
-5. expired capability lease blocks execution and produces no Artifact
-6. HTTP health/Bot/message/mailbox/event APIs
-7. append-only ordered event storage + idempotency
-8. independent per-Room ordering
-9. supervisor wakes assigned Bot from `task.assigned` without polling
+Previously proven behavior remains covered:
 
-Node's built-in `node:sqlite` still reports its experimental-feature warning on Node 22. This is currently accepted for the alpha implementation and should be revisited before a stable release/runtime-support commitment.
+- delegation + capability leases
+- ownership semantics
+- mailbox persistence
+- restart Task execution
+- lease expiry failure
+- Room/Thread work and replies
+- policy lineage/hop/workspace/peer/capability checks
+- append-only event ordering/idempotency
+- event-driven Bot wake-up
+
+Node's built-in `node:sqlite` still emits its experimental-feature warning on Node 22. This is acceptable for the current alpha but must be revisited before a stable runtime-support commitment.
 
 ## Remaining Phase 1 work
 
-### Bot Registry hardening
+### A. Safety II
+
+Next main slice:
+
+- token budget
+- cost budget
+- resource/action budget
+- loop/ping-pong detection
+- no-progress detection
+- Room runtime turn/message ceilings
+- approval interceptor
+- explicit user escalation
+
+### B. Handoff hardening
+
+- transactional handoff + ownership + event update
+- reject flow
+- execution queue retargeting
+- capability/environment lease intersection or transfer
+- immutable constraint digest verification
+- return-policy execution
+
+### C. Execution recovery hardening
+
+- stale claimed/running detection
+- execution heartbeat/lease
+- safe recovery policy
+- retry rules
+- dead-letter state
+- multi-process runner ownership
+
+Do not blindly retry unknown external side effects after a crash.
+
+### D. Bot registry hardening
 
 - disable/archive transitions
-- alias/mention registry
-- peer permission enforcement
-- workspace boundary enforcement on every command
-- duplicate/collision policy
-- Bot relationship validation
+- alias/collision rules outside Rooms
+- relationship validation
 
-### Rooms and Threads
+### E. First real runtime adapter
 
-This is the **next main implementation slice**.
+After Safety II and the critical handoff/recovery rules are green:
 
-Required:
-
-- Room creation/membership API
-- canonical Room Messages
-- Thread creation/replies
-- `@mention` alias resolution
-- ambiguous/unresolved mention behavior
-- pass semantics
-- selective speaker scheduling
-- explicit active work owner in Room
-- bounded rounds/messages
-- Room-to-Task delegation path
-
-### Safety substrate
-
-After the Room core:
-
-- enforce hop limits
-- Worker limits
-- round/message limits
-- token/cost budgets
-- wall-clock deadlines
-- loop/cycle detection
-- no-progress detection
-- cancellation propagation
-- approval interceptor
-- user escalation
-
-### Real runtime adapter
-
-Do **not** make a powerful external model/runtime the coordination foundation.
-
-After safety enforcement is in place, add one real adapter behind the already-tested runtime interface. Candidates include a local CLI/process runtime, Hermes, OpenClaw, Codex/Claude Code, or another host-selected runtime.
+- attach one real useful runtime behind the existing interface
+- record runtime/tool receipts
+- prove two persistent Bots collaborating end-to-end with the real adapter
 
 ## Immediate next implementation step
 
-Build the **Room + Thread coordination core** on top of the now-green execution substrate:
+Build **Safety II**, starting with bounded budgets and loop/no-progress detection, then approval interception and escalation.
 
-```text
-Room
-  -> canonical members
-  -> canonical event/message ordering
-  -> mention resolution
-  -> Thread branch
-  -> explicit work owner
-  -> bounded speaker policy
-  -> Bot pass
-  -> optional Task delegation
-```
-
-The Room engine must remain backend-owned and event-driven. Dashboard/Desktop/Telegram/etc. are clients of the same Room contract, never alternate orchestration owners.
+This is the correct next step before connecting Hermes, OpenClaw, Codex, Claude Code, or another powerful runtime.
