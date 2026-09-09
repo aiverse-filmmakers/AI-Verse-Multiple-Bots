@@ -1,6 +1,8 @@
+import { assertUsageWithinBudget, BudgetError, effectiveDeadline } from "./budget.js";
 import { createId } from "./id.js";
 import { ExecutionQueue, type ExecutionRecord } from "./execution-queue.js";
 import { CoordinationGateway } from "./gateway.js";
+import { CoordinationLoopError, progressFingerprint } from "./loop-guard.js";
 import { RuntimeRegistry, type RuntimeAdapter, type RuntimeExecutionContext, type RuntimeExecutionResult } from "./runtime.js";
 import { CoordinationStore } from "./store.js";
 import type { AppendedEvent, JsonObject, StoredObject } from "./types.js";
@@ -101,8 +103,9 @@ export class BotRunner {
         throw new Error(`Task ${task.id} is not executable from status ${String(task.payload.status)}`);
       }
 
-      const deadlineAt = typeof task.payload.deadline_at === "string" ? Date.parse(task.payload.deadline_at) : null;
-      if (deadlineAt !== null && (!Number.isFinite(deadlineAt) || deadlineAt <= Date.now())) {
+      const explicitDeadlineAt = typeof task.payload.deadline_at === "string" ? task.payload.deadline_at : null;
+      const explicitDeadlineMs = explicitDeadlineAt ? Date.parse(explicitDeadlineAt) : null;
+      if (explicitDeadlineMs !== null && (!Number.isFinite(explicitDeadlineMs) || explicitDeadlineMs <= Date.now())) {
         throw new TaskCancellationError("DEADLINE_EXCEEDED", `Task ${task.id} deadline has elapsed`);
       }
 
@@ -126,10 +129,11 @@ export class BotRunner {
         .map((id) => this.store.getObject(id))
         .filter((item): item is StoredObject => Boolean(item && item.kind === "artifact"));
 
+      const startedAtMs = Date.now();
       const runningTaskPayload: JsonObject = {
         ...task.payload,
         status: "running",
-        started_at: nowIso()
+        started_at: new Date(startedAtMs).toISOString()
       };
       const runningTask = this.store.putObject("task", validateProtocolObject(runningTaskPayload, "task"));
       this.queue.updateState(claimed.id, "running");
@@ -153,6 +157,7 @@ export class BotRunner {
         inputArtifacts,
         signal: controller.signal
       };
+      const deadlineAt = effectiveDeadline(explicitDeadlineAt, startedAtMs, task.payload.budget);
       const result = await this.executeWithControls(adapter, context, deadlineAt);
 
       const latestExecution = this.queue.getByItem(task.id);
@@ -163,6 +168,10 @@ export class BotRunner {
           ? reasonValue
           : new TaskCancellationError("CANCELED", reasonValue instanceof Error ? reasonValue.message : "Task canceled");
       }
+
+      const usage = assertUsageWithinBudget(task.payload.budget, result.usage ?? {});
+      const fingerprint = progressFingerprint(result.output);
+      this.gateway.policy?.loopGuard.assertProgress({ task: runningTask, fingerprint });
 
       const artifactId = createId("art");
       const artifactPayload: JsonObject = {
@@ -176,6 +185,9 @@ export class BotRunner {
         version: 1,
         content_ref: null,
         inline_content: result.output,
+        runtime_receipts: result.receipts ?? [],
+        usage,
+        progress_fingerprint: fingerprint,
         provenance: {
           origin: "bot_generated",
           trusted_instruction: false,
@@ -196,7 +208,9 @@ export class BotRunner {
         ...runningTask.payload,
         status: "completed",
         completed_at: nowIso(),
-        output_artifact_refs: [artifactId]
+        output_artifact_refs: [artifactId],
+        usage,
+        progress_fingerprint: fingerprint
       };
       const completedTask = this.store.putObject("task", validateProtocolObject(completedTaskPayload, "task"));
       const completedExecution = this.queue.updateState(claimed.id, "completed");
@@ -314,14 +328,38 @@ export class BotRunner {
       }
 
       const message = error instanceof Error ? error.message : String(error);
+      const failureCode = error instanceof BudgetError || error instanceof CoordinationLoopError ? error.code : null;
       const failedTaskPayload: JsonObject = {
         ...task.payload,
         status: "failed",
         failed_at: nowIso(),
-        failure_reason: message
+        failure_reason: message,
+        failure_code: failureCode
       };
       const failedTask = this.store.putObject("task", validateProtocolObject(failedTaskPayload, "task"));
       const failedExecution = this.queue.updateState(claimed.id, "failed", message);
+      if (error instanceof BudgetError) {
+        this.gateway.emit({
+          type: "task.budget_exceeded",
+          actorId: botId,
+          workspaceId: claimed.workspaceId,
+          taskId: task.id,
+          correlationId: String(task.payload.root_objective_id),
+          summary: message,
+          attentionState: "failed"
+        });
+      }
+      if (error instanceof CoordinationLoopError) {
+        this.gateway.emit({
+          type: "task.no_progress",
+          actorId: botId,
+          workspaceId: claimed.workspaceId,
+          taskId: task.id,
+          correlationId: String(task.payload.root_objective_id),
+          summary: message,
+          attentionState: "failed"
+        });
+      }
       this.gateway.emit({
         type: "task.failed",
         actorId: botId,
