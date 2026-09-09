@@ -88,6 +88,9 @@ export interface PublishRoomMessageInput {
   artifactRefs?: string[];
   correlationId?: string;
   replyToMessageId?: string;
+  messageId?: string;
+  timestamp?: string;
+  idempotencyKey?: string;
 }
 
 interface EmitInput {
@@ -873,6 +876,35 @@ export class CoordinationGateway {
       const sender = this.getBot(input.senderId);
       if (!sender || sender.payload.status !== "active") throw new Error(`Bot ${input.senderId} is not active`);
     }
+    if (input.senderId.startsWith("worker_")) {
+      const sender = this.store.getObject(input.senderId);
+      const discussion = objectValue(room.payload.discussion);
+      const participants = [...new Set([
+        ...stringArray(room.payload.temporary_participant_ids),
+        ...stringArray(discussion.participant_ids)
+      ])];
+      if (!sender || sender.kind !== "worker") throw new Error(`Worker ${input.senderId} not found`);
+      if (sender.workspaceId !== input.workspaceId) throw new Error(`Worker ${input.senderId} is outside workspace ${input.workspaceId}`);
+      if (room.payload.temporary !== true || String(discussion.run_id ?? "") !== String(sender.payload.run_id ?? "")) {
+        throw new Error(`Worker ${input.senderId} cannot publish into durable or cross-run Room ${input.roomId}`);
+      }
+      if (!participants.includes(input.senderId)) throw new Error(`Worker ${input.senderId} is not a temporary participant of Room ${input.roomId}`);
+      if (!new Set(["running", "waiting"]).has(String(sender.payload.status))) {
+        throw new Error(`Worker ${input.senderId} cannot publish Room output from status ${String(sender.payload.status)}`);
+      }
+      const artifactRefs = input.artifactRefs ?? [];
+      if (artifactRefs.length === 0) throw new Error(`Worker ${input.senderId} must publish a scoped candidate Artifact into temporary Room ${input.roomId}`);
+      for (const artifactRef of artifactRefs) {
+        const artifact = this.store.getObject(artifactRef);
+        if (!artifact || artifact.kind !== "artifact") throw new Error(`Worker Room Artifact ${artifactRef} not found`);
+        if (artifact.workspaceId !== input.workspaceId || String(artifact.payload.run_id ?? "") !== String(sender.payload.run_id ?? "")) {
+          throw new Error(`Worker Room Artifact ${artifactRef} escaped workspace or Team Run scope`);
+        }
+        if (String(artifact.payload.created_by ?? "") !== input.senderId) {
+          throw new Error(`Worker ${input.senderId} cannot publish Artifact ${artifactRef} created by ${String(artifact.payload.created_by ?? "unknown")}`);
+        }
+      }
+    }
     for (const mentionId of input.mentions ?? []) {
       if (!members.includes(mentionId)) throw new Error(`Mentioned Bot ${mentionId} is not a member of Room ${input.roomId}`);
       const mentioned = this.getBot(mentionId);
@@ -885,12 +917,32 @@ export class CoordinationGateway {
       if (thread.payload.room_id !== input.roomId) throw new Error(`Thread ${input.threadId} does not belong to Room ${input.roomId}`);
     }
 
-    const messageId = createId("msg");
+    const messageId = input.messageId ?? createId("msg");
+    const messageTimestamp = input.timestamp ?? nowIso();
+    const existing = this.store.getObject(messageId);
+    if (existing) {
+      if (existing.kind !== "message") throw new Error(`Room message id ${messageId} already belongs to ${existing.kind}`);
+      if (String(existing.payload.room_id ?? "") !== input.roomId || String(existing.payload.sender_id ?? "") !== input.senderId) {
+        throw new Error(`Room message id ${messageId} was already used by another Room or sender`);
+      }
+      const event = this.emit({
+        type: "room.message",
+        actorId: input.senderId,
+        workspaceId: input.workspaceId,
+        roomId: input.roomId,
+        threadId: input.threadId,
+        correlationId: input.correlationId,
+        summary: input.text.length > 160 ? `${input.text.slice(0, 157)}...` : input.text,
+        idempotencyKey: input.idempotencyKey
+      });
+      return { message: existing, event };
+    }
+
     const message: JsonObject = {
       schema_version: "1.0",
       id: messageId,
       type: "message.chat",
-      timestamp: nowIso(),
+      timestamp: messageTimestamp,
       sender_id: input.senderId,
       target: { kind: input.threadId ? "thread" : "room", id: input.threadId ?? input.roomId },
       workspace_id: input.workspaceId,
@@ -915,7 +967,8 @@ export class CoordinationGateway {
       roomId: input.roomId,
       threadId: input.threadId,
       correlationId: input.correlationId,
-      summary: input.text.length > 160 ? `${input.text.slice(0, 157)}...` : input.text
+      summary: input.text.length > 160 ? `${input.text.slice(0, 157)}...` : input.text,
+      idempotencyKey: input.idempotencyKey
     });
     return { message: stored, event };
   }

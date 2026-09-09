@@ -3,11 +3,16 @@ import { ExecutionOwnershipError, ExecutionQueue } from "./execution-queue.js";
 import { CoordinationGateway } from "./gateway.js";
 import { RecoveryCoordinator, type RecoveryDecision } from "./recovery.js";
 import { BotRunner } from "./runner.js";
+import { TeamRunDiscussion } from "./team-run-discussion.js";
 import { TeamRunFanout } from "./team-run-fanout.js";
 import { TeamRunCoordinator } from "./team-runs.js";
 import { validateProtocolObject } from "./validator.js";
 
 const TERMINAL_WORKER_STATES = new Set(["completed", "failed", "canceled", "expired"]);
+
+function asObject(value: unknown): JsonObject {
+  return typeof value === "object" && value !== null && !Array.isArray(value) ? value as JsonObject : {};
+}
 
 export class ExecutionSupervisor {
   private unsubscribe: (() => void) | null = null;
@@ -16,6 +21,7 @@ export class ExecutionSupervisor {
   private startupFanoutReconcile: Promise<void> | null = null;
   readonly recovery: RecoveryCoordinator;
   readonly fanout: TeamRunFanout;
+  readonly discussion: TeamRunDiscussion;
 
   constructor(
     readonly gateway: CoordinationGateway,
@@ -24,7 +30,9 @@ export class ExecutionSupervisor {
     readonly recoverySweepMs = 5000
   ) {
     this.recovery = new RecoveryCoordinator(gateway.store, queue, gateway);
-    this.fanout = new TeamRunFanout(new TeamRunCoordinator(gateway.store), gateway, queue, runner);
+    const teams = new TeamRunCoordinator(gateway.store);
+    this.fanout = new TeamRunFanout(teams, gateway, queue, runner);
+    this.discussion = new TeamRunDiscussion(teams, gateway, queue, runner);
   }
 
   start(): void {
@@ -36,6 +44,7 @@ export class ExecutionSupervisor {
     void startup.finally(() => {
       if (this.startupFanoutReconcile === startup) this.startupFanoutReconcile = null;
     });
+    this.discussion.recoverOpenDiscussions();
     this.sweepRecovery();
     for (const targetId of this.queue.listQueuedTargets()) this.trigger(targetId);
     if (this.recoverySweepMs > 0) this.recoveryTimer = setInterval(() => this.sweepRecovery(), this.recoverySweepMs);
@@ -88,7 +97,10 @@ export class ExecutionSupervisor {
     for (const decision of decisions) {
       this.syncWorkerRecovery(decision);
       if (decision.action === "requeued") this.trigger(decision.execution.targetId);
-      if (decision.action === "reconciled" && decision.task) void this.fanout.reconcileTask(decision.task.id);
+      if (decision.action === "reconciled" && decision.task) {
+        void this.fanout.reconcileTask(decision.task.id);
+        this.discussion.reconcileTask(decision.task.id);
+      }
     }
     return decisions;
   }
@@ -122,8 +134,16 @@ export class ExecutionSupervisor {
     if (decision.action === "dead_letter") this.setWorkerStatus(worker.id, "waiting", `Task ${decision.execution.itemId} requires recovery review`);
     if (decision.action === "reconciled" && decision.task) {
       const taskStatus = String(decision.task.payload.status);
-      const workerStatus = taskStatus === "completed" ? "completed" : taskStatus === "canceled" ? "canceled" : "failed";
-      this.setWorkerStatus(worker.id, workerStatus, `Recovered execution reconciled to Task ${taskStatus}`);
+      const expectedOutput = asObject(decision.task.payload.expected_output);
+      const reusableDiscussionWorker = taskStatus === "completed"
+        && expectedOutput.contract === "discussion-turn-v1"
+        && typeof decision.task.payload.discussion_room_id === "string"
+        && Number.isInteger(Number(decision.task.payload.discussion_turn_index));
+      const workerStatus = reusableDiscussionWorker ? "waiting" : taskStatus === "completed" ? "completed" : taskStatus === "canceled" ? "canceled" : "failed";
+      const reason = reusableDiscussionWorker
+        ? `Recovered completed discussion turn ${String(decision.task.payload.discussion_turn_index)}; awaiting explicit next turn`
+        : `Recovered execution reconciled to Task ${taskStatus}`;
+      this.setWorkerStatus(worker.id, workerStatus, reason);
     }
   }
 
@@ -135,7 +155,7 @@ export class ExecutionSupervisor {
       status,
       status_reason: reason,
       updated_at: new Date().toISOString(),
-      ...(TERMINAL_WORKER_STATES.has(status) ? { terminal_at: new Date().toISOString() } : {})
+      ...(TERMINAL_WORKER_STATES.has(status) ? { terminal_at: new Date().toISOString() } : { terminal_at: null })
     }, "worker");
     this.gateway.store.putObject("worker", payload);
     this.gateway.emit({
@@ -155,6 +175,7 @@ export class ExecutionSupervisor {
         const result = await this.runner.runNext(targetId);
         if (!result) return;
         await this.fanout.reconcileTask(result.task.id);
+        this.discussion.reconcileTask(result.task.id);
         if (this.queue.list(targetId, ["queued"]).length === 0) return;
       } catch (error) {
         if (error instanceof ExecutionOwnershipError) return;

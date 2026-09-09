@@ -15,13 +15,13 @@ The target is an installable persistent-teammate layer that can run standalone o
 ```text
 Phase 0  Research + Architecture        [COMPLETE]    100%
 Phase 1  Runnable Coordination Core     [COMPLETE]    100%
-Phase 2  Dynamic Multi-Agent Squads     [IN PROGRESS] ~55%
+Phase 2  Dynamic Multi-Agent Squads     [IN PROGRESS] ~65%
 Phase 3  AI-Verse Native Integration    [NOT STARTED]
 Phase 4  Runtime / A2A Interoperability [NOT STARTED]
 Phase 5  Product + Install + Dashboard  [NOT STARTED]
 ```
 
-**Directional overall first-release progress:** roughly 52% complete.
+**Directional overall first-release progress:** roughly 56% complete.
 
 That overall figure is intentionally approximate because later phases contain different amounts of work. Passed phase gates, not percentages, are authoritative.
 
@@ -165,9 +165,9 @@ None.
 
 **Status:** IN PROGRESS
 
-**Current phase progress:** approximately 55%.
+**Current phase progress:** approximately 65%.
 
-**Current verification:** GitHub Actions run 150 on 2026-09-09 passed **82/82 tests** at commit `3d8d030f289ee473a35614f17a18aa37452458b3`.
+**Current verification:** GitHub Actions run 164 on 2026-09-09 passed **93/93 tests** at commit `045ffb7a3b88b60c6b4f41c3403eb17b13eb7435`.
 
 Goal: a durable Bot decides whether to work alone or create bounded temporary Workers, coordinates them through the topology justified by the work, and returns a bounded, auditable result without turning temporary helpers into durable identities.
 
@@ -178,13 +178,13 @@ Major slices:
 3. Worker execution + manager/supervisor topology - **COMPLETE**
 4. bounded parallel fan-out - **COMPLETE**
 5. direct handoff topology - **COMPLETE**
-6. group/discussion topology where justified - **NEXT**
-7. disagreement detection - remaining
+6. bounded group/discussion topology where justified - **COMPLETE**
+7. disagreement detection - **NEXT**
 8. verifier/critic role - remaining
 9. synthesis - remaining
 10. Worker cleanup - remaining beyond terminal expiry foundation already implemented
 11. adaptive `single Bot vs squad` decision policy - remaining
-12. squad budget/cancellation controls - remaining beyond current Worker, fan-out, aggregate usage, direct-handoff cancellation, recovery and CAS foundations
+12. squad budget/cancellation controls - remaining beyond current Worker, fan-out, aggregate usage, direct-handoff, discussion, cancellation, recovery and CAS foundations
 
 ### Phase 2 capabilities now implemented
 
@@ -249,30 +249,52 @@ Major slices:
 - file-backed Worker handoff survives database reopen and executes under the accepted target
 - Artifact provenance continues to identify the actual producing principal
 
-### Phase 2.5 acceptance gate
+#### Bounded group/discussion topology
+
+- host-neutral `TeamRunDiscussion` reuses canonical Room/Thread/Message/Task/Artifact/Worker primitives
+- discussion is topology-gated to `group_room`, `dynamic_squad`, and `hybrid`
+- durable leader remains the only durable Room member; Workers stay temporary participants
+- explicit speaker/round turn plan prevents free-form all-to-all chatter
+- one Worker identity per discussion role is reused across rounds
+- successful turn lifecycle is `running -> waiting`; Workers become terminal only when the discussion closes
+- Team Run `max_workers`, `max_messages`, `max_rounds`, and `max_tasks` bound the discussion before execution
+- speaker tool/connection grants persist and become turn-scoped capability leases without expanding leader authority
+- prior candidate Artifacts and bounded transcript context feed later turns
+- candidate Artifacts remain same-workspace and same-TeamRun and retain actual Worker provenance
+- temporary Worker Room publication is restricted to the exact discussion and to the Worker's own scoped candidate Artifact
+- setup is protected by a Team Run CAS reservation before Worker creation; competing setup fails closed
+- deterministic kickoff, Thread, turn Message and idempotent events make restart reconciliation replay-safe
+- completed-but-unreconciled turns resume from the next explicit speaker without duplicating completed work
+- stale setup reservations intentionally fail closed; timeout/reaping is not claimed yet
+- explicit cancellation closes the current discussion and temporary participant set
+
+### Phase 2.6 acceptance gate
 
 **PASSED.**
 
-The eight direct-handoff acceptance tests prove:
+The eleven discussion acceptance/regression tests prove:
 
-1. Worker -> Worker moves queued ownership, preserves temporary identity, executes and settles
-2. Worker -> durable Bot keeps the Bot durable, enforces Team Run scope and persists usage
-3. run-scoped durable Bot execution cannot bypass aggregate Team Run budget
-4. claimed execution cannot be moved underneath a runner
-5. target Worker cannot cross Team Run boundaries
-6. combined delegation/Handoff hop ceilings and ownership history stop runaway chains
-7. Team Run cancellation reaches durable-Bot-owned handed-off work and settles the Handoff
-8. accepted Worker handoff survives database reopen, executes under the target Worker and settles
+1. temporary discussion Workers remain outside durable Room membership and the Bot registry
+2. a completed discussion turn leaves its Worker reusable and nonterminal until the discussion closes
+3. speaker capability grants reach the turn-scoped capability lease
+4. Worker Room publication cannot cross Team Run boundaries
+5. an existing setup reservation blocks another opener before Worker creation
+6. two Workers can be reused for four ordered turns under `max_workers: 2`
+7. later turns receive prior candidate Artifacts as structured evidence
+8. Team Run message/round/task limits cap the discussion before scheduling
+9. unsupported topologies fail closed instead of opening a discussion
+10. cancellation closes active discussion work and temporary participants
+11. restart after completed-but-unreconciled work resumes without duplicating completed Tasks or Worker turn records
 
-The full package suite now passes **82/82 tests**.
+The full package suite now passes **93/93 tests**.
 
 ### Next Phase 2 gate
 
-**2.6 - Group/discussion topology where justified**
+**2.7 - Disagreement detection**
 
-The implementation should reuse existing Room/Thread/event primitives where possible while preserving the temporary nature of Workers. It must provide bounded selective discussion rather than free-form all-to-all chatter, enforce Team Run/message/round budgets, retain workspace/root/constraint/Artifact lineage, recover safely after restart, and settle/clean temporary participants when discussion ends.
+Build a host-neutral structured disagreement layer over candidate Artifacts from manager, fan-out, handoff, and discussion topologies. It should distinguish meaningful conflicts from compatible alternatives, preserve source/provenance evidence, avoid unnecessary critic work when no conflict exists, remain bounded by Team Run/root/constraint policy, survive restart, and produce explicit records that the verifier/critic slice can consume.
 
-After 2.6, continue through disagreement detection, verifier/critic, synthesis, Worker cleanup hardening, adaptive collaboration choice, and final squad-wide budget/cancellation consolidation.
+After 2.7, continue through verifier/critic, synthesis, Worker cleanup hardening, adaptive collaboration choice, and final squad-wide budget/cancellation consolidation.
 
 ## Phase 3 - AI-Verse Native Integration
 
