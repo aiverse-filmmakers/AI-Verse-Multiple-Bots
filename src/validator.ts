@@ -19,6 +19,13 @@ function requiredString(object: JsonObject, key: string, issues: string[]): void
   }
 }
 
+function optionalStringOrNull(object: JsonObject, key: string, issues: string[]): void {
+  const value = object[key];
+  if (value !== undefined && value !== null && (typeof value !== "string" || value.length === 0)) {
+    issues.push(`${key} must be a non-empty string or null`);
+  }
+}
+
 function requiredObject(object: JsonObject, key: string, issues: string[]): JsonObject | null {
   const value = object[key];
   if (!isObject(value)) {
@@ -30,7 +37,7 @@ function requiredObject(object: JsonObject, key: string, issues: string[]): Json
 
 export function inferProtocolKind(object: JsonObject): ProtocolKind {
   if (object.kind === "durable" && typeof object.role === "object") return "bot";
-  if (object.kind === "temporary" && object.type === "worker") return "worker";
+  if (object.type === "worker") return "worker";
   if (object.type === "thread") return "thread";
   if (object.type === "message.chat") return "message";
   if (object.type === "task.delegate") return "task";
@@ -84,12 +91,25 @@ export function validateProtocolObject(value: unknown, expectedKind?: ProtocolKi
       requiredObject(value, "coordination", issues);
       break;
     }
-    case "worker":
-      requiredString(value, "parent_owner_id", issues);
-      requiredString(value, "workspace_id", issues);
-      requiredString(value, "task_id", issues);
-      requiredString(value, "run_id", issues);
+    case "worker": {
+      if (value.type !== "worker") issues.push("worker.type must equal worker");
+      if (value.kind !== undefined && value.kind !== "temporary") issues.push("worker.kind must equal temporary when present");
+      for (const key of ["run_id", "created_by", "workspace_id", "status"]) requiredString(value, key, issues);
+      optionalStringOrNull(value, "task_id", issues);
+      optionalStringOrNull(value, "parent_owner_id", issues);
+      const role = requiredObject(value, "role", issues);
+      if (role) {
+        requiredString(role, "title", issues);
+        requiredString(role, "objective", issues);
+      }
+      if (
+        typeof value.status === "string"
+        && !["created", "ready", "running", "waiting", "completed", "failed", "canceled", "expired"].includes(value.status)
+      ) {
+        issues.push("worker.status is not supported");
+      }
       break;
+    }
     case "room":
       requiredString(value, "name", issues);
       requiredObject(value, "scope", issues);
@@ -140,9 +160,25 @@ export function validateProtocolObject(value: unknown, expectedKind?: ProtocolKi
       for (const key of ["workspace_id", "created_by", "kind"]) requiredString(value, key, issues);
       requiredObject(value, "provenance", issues);
       break;
-    case "team_run":
+    case "team_run": {
+      if (value.type !== "team_run") issues.push("team_run.type must equal team_run");
       for (const key of ["workspace_id", "root_objective_id", "topology", "status"]) requiredString(value, key, issues);
+      optionalStringOrNull(value, "leader_id", issues);
+      if (value.participant_ids !== undefined && !Array.isArray(value.participant_ids)) issues.push("participant_ids must be an array");
+      if (
+        typeof value.topology === "string"
+        && !["single", "manager", "handoff", "parallel_panel", "group_room", "pipeline", "review", "dynamic_squad", "hybrid"].includes(value.topology)
+      ) {
+        issues.push("team_run.topology is not supported");
+      }
+      if (
+        typeof value.status === "string"
+        && !["created", "planning", "running", "waiting_input", "waiting_approval", "synthesizing", "verifying", "completed", "failed", "canceled", "budget_exhausted"].includes(value.status)
+      ) {
+        issues.push("team_run.status is not supported");
+      }
       break;
+    }
     case "capability_lease":
       for (const key of ["principal", "issued_to", "workspace_id", "task_id", "expires_at"]) requiredString(value, key, issues);
       break;
