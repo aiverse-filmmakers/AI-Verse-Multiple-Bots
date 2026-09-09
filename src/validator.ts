@@ -28,6 +28,34 @@ function requiredObject(object: JsonObject, key: string, issues: string[]): Json
   return value;
 }
 
+function supportedString(object: JsonObject, key: string, allowed: readonly string[], issues: string[]): void {
+  requiredString(object, key, issues);
+  if (typeof object[key] === "string" && !allowed.includes(String(object[key]))) {
+    issues.push(`${key} is not supported`);
+  }
+}
+
+function optionalStringArray(object: JsonObject, key: string, issues: string[], unique = false): void {
+  const value = object[key];
+  if (value === undefined) return;
+  if (!Array.isArray(value) || value.some((entry) => typeof entry !== "string" || entry.length === 0)) {
+    issues.push(`${key} must be an array of non-empty strings`);
+    return;
+  }
+  if (unique && new Set(value).size !== value.length) issues.push(`${key} must contain unique values`);
+}
+
+function optionalBoolean(object: JsonObject, key: string, issues: string[]): void {
+  if (object[key] !== undefined && typeof object[key] !== "boolean") issues.push(`${key} must be a boolean`);
+}
+
+function optionalInteger(object: JsonObject, key: string, minimum: number, issues: string[]): void {
+  const value = object[key];
+  if (value !== undefined && (!Number.isInteger(value) || Number(value) < minimum)) {
+    issues.push(`${key} must be an integer >= ${minimum}`);
+  }
+}
+
 export function inferProtocolKind(object: JsonObject): ProtocolKind {
   if (object.kind === "durable" && typeof object.role === "object") return "bot";
   if (object.kind === "temporary" && object.type === "worker") return "worker";
@@ -63,25 +91,78 @@ export function validateProtocolObject(value: unknown, expectedKind?: ProtocolKi
   switch (kind) {
     case "bot": {
       if (value.kind !== "durable") issues.push("bot.kind must equal durable");
+      if (typeof value.id === "string" && !value.id.startsWith("bot_")) issues.push("bot.id must use the bot_ prefix");
       requiredString(value, "name", issues);
-      requiredString(value, "status", issues);
+      supportedString(value, "status", ["active", "disabled", "archived"], issues);
+
       const role = requiredObject(value, "role", issues);
       if (role) {
         requiredString(role, "title", issues);
         requiredString(role, "mission", issues);
+        optionalStringArray(role, "responsibilities", issues);
+        optionalStringArray(role, "non_responsibilities", issues);
       }
+
       const runtime = requiredObject(value, "runtime", issues);
-      if (runtime) requiredString(runtime, "adapter", issues);
+      if (runtime) {
+        requiredString(runtime, "adapter", issues);
+        if (runtime.profile_ref !== undefined && runtime.profile_ref !== null && (typeof runtime.profile_ref !== "string" || runtime.profile_ref.length === 0)) {
+          issues.push("runtime.profile_ref must be a non-empty string or null");
+        }
+      }
+
       const execution = requiredObject(value, "execution", issues);
-      if (execution) requiredString(execution, "environment_policy", issues);
+      if (execution) {
+        supportedString(execution, "environment_policy", ["shared_workspace", "isolated_bot", "isolated_run", "external_managed"], issues);
+        if (execution.environment_ref !== undefined && execution.environment_ref !== null && (typeof execution.environment_ref !== "string" || execution.environment_ref.length === 0)) {
+          issues.push("execution.environment_ref must be a non-empty string or null");
+        }
+        if (execution.persistence !== undefined && !["durable", "run_scoped", "disposable", "external"].includes(String(execution.persistence))) {
+          issues.push("execution.persistence is not supported");
+        }
+      }
+
+      if (value.model_policy !== undefined && !isObject(value.model_policy)) issues.push("model_policy must be an object");
+
       const scope = requiredObject(value, "scope", issues);
       if (scope) {
-        requiredString(scope, "type", issues);
+        supportedString(scope, "type", ["workspace", "operator"], issues);
         if (scope.type === "workspace") requiredString(scope, "workspace_id", issues);
       }
+
+      if (value.capabilities !== undefined) {
+        if (!isObject(value.capabilities)) {
+          issues.push("capabilities must be an object");
+        } else {
+          for (const key of ["role_refs", "skill_refs", "operator_refs", "tool_refs"]) {
+            optionalStringArray(value.capabilities, key, issues, true);
+          }
+        }
+      }
+
       const permissions = requiredObject(value, "permissions", issues);
-      if (permissions) requiredString(permissions, "policy_ref", issues);
-      requiredObject(value, "coordination", issues);
+      if (permissions) {
+        requiredString(permissions, "policy_ref", issues);
+        optionalStringArray(permissions, "allowed_peers", issues);
+        optionalStringArray(permissions, "allowed_tools", issues);
+        optionalStringArray(permissions, "allowed_connections", issues);
+        optionalBoolean(permissions, "can_create_workers", issues);
+        optionalBoolean(permissions, "can_create_bots", issues);
+        optionalBoolean(permissions, "can_handoff", issues);
+      }
+
+      const coordination = requiredObject(value, "coordination", issues);
+      if (coordination) {
+        if (coordination.manager_id !== undefined && coordination.manager_id !== null && (typeof coordination.manager_id !== "string" || coordination.manager_id.length === 0)) {
+          issues.push("coordination.manager_id must be a non-empty string or null");
+        }
+        if (coordination.default_mode !== undefined && (typeof coordination.default_mode !== "string" || coordination.default_mode.length === 0)) {
+          issues.push("coordination.default_mode must be a non-empty string");
+        }
+        optionalStringArray(coordination, "aliases", issues, true);
+        optionalInteger(coordination, "max_parallel_workers", 1, issues);
+        optionalInteger(coordination, "max_hops", 0, issues);
+      }
       break;
     }
     case "worker":

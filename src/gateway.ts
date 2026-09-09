@@ -1,5 +1,5 @@
 import type { BudgetEnvelope } from "./budget.js";
-import { BotRegistryRules, type BotLifecycleStatus } from "./bot-registry.js";
+import { BotRegistryError, BotRegistryRules, type BotLifecycleStatus } from "./bot-registry.js";
 import { constraintsDigest, normalizeConstraints } from "./constraints.js";
 import { createId } from "./id.js";
 import { ExecutionQueue } from "./execution-queue.js";
@@ -173,6 +173,12 @@ export class CoordinationGateway {
   }
 
   record(kind: Parameters<CoordinationStore["putObject"]>[0], payload: JsonObject): StoredObject {
+    if (kind === "bot") {
+      throw new BotRegistryError(
+        "BOT_REGISTRY_WRITE_REQUIRED",
+        "Durable Bot writes must pass through the Bot Registry create/lifecycle boundary"
+      );
+    }
     return this.store.putObject(kind, validateProtocolObject(payload, kind));
   }
 
