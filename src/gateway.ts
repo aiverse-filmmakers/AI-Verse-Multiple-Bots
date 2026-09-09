@@ -1,5 +1,6 @@
 import { createId } from "./id.js";
 import { ExecutionQueue } from "./execution-queue.js";
+import { CoordinationPolicy } from "./policy.js";
 import { CoordinationStore } from "./store.js";
 import type { AppendedEvent, BotManifest, CoordinationEvent, DeliveryRecord, JsonObject, StoredObject } from "./types.js";
 import { validateBotManifest, validateProtocolObject } from "./validator.js";
@@ -38,6 +39,7 @@ export interface DelegateInput {
   expectedOutput?: JsonObject;
   tools?: string[];
   connections?: string[];
+  parentTaskId?: string;
   maxHops?: number;
   hop?: number;
   leaseExpiresAt?: string;
@@ -71,7 +73,11 @@ export interface PublishRoomMessageInput {
 export class CoordinationGateway {
   private readonly subscribers = new Set<(event: AppendedEvent) => void>();
 
-  constructor(readonly store: CoordinationStore, readonly executionQueue?: ExecutionQueue) {}
+  constructor(
+    readonly store: CoordinationStore,
+    readonly executionQueue?: ExecutionQueue,
+    readonly policy?: CoordinationPolicy
+  ) {}
 
   subscribeEvents(listener: (event: AppendedEvent) => void): () => void {
     this.subscribers.add(listener);
@@ -104,6 +110,25 @@ export class CoordinationGateway {
   }
 
   delegate(input: DelegateInput): { task: StoredObject; lease: StoredObject; event: AppendedEvent } {
+    const prepared = this.policy?.prepareDelegation({
+      createdBy: input.createdBy,
+      assigneeId: input.assigneeId,
+      workspaceId: input.workspaceId,
+      rootObjectiveId: input.rootObjectiveId,
+      objective: input.objective,
+      requiredConstraints: input.requiredConstraints,
+      tools: input.tools,
+      connections: input.connections,
+      parentTaskId: input.parentTaskId,
+      hop: input.hop,
+      maxHops: input.maxHops
+    }) ?? {
+      parentTaskId: input.parentTaskId ?? null,
+      requiredConstraints: input.requiredConstraints ?? [],
+      hop: input.hop ?? 0,
+      maxHops: input.maxHops ?? 6
+    };
+
     const leaseId = createId("lease");
     const taskId = createId("task");
     const lease: JsonObject = {
@@ -129,16 +154,17 @@ export class CoordinationGateway {
       owner_id: input.assigneeId,
       workspace_id: input.workspaceId,
       root_objective_id: input.rootObjectiveId,
+      parent_task_id: prepared.parentTaskId,
       reason: input.reason,
       objective: input.objective,
-      required_constraints: input.requiredConstraints ?? [],
+      required_constraints: prepared.requiredConstraints,
       expected_output: input.expectedOutput ?? { contract: "artifact-or-structured-result" },
       input_artifact_refs: [],
       lease_id: leaseId,
       environment_lease_id: null,
       response_target: input.responseTarget ?? null,
-      hop: input.hop ?? 0,
-      max_hops: input.maxHops ?? 6,
+      hop: prepared.hop,
+      max_hops: prepared.maxHops,
       status: "assigned"
     };
     const storedTask = this.store.putObject("task", validateProtocolObject(task, "task"));
@@ -150,6 +176,7 @@ export class CoordinationGateway {
       taskId,
       roomId: input.responseTarget?.roomId ?? (input.responseTarget?.kind === "room" ? input.responseTarget.id : null),
       threadId: input.responseTarget?.threadId ?? (input.responseTarget?.kind === "thread" ? input.responseTarget.id : null),
+      correlationId: input.rootObjectiveId,
       summary: `Delegated task ${taskId} to ${input.assigneeId}`
     });
     return { task: storedTask, lease: storedLease, event };
@@ -178,6 +205,7 @@ export class CoordinationGateway {
       actorId: input.sourceOwnerId,
       workspaceId: input.workspaceId,
       taskId: input.workItemId.startsWith("task_") ? input.workItemId : null,
+      correlationId: input.rootObjectiveId,
       summary: `Handoff requested from ${input.sourceOwnerId} to ${input.targetOwnerId}`
     });
     return { handoff: stored, event };
@@ -203,13 +231,15 @@ export class CoordinationGateway {
 
     const workspaceId = String(handoff.workspace_id);
     const events = [
-      this.emit({ type: "handoff.accepted", actorId, workspaceId, summary: `Accepted handoff ${handoffId}` }),
-      this.emit({ type: "ownership.changed", actorId, workspaceId, taskId: workItem?.kind === "task" ? workItemId : null, summary: `${actorId} now owns ${workItemId}` })
+      this.emit({ type: "handoff.accepted", actorId, workspaceId, correlationId: String(handoff.root_objective_id), summary: `Accepted handoff ${handoffId}` }),
+      this.emit({ type: "ownership.changed", actorId, workspaceId, taskId: workItem?.kind === "task" ? workItemId : null, correlationId: String(handoff.root_objective_id), summary: `${actorId} now owns ${workItemId}` })
     ];
     return { handoff: accepted, workItem: updatedWorkItem, events };
   }
 
   sendMessage(input: SendMessageInput): { message: StoredObject; delivery: DeliveryRecord; event: AppendedEvent } {
+    if (input.targetKind === "bot") this.policy?.assertMessage(input.senderId, input.targetId, input.workspaceId);
+
     const messageId = createId("msg");
     const message: JsonObject = {
       schema_version: "1.0",
