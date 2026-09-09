@@ -163,6 +163,16 @@ export class ExecutionQueue {
     return this.row(row);
   }
 
+  cancelByItem(itemId: string, reason = "canceled"): ExecutionRecord | null {
+    const timestamp = nowIso();
+    this.db.prepare(`
+      UPDATE execution_queue
+      SET state = 'canceled', last_error = ?, updated_at = ?
+      WHERE item_id = ? AND state IN ('queued', 'claimed', 'running')
+    `).run(reason, timestamp, itemId);
+    return this.getByItem(itemId);
+  }
+
   private row(row: any): ExecutionRecord {
     return {
       id: String(row.id),
