@@ -14,6 +14,7 @@ const TERMINAL_FANOUT_STATES = new Set(["satisfied", "partial", "failed", "cance
 const FANOUT_TOPOLOGIES = new Set(["parallel_panel", "dynamic_squad", "hybrid"]);
 const DEFAULT_MAX_PARALLEL_WORKERS = 4;
 const CONSUMPTIVE_BUDGET_KEYS = ["token_limit", "cost_limit", "max_actions"] as const;
+const OPTIMISTIC_RETRY_LIMIT = 4;
 
 type ConsumptiveBudgetKey = typeof CONSUMPTIVE_BUDGET_KEYS[number];
 export type FanoutJoinMode = "all" | "first_success" | "quorum";
@@ -251,7 +252,7 @@ export class TeamRunFanout {
 
     this.gateway.store.atomicMutation({
       preconditions: [
-        { id: run.id, kind: "team_run", status: String(run.payload.status) },
+        { id: run.id, kind: "team_run", status: String(run.payload.status), updatedAt: run.updatedAt },
         { id: leader.id, kind: "bot", status: "active" }
       ],
       objects: [
@@ -302,7 +303,14 @@ export class TeamRunFanout {
 
   async reconcileRun(runId: string, fanoutId?: string): Promise<void> {
     await this.withRunLock(runId, async () => {
-      await this.reconcileRunUnlocked(runId, fanoutId);
+      for (let attempt = 0; attempt < OPTIMISTIC_RETRY_LIMIT; attempt += 1) {
+        try {
+          await this.reconcileRunUnlocked(runId, fanoutId);
+          return;
+        } catch (error) {
+          if (!this.isOptimisticConflict(error) || attempt === OPTIMISTIC_RETRY_LIMIT - 1) throw error;
+        }
+      }
     });
   }
 
@@ -388,78 +396,89 @@ export class TeamRunFanout {
   }
 
   private activatePreparedFanout(runId: string, fanoutId: string, recovered: boolean): void {
-    const run = this.requireRun(runId);
-    const record = this.fanoutRecord(run, fanoutId);
-    if (String(record.status) !== "preparing") return;
-    const taskIds = stringArray(record.task_ids);
-    const workerIds = stringArray(record.worker_ids);
-    const tasks = taskIds.map((taskId) => {
-      const task = this.gateway.store.getObject(taskId);
-      if (!task || task.kind !== "task") throw new Error(`Prepared fan-out Task ${taskId} not found`);
-      return task;
-    });
-    const workers = workerIds.map((workerId) => {
-      const worker = this.gateway.store.getObject(workerId);
-      if (!worker || worker.kind !== "worker") throw new Error(`Prepared fan-out Worker ${workerId} not found`);
-      return worker;
-    });
-
-    for (const task of tasks) {
-      const recoveryPolicy = task.payload.recovery_policy === "retry_safe" ? "retry_safe" : "manual";
-      const maxAttempts = Number(task.payload.max_attempts ?? (recoveryPolicy === "retry_safe" ? 3 : 1));
-      this.queue.enqueueTask(task.id, String(task.payload.assignee_id), String(task.payload.workspace_id), {
-        recoveryPolicy,
-        maxAttempts: Number.isFinite(maxAttempts) ? Math.max(1, Math.floor(maxAttempts)) : undefined
+    for (let attempt = 0; attempt < OPTIMISTIC_RETRY_LIMIT; attempt += 1) {
+      const run = this.requireRun(runId);
+      const record = this.fanoutRecord(run, fanoutId);
+      if (String(record.status) !== "preparing") return;
+      const taskIds = stringArray(record.task_ids);
+      const workerIds = stringArray(record.worker_ids);
+      const tasks = taskIds.map((taskId) => {
+        const task = this.gateway.store.getObject(taskId);
+        if (!task || task.kind !== "task") throw new Error(`Prepared fan-out Task ${taskId} not found`);
+        return task;
       });
-    }
+      const workers = workerIds.map((workerId) => {
+        const worker = this.gateway.store.getObject(workerId);
+        if (!worker || worker.kind !== "worker") throw new Error(`Prepared fan-out Worker ${workerId} not found`);
+        return worker;
+      });
 
-    const timestamp = nowIso();
-    const latestRun = this.requireRun(runId);
-    const updatedFanouts = objectArray(latestRun.payload.fanouts).map((fanout) => fanout.id === fanoutId
-      ? { ...fanout, status: "running", activated_at: timestamp, updated_at: timestamp }
-      : fanout);
-    const objects = [
-      { kind: "team_run" as const, payload: validateProtocolObject({ ...latestRun.payload, fanouts: updatedFanouts, active_fanout_id: fanoutId, updated_at: timestamp }, "team_run") },
-      ...tasks.map((task) => ({ kind: "task" as const, payload: validateProtocolObject({ ...task.payload, status: "assigned", assigned_at: timestamp }, "task") })),
-      ...workers.map((worker) => ({ kind: "worker" as const, payload: validateProtocolObject({ ...worker.payload, status: "ready", updated_at: timestamp }, "worker") }))
-    ];
-    this.gateway.store.atomicMutation({
-      preconditions: [
-        { id: latestRun.id, kind: "team_run", status: String(latestRun.payload.status) },
-        ...tasks.map((task) => ({ id: task.id, kind: "task" as const, status: "created", ownerId: String(task.payload.owner_id) })),
-        ...workers.map((worker) => ({ id: worker.id, kind: "worker" as const, status: "created" }))
-      ],
-      objects,
-      events: []
-    });
+      for (const task of tasks) {
+        const recoveryPolicy = task.payload.recovery_policy === "retry_safe" ? "retry_safe" : "manual";
+        const maxAttempts = Number(task.payload.max_attempts ?? (recoveryPolicy === "retry_safe" ? 3 : 1));
+        this.queue.enqueueTask(task.id, String(task.payload.assignee_id), String(task.payload.workspace_id), {
+          recoveryPolicy,
+          maxAttempts: Number.isFinite(maxAttempts) ? Math.max(1, Math.floor(maxAttempts)) : undefined
+        });
+      }
 
-    this.gateway.emit({
-      type: recovered ? "fanout.recovered" : "fanout.started",
-      actorId: String(latestRun.payload.leader_id),
-      workspaceId: latestRun.workspaceId,
-      runId,
-      correlationId: String(latestRun.payload.root_objective_id),
-      summary: `${fanoutId} activated ${taskIds.length} parallel Worker Tasks${recovered ? " after recovery" : ""}`
-    });
-    for (const task of tasks) {
+      const timestamp = nowIso();
+      const latestRun = this.requireRun(runId);
+      const updatedFanouts = objectArray(latestRun.payload.fanouts).map((fanout) => fanout.id === fanoutId
+        ? { ...fanout, status: "running", activated_at: timestamp, updated_at: timestamp }
+        : fanout);
+      const objects = [
+        { kind: "team_run" as const, payload: validateProtocolObject({ ...latestRun.payload, fanouts: updatedFanouts, active_fanout_id: fanoutId, updated_at: timestamp }, "team_run") },
+        ...tasks.map((task) => ({ kind: "task" as const, payload: validateProtocolObject({ ...task.payload, status: "assigned", assigned_at: timestamp }, "task") })),
+        ...workers.map((worker) => ({ kind: "worker" as const, payload: validateProtocolObject({ ...worker.payload, status: "ready", updated_at: timestamp }, "worker") }))
+      ];
+      try {
+        this.gateway.store.atomicMutation({
+          preconditions: [
+            { id: latestRun.id, kind: "team_run", status: String(latestRun.payload.status), updatedAt: latestRun.updatedAt },
+            ...tasks.map((task) => ({ id: task.id, kind: "task" as const, status: "created", ownerId: String(task.payload.owner_id) })),
+            ...workers.map((worker) => ({ id: worker.id, kind: "worker" as const, status: "created" }))
+          ],
+          objects,
+          events: []
+        });
+      } catch (error) {
+        const current = this.requireRun(runId);
+        const currentRecord = this.fanoutRecord(current, fanoutId);
+        if (String(currentRecord.status) !== "preparing") return;
+        if (!this.isOptimisticConflict(error) || attempt === OPTIMISTIC_RETRY_LIMIT - 1) throw error;
+        continue;
+      }
+
       this.gateway.emit({
-        type: "worker.task_bound",
+        type: recovered ? "fanout.recovered" : "fanout.started",
         actorId: String(latestRun.payload.leader_id),
         workspaceId: latestRun.workspaceId,
         runId,
-        taskId: task.id,
         correlationId: String(latestRun.payload.root_objective_id),
-        summary: `Bound ${String(task.payload.assignee_id)} to fan-out Task ${task.id}`
+        summary: `${fanoutId} activated ${taskIds.length} parallel Worker Tasks${recovered ? " after recovery" : ""}`
       });
-      this.gateway.emit({
-        type: "task.assigned",
-        actorId: String(latestRun.payload.leader_id),
-        workspaceId: latestRun.workspaceId,
-        runId,
-        taskId: task.id,
-        correlationId: String(latestRun.payload.root_objective_id),
-        summary: `Assigned parallel fan-out Task ${task.id} to ${String(task.payload.assignee_id)}`
-      });
+      for (const task of tasks) {
+        this.gateway.emit({
+          type: "worker.task_bound",
+          actorId: String(latestRun.payload.leader_id),
+          workspaceId: latestRun.workspaceId,
+          runId,
+          taskId: task.id,
+          correlationId: String(latestRun.payload.root_objective_id),
+          summary: `Bound ${String(task.payload.assignee_id)} to fan-out Task ${task.id}`
+        });
+        this.gateway.emit({
+          type: "task.assigned",
+          actorId: String(latestRun.payload.leader_id),
+          workspaceId: latestRun.workspaceId,
+          runId,
+          taskId: task.id,
+          correlationId: String(latestRun.payload.root_objective_id),
+          summary: `Assigned parallel fan-out Task ${task.id} to ${String(task.payload.assignee_id)}`
+        });
+      }
+      return;
     }
   }
 
@@ -525,34 +544,41 @@ export class TeamRunFanout {
   }
 
   private persistFanoutState(runId: string, fanoutId: string, status: FanoutStatus, terminal: boolean): void {
-    const run = this.requireRun(runId);
-    const snapshot = this.snapshot(runId, fanoutId);
-    const timestamp = nowIso();
-    const fanouts = objectArray(run.payload.fanouts).map((fanout) => fanout.id === fanoutId
-      ? {
-          ...fanout,
-          status,
-          artifact_refs: snapshot.artifacts.map((artifact) => artifact.id),
-          successful_task_ids: snapshot.successfulTaskIds,
-          failed_task_ids: snapshot.failedTaskIds,
-          canceled_task_ids: snapshot.canceledTaskIds,
-          pending_task_ids: snapshot.pendingTaskIds,
-          updated_at: timestamp,
-          ...(terminal ? { settled_at: timestamp } : {})
-        }
-      : fanout);
-    const payload = validateProtocolObject({
-      ...run.payload,
-      fanouts,
-      usage: this.aggregateRunUsage(runId),
-      active_fanout_id: terminal && run.payload.active_fanout_id === fanoutId ? null : run.payload.active_fanout_id,
-      updated_at: timestamp
-    }, "team_run");
-    this.gateway.store.atomicMutation({
-      preconditions: [{ id: run.id, kind: "team_run", status: String(run.payload.status) }],
-      objects: [{ kind: "team_run", payload }],
-      events: []
-    });
+    for (let attempt = 0; attempt < OPTIMISTIC_RETRY_LIMIT; attempt += 1) {
+      const run = this.requireRun(runId);
+      const snapshot = this.snapshot(runId, fanoutId);
+      const timestamp = nowIso();
+      const fanouts = objectArray(run.payload.fanouts).map((fanout) => fanout.id === fanoutId
+        ? {
+            ...fanout,
+            status,
+            artifact_refs: snapshot.artifacts.map((artifact) => artifact.id),
+            successful_task_ids: snapshot.successfulTaskIds,
+            failed_task_ids: snapshot.failedTaskIds,
+            canceled_task_ids: snapshot.canceledTaskIds,
+            pending_task_ids: snapshot.pendingTaskIds,
+            updated_at: timestamp,
+            ...(terminal ? { settled_at: timestamp } : {})
+          }
+        : fanout);
+      const payload = validateProtocolObject({
+        ...run.payload,
+        fanouts,
+        usage: this.aggregateRunUsage(runId),
+        active_fanout_id: terminal && run.payload.active_fanout_id === fanoutId ? null : run.payload.active_fanout_id,
+        updated_at: timestamp
+      }, "team_run");
+      try {
+        this.gateway.store.atomicMutation({
+          preconditions: [{ id: run.id, kind: "team_run", status: String(run.payload.status), updatedAt: run.updatedAt }],
+          objects: [{ kind: "team_run", payload }],
+          events: []
+        });
+        return;
+      } catch (error) {
+        if (!this.isOptimisticConflict(error) || attempt === OPTIMISTIC_RETRY_LIMIT - 1) throw error;
+      }
+    }
   }
 
   private planWorker(run: StoredObject, leader: StoredObject, spec: FanoutWorkerInput, budget: BudgetEnvelope, fanoutId: string): PlannedWorker {
@@ -816,6 +842,10 @@ export class TeamRunFanout {
     const run = this.teams.getRun(runId);
     if (!run) throw new Error(`Team Run ${runId} not found`);
     return run;
+  }
+
+  private isOptimisticConflict(error: unknown): boolean {
+    return error instanceof Error && error.message.includes("changed since it was read");
   }
 
   private async withRunLock(runId: string, operation: () => Promise<void>): Promise<void> {
