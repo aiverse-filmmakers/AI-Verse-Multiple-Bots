@@ -207,7 +207,7 @@ export class RoomCoordinator {
       if (!resolvedMentions.includes(resolved)) resolvedMentions.push(resolved);
     }
 
-    const correlationId = input.correlationId ?? createId("turn");
+    const correlationId = input.correlationId ?? createId("corr");
     const published = this.gateway.publishRoomMessage({
       senderId: input.senderId,
       roomId: room.id,
