@@ -1,167 +1,401 @@
 # AI-Verse Multiple Bots
 
-**An installable coordination layer for durable AI Bots, ephemeral agent squads, group rooms, handoffs, parallel research, review, and agent-to-agent communication.**
+**An installable Persistent Teammate Layer for AI operating systems.**
 
-AI-Verse Multiple Bots is designed to give a local-first AI system a real team of agents without turning the team layer into another operating system, memory store, skill library, or source of domain truth.
+AI-Verse Multiple Bots gives an AI system a durable roster of specialist Bots that can own jobs, work asynchronously, use real tools, collaborate with each other, share artifacts, hand off responsibility, participate in group Rooms and Threads, and spawn temporary multi-agent squads when one agent is not enough.
 
-It is built first for AI-Verse OS, but the core is intended to work standalone and with other agent runtimes.
+It is designed first for AI-Verse OS, but the coordination core is intended to work standalone and through adapters with other agent runtimes.
 
 ## North star
 
-> **One operator can create a durable roster of specialist Bots, assemble temporary Grok-style squads when a problem benefits from multiple perspectives, let those agents talk to each other safely, and still keep one clear source of truth.**
+> **Give every AI operating system its own team of persistent AI coworkers without creating a second operating system or a second source of truth.**
 
-The goal is not "use as many agents as possible." The goal is to select the smallest collaboration topology that improves the task.
+The target experience is inspired most strongly by xAI's Grok Bot persistent-teammate model, while the execution architecture combines the best ideas from Hermes, Grok Multi-Agent, Microsoft Agent Framework, OpenAI Agents SDK, A2A, OpenClaw, AgentScope and other current multi-agent systems.
 
-## Why this repository exists
+## Grok Bot vs Grok Multi-Agent
 
-The current agent ecosystem has solved different pieces of the problem:
+These are different layers and AI-Verse supports both ideas.
 
-- xAI Grok Multi-Agent demonstrates leader-led parallel research with multiple agents contributing to one synthesized answer.
-- Hermes Bot Mode demonstrates the right human mental model for durable named Bots, persistent chats, group rooms, `@mentions`, routines, and cross-machine teammates.
-- Microsoft Agent Framework formalizes sequential, concurrent, handoff, group-chat, and manager-style orchestration patterns.
-- OpenAI Agents SDK cleanly separates manager-owned delegation from full handoffs.
-- Google ADK provides agent transfers plus graph-based sequential, parallel, and loop workflows.
-- A2A 1.0 provides an open protocol for discovery and communication between opaque agents running in different frameworks or on different machines.
-- OpenClaw demonstrates strong per-agent workspace, auth, session, and channel isolation.
-- AgentScope, LangGraph, CrewAI, Agno, CAMEL, MetaGPT, Pydantic AI, ClawSwarm and related projects provide additional useful coordination patterns.
+### Grok Bot product model
 
-AI-Verse Multiple Bots combines the strongest ideas while keeping the coordination layer narrow.
+A Bot is a durable teammate with:
 
-## The important distinction: Bot vs Worker
+- a name and long-lived job
+- one persistent conversation
+- role-specific context
+- access to real tools and a work environment
+- background execution
+- Bot-to-Bot messaging
+- group collaboration
+- handoffs
+- Skills and recurring responsibilities
+- approval boundaries
+- visible working/blocked/attention states
 
-### Bot
+This is the primary benchmark for AI-Verse Multiple Bots.
 
-A **Bot** is a durable identity.
+### Grok Multi-Agent model
 
-It can have:
+For one difficult task, a leader can launch several temporary agents in parallel, collect their work, resolve gaps and synthesize one result.
 
-- a stable name and role
-- a model policy
-- a runtime adapter
-- a workspace scope
-- granted skills and tools
-- explicit permissions
-- a persistent direct chat
-- membership in multiple rooms
-- routines owned by an external automation layer
-- a memory adapter when one is available
+AI-Verse treats this as a **dynamic squad topology inside a Bot or Team Run**, not as the whole product.
 
-A Bot is meant to feel like a persistent teammate.
+## Why Grok Bot nailed the product model
 
-### Worker
+The most important lessons are not model-specific:
 
-A **Worker** is an ephemeral delegate created for one bounded task or one team run.
+1. **The primary object is the teammate, not the chat.** Users return to a stable Bot with responsibility that compounds over time.
+2. **Each Bot has a clear job.** A small focused roster is more useful than dozens of vague universal assistants.
+3. **Bots finish work in real tools.** Browser, files, shell, connectors and computer use turn advice into execution.
+4. **Capabilities can be shared while context stays role-specific.** Tools and Skills do not require one giant shared memory.
+5. **Bots coordinate without making the user a dispatcher.** They can message, hand off, collaborate in groups and wake each other asynchronously.
+6. **Autonomy grows progressively.** Do a task once, make it reliable, save the method, then automate it.
+7. **The interface manages attention rather than surveillance.** Working, waiting, blocked, approval-needed and completed states matter more than a constant wall of logs.
+8. **Work can begin without a user prompt.** A user, schedule, event, Brain initiative or peer Bot can activate work.
 
-Workers are useful for:
+See [`docs/GROK-BOT-DEEP-DIVE.md`](docs/GROK-BOT-DEEP-DIVE.md).
 
-- parallel research
-- independent solution generation
-- verification
-- critique
-- source checking
-- testing
-- alternative plans
-- temporary specialist roles
+## AI-Verse layer boundary
 
-Workers disappear when their run is complete unless explicitly promoted into a durable Bot.
+AI-Verse Multiple Bots owns **coordination**, not domain truth.
 
-This separation prevents the permanent Bot roster from becoming polluted by temporary subagents.
+```text
+AI-Verse OS             -> canonical state, workspace isolation, policy
+AI-Verse Memory         -> durable historical memory
+AI-Verse Brain          -> intent, goals, planning, reflection, initiative
+AI-Verse Skills         -> reusable capabilities and operator packs
+AI-Verse Automations    -> schedules, triggers and recurring execution policy
+AI-Verse Multiple Bots  -> Bot identity, Rooms, routing, tasks, handoffs, team runs
+AI-Verse Dashboard      -> visual control and observability
+```
 
-## Core collaboration patterns
+Important discoveries from Bot work are proposed back through normal AI-Verse write contracts. A Bot conversation never becomes canonical truth merely because an agent said something.
 
-AI-Verse Multiple Bots should support all of these as first-class patterns rather than pretending one pattern fits every task.
+## Core primitives
+
+### Durable primitives
+
+- **Bot**: persistent named teammate with one durable role and responsibility
+- **Room**: shared group conversation for several durable Bots
+- **Thread**: focused branch inside a DM or Room
+- **Bot Relationship**: optional manager/coordinator relationship between durable Bots
+- **Execution Environment Reference**: trusted handle to the environment where a Bot can act
+
+### Run-scoped primitives
+
+- **Worker**: temporary specialist created for one bounded task
+- **Team Run**: bounded multi-agent execution
+- **Task**: delegated unit of work with ownership and lifecycle
+- **Capability Lease**: task-scoped authority
+- **Environment Lease**: task-scoped execution environment assignment
+- **Approval**: explicit decision gate for consequential action
+
+### Content and state
+
+- **Message**: conversational coordination
+- **Artifact**: durable output/result handle
+- **Event**: immutable coordination state transition
+- **Presence**: ephemeral runtime activity
+- **Attention State**: what the human needs to notice
+
+## Bot vs Worker
+
+A **Bot** is durable because a job deserves a long-lived owner.
+
+A **Worker** is disposable because one task temporarily benefits from additional intelligence.
+
+```text
+Persistent roster
+  Chief of Staff
+  Research Lead
+  Content Lead
+  Finance Analyst
+
+One difficult request
+  Research Lead
+      +-- temporary source auditor
+      +-- temporary competitor researcher
+      +-- temporary data checker
+      +-- temporary verifier
+```
+
+Workers disappear when the Team Run completes unless explicitly promoted into a durable Bot.
+
+## Collaboration patterns
+
+The system does not pretend one swarm pattern fits every task.
 
 | Pattern | Purpose |
 |---|---|
-| **Direct Bot Chat** | Operator talks to one durable Bot |
-| **Bot-to-Bot DM** | One Bot asks another Bot for bounded help |
-| **Handoff** | Control transfers from one Bot to another |
-| **Manager / Agents-as-Tools** | One leader retains responsibility and calls specialists |
-| **Parallel Panel** | Several agents independently solve or research the same task |
-| **Group Room** | Multiple durable Bots share one visible conversation |
-| **Pipeline** | Output moves through a defined sequence of specialists |
-| **Debate / Review** | Agents challenge, verify, or critique proposals |
-| **Dynamic Squad** | A planner creates temporary roles for the current task |
-| **Hybrid** | Central leader plus selective peer-to-peer communication |
+| **Direct Bot Chat** | Operator talks to one durable teammate |
+| **Bot-to-Bot DM** | Asynchronous peer communication |
+| **Delegation** | Bot asks another Bot/Worker for bounded work while retaining ownership |
+| **Handoff** | Active responsibility transfers to another Bot |
+| **Manager** | One leader calls specialists and owns the final result |
+| **Parallel Panel** | Independent agents work simultaneously |
+| **Group Room** | Several durable Bots share visible project/team context |
+| **Pipeline** | Work moves through an ordered sequence |
+| **Review** | Independent critic/verifier checks a result |
+| **Dynamic Squad** | Leader creates temporary specialist Workers for the current task |
+| **Hybrid** | Central coordination plus selective peer-to-peer communication |
 
-## Grok-style squad mode
+Every multi-agent run begins with a **collaboration gate**. If one strong suitable Bot can solve the task reliably, use one Bot.
 
-The public Grok Multi-Agent design is especially useful for research and complex open-ended questions:
-
-```text
-User request
-    |
-    v
-Task classifier
-    |
-    +-- simple enough ----------> strongest suitable single Bot
-    |
-    +-- multi-agent justified
-             |
-             v
-        Leader / Planner
-             |
-      +------+------+------+
-      |      |      |      |
-   Worker Worker Worker Worker ...
-      |      |      |      |
-      +------+------+------+
-             |
-       cross-check / critique
-             |
-             v
-       Leader synthesis
-             |
-       optional verifier
-             |
-             v
-        final response
-```
-
-Unlike xAI's fixed public 4-agent or 16-agent configurations, AI-Verse should make squad size configurable and task-dependent.
-
-A simple task should often use one agent. A complex research task might use 3 to 6 specialists. Large fan-out should require a clear reason, an explicit budget, or operator approval.
-
-## Architecture boundary
-
-AI-Verse Multiple Bots owns **coordination state**, not domain truth.
-
-It may own:
-
-- Bot registry metadata
-- room membership
-- conversation envelopes
-- team-run state
-- routing state
-- task delegation state
-- presence and activity state
-- coordination policies
-- execution receipts and traces
-
-It must not silently become the canonical home for:
-
-- operator identity
-- workspace knowledge
-- long-term user memory
-- strategic goals
-- reusable skills
-- business/project truth
-- schedules owned by the OS automation layer
-
-When installed into AI-Verse OS:
+## Grok-style dynamic squad
 
 ```text
-AI-Verse OS          -> canonical state, workspace isolation, policy
-AI-Verse Memory      -> durable historical memory
-AI-Verse Brain       -> intent, goals, planning, reflection, initiative
-AI-Verse Skills      -> reusable capabilities and operator packs
-AI-Verse Multiple Bots -> agent identity, rooms, routing, delegation, collaboration
-AI-Verse Dashboard   -> visual control and observability
+Request
+   |
+   v
+Collaboration Gate
+   |
+   +-- single Bot is enough ---> single execution
+   |
+   +-- team justified
+           |
+           v
+      Leader / Planner
+           |
+     +-----+-----+-----+
+     |     |     |     |
+  Worker Worker Worker Worker
+     |     |     |     |
+     +-----+-----+-----+
+           |
+      gap/conflict check
+           |
+     selective follow-up
+           |
+           v
+        synthesis
+           |
+     optional verifier
+           |
+           v
+       final result
 ```
+
+Unlike xAI's public fixed 4-agent/16-agent research configurations, AI-Verse squad size is task-dependent, model-neutral and centrally budgeted.
+
+## Execution environments
+
+Grok Bot currently uses one persistent cloud computer per user, shared by that user's Bots. That makes handoffs easy but is explicitly not a per-Bot security boundary.
+
+AI-Verse improves this with configurable environment policy:
+
+```text
+shared_workspace  -> trusted Bots share a workspace execution environment
+isolated_bot      -> one durable Bot gets an isolated environment/session boundary
+isolated_run      -> temporary Worker/Team Run gets a disposable sandbox
+external_managed  -> execution lives in Hermes, OpenClaw, A2A peer or another runtime
+```
+
+Multiple Bots stores environment **references and leases**, not VM implementation details. A runtime adapter can back those handles with local processes, browser profiles, containers, VMs, worktrees or remote computers.
+
+## Coordination Gateway
+
+The heart of the repository is an event-driven, runtime-neutral **Coordination Gateway**.
+
+```text
+          Dashboard / CLI / Desktop / Mobile / Channels
+                              |
+                              v
+                  +-------------------------+
+                  |  Coordination Gateway   |
+                  +-------------------------+
+                   |    |     |     |     |
+             identity routing tasks policy budgets
+                   |    |     |     |     |
+                   +----+-----+-----+-----+
+                              |
+                           Event Bus
+                              |
+          +-------------------+-------------------+
+          |                   |                   |
+      Native Runner      Runtime Adapters       A2A Peers
+          |                   |                   |
+      AI-Verse OS       Hermes/OpenClaw/CLI    remote agents
+```
+
+No desktop or web client owns room scheduling or Bot-to-Bot routing.
+
+Use push events through WebSocket/SSE locally. Polling is fallback only.
+
+## Rooms and Threads
+
+Rooms are real message hubs, not giant shared prompts.
+
+A Room has:
+
+- workspace scope
+- member list
+- active work ownership
+- optional coordinator/leader
+- canonical ordered event stream
+- mention routing
+- bounded turns
+- Threads
+- shared Artifact references
+- attention/escalation state
+
+Bots receive participant-specific context packets rather than the entire global history by default.
+
+## One owner per stage
+
+Parallel intelligence must not mean ambiguous responsibility.
+
+Each active work item has one owner:
+
+```yaml
+owner_id: research-lead
+collaborators:
+  - source-auditor
+  - reviewer
+```
+
+Collaborators can contribute without silently becoming co-owners of the final action.
+
+## Safe Bot-to-Bot messaging
+
+Every consequential delegation carries structured metadata:
+
+- sender and recipient
+- workspace scope
+- root objective
+- reason for delegation/handoff
+- immutable required constraints
+- expected output contract
+- referenced Artifacts
+- task ID and correlation ID
+- capability lease
+- execution environment lease when needed
+- budget
+- hop/TTL limit
+- visibility and provenance
+
+Agent-to-agent communication is a protocol, not one model sending another an unstructured paragraph.
+
+## Permission law
+
+> **Delegation may reduce authority, but it may never increase authority.**
+
+Effective permission is the intersection of:
+
+```text
+host policy
+INTERSECT
+workspace policy
+INTERSECT
+Bot grants
+INTERSECT
+task capability lease
+```
+
+A peer cannot launder privilege by asking a more powerful Bot to perform something the current task was never authorized to do.
+
+Secrets travel as handles, not raw values.
+
+## Approval law
+
+Consequential action should pass through policy outside the acting Bot:
+
+```text
+Bot proposes action
+  -> policy engine
+  -> optional independent risk reviewer
+  -> allow | approval_required | deny
+  -> execution
+  -> receipt
+```
+
+This mirrors the strongest aspect of Grok Bot's approval/Auto Review model without depending on one provider.
+
+## Workspace law
+
+Workspace scope is trusted runtime state.
+
+Bots cannot prompt each other into another AI-Verse workspace or invent filesystem roots.
+
+Cross-workspace work is explicit and transfers selected Artifacts/summaries rather than casually joining both contexts.
+
+## Context law
+
+Capabilities may be broad. Context should remain scoped.
+
+Each Bot turn receives only the context packet it needs:
+
+- current objective
+- current workspace/current canonical context
+- relevant decisions
+- immutable constraints
+- selected Room/Thread messages
+- assigned Task
+- Artifact references
+- Skills relevant to the task
+- permitted tools/connections
+- output contract
+
+Peer messages never outrank system policy or canonical OS decisions.
+
+## Work can start from five directions
+
+```text
+User message ──────────────┐
+Brain initiative ──────────┤
+OS Automation ─────────────┤
+External event ────────────┤
+Peer Bot message/handoff ──┤
+                           v
+                  Coordination Gateway
+                           |
+                           v
+                          Bot
+```
+
+Multiple Bots does not create a second scheduler. AI-Verse Automations remains canonical for schedules/events, while the Bot UI can project those automations as "this Bot's routines."
+
+## Skills and learning workflows
+
+AI-Verse follows the same strong progression Grok Bot uses:
+
+```text
+perform once
+   -> verify
+   -> capture reusable method
+   -> evaluate as Skill
+   -> approve/promote Skill
+   -> optionally bind Automation to responsible Bot
+```
+
+Teach-by-demonstration can later feed AI-Verse Skills through action traces without moving skill ownership into this repository.
+
+## Presence and human attention
+
+Runtime presence:
+
+```text
+idle
+thinking
+using_tool
+waiting
+blocked
+```
+
+Human attention state:
+
+```text
+none
+working
+unread_result
+needs_input
+needs_approval
+handoff_waiting
+failed
+```
+
+The Dashboard should default to attention state and a short current-action summary. Full traces remain available when the operator wants to inspect them.
 
 ## Native AI-Verse OS shape
-
-Proposed installation contract:
 
 ```text
 AI-Verse-OS/
@@ -173,22 +407,29 @@ AI-Verse-OS/
 │       │   └── <bot-id>.yaml
 │       ├── rooms/
 │       │   └── <room-id>.yaml
-│       └── conversations/       # coordination history, not domain truth
+│       ├── conversations/
+│       │   ├── dm/
+│       │   └── rooms/
+│       ├── runs/
+│       └── policies/
 │
 ├── scripts/
-│   └── ai-verse-bots/           # installed coordination engine
+│   └── ai-verse-bots/
 │
-├── runtime/
-│   └── ai-verse-bots/           # disposable indexes, sockets, caches, traces
-│
-└── .agents / .claude adapters   # optional runtime-facing adapters
+└── runtime/
+    └── ai-verse-bots/
+        ├── coordination.db
+        ├── cache/
+        ├── sockets/
+        ├── indexes/
+        └── traces/
 ```
 
-Important information discovered in Bot conversations should be promoted through the normal AI-Verse OS write contracts into context, memory, decisions, or knowledge. Conversation history itself does not outrank canonical OS state.
+`agents/bots/` is user-owned coordination state. Engine code is system-owned. Runtime indexes/caches are disposable.
 
 ## Standalone mode
 
-Without AI-Verse OS, the layer can use a self-contained root such as:
+Without AI-Verse OS:
 
 ```text
 .ai-verse-bots/
@@ -196,215 +437,99 @@ Without AI-Verse OS, the layer can use a self-contained root such as:
 ├── bots/
 ├── rooms/
 ├── conversations/
+├── runs/
 ├── policies/
 └── runtime/
 ```
 
-Standalone integrations may optionally connect their own memory, skills, filesystem, or automation backends.
+Host integrations can supply their own memory, skills, filesystem, automation and execution backends.
 
-## Coordination Gateway
+## Interoperability
 
-The heart of this repository should be a runtime-neutral **Coordination Gateway**.
+Planned adapters:
 
-```text
-                    Operator / UI / Channel
-                             |
-                             v
-                  +-----------------------+
-                  | Coordination Gateway  |
-                  +-----------------------+
-                    |     |      |      |
-          routing --+     |      |      +-- observability events
-          policy ---------+      |
-          budgets ---------------+
-                    |
-          +---------+---------+----------------+
-          |                   |                |
-          v                   v                v
-     Local Bot Runner    Remote Bot Runner   A2A Agent
-          |                   |                |
-          v                   v                v
-     model/runtime       model/runtime    opaque external
-```
+1. native AI-Verse runtime
+2. A2A remote agent
+3. Hermes
+4. OpenClaw
+5. generic CLI/process agents such as Claude Code or Codex
+6. OpenAI Agents SDK where useful
+7. Google ADK / Microsoft Agent Framework where useful
 
-The Gateway should live outside any UI. Web, desktop, Telegram, Discord, AI-Verse Dashboard, CLI, and future clients should all talk to the same backend coordination engine.
+MCP remains primarily agent-to-tool. A2A is the preferred external agent-to-agent standard.
 
-## Push, not polling
+## Anti-runaway controls
 
-Agent turns and room activity should be event-driven.
+The Gateway centrally enforces:
 
-Use WebSocket/SSE locally and A2A streaming or push notifications for compatible remote agents. Polling should only be a fallback.
-
-This is a deliberate lesson from current Hermes Bot Mode issues where group-turn polling can add latency and UI coupling.
-
-## Message and task separation
-
-Agent communication should distinguish:
-
-- **Message**: conversational coordination
-- **Task**: a unit of delegated work with lifecycle and ownership
-- **Artifact**: a produced output or result handle
-- **Event**: state transition, activity, error, approval, progress
-
-This follows one of the strongest ideas in A2A 1.0: do not overload chat messages with task lifecycle and output semantics.
-
-## Safe agent-to-agent messaging
-
-Every cross-agent delegation should carry structured metadata, including:
-
-- sender
-- recipient or room
-- workspace scope
-- correlation ID
-- task ID when applicable
-- delegation reason
-- expected output
-- constraints that must survive the handoff
-- budget
-- hop count / TTL
-- visibility
-- permission context
-
-A handoff reason is mandatory. A vague "talk to agent B" is not sufficient.
-
-## Anti-loop controls
-
-Agent societies can easily produce expensive or infinite conversations. The engine should enforce:
-
-- maximum hops
-- maximum rounds
-- maximum messages per user turn
-- per-run token and cost budgets
+- maximum hops/depth
+- maximum Workers
+- maximum Room rounds/messages
+- token and cost budgets
 - wall-clock deadlines
-- duplicate-message detection
+- duplicate Task detection
 - repeated-handoff detection
-- agent-pair ping-pong detection
+- pair/cycle ping-pong detection
 - no-progress detection
 - cancellation propagation
 - user escalation
 
-The limits should be policy, not hard-coded into the UI.
+The policy is not hard-coded into a UI.
 
-## Permission law
+## Research warning: more agents can be worse
 
-> **Delegation may reduce authority, but it may never increase authority.**
+2026 controlled research shows fixed multi-agent teams can underperform a strong single agent, waste budget, duplicate effort or average away the strongest expert.
 
-If Bot A delegates to Bot B, B receives only the intersection of:
+Therefore the system selects the **smallest sufficient topology** and records whether multi-agent coordination actually improved the task class.
 
-1. B's normal grants,
-2. the current workspace scope,
-3. the task-specific delegated capability lease.
+## Research and architecture documents
 
-A Bot cannot gain a secret, tool, filesystem path, connection, or destructive capability merely because another Bot asked it to act.
+- [`docs/GROK-BOT-DEEP-DIVE.md`](docs/GROK-BOT-DEEP-DIVE.md) - real Grok Bot product architecture and AI-Verse lessons
+- [`docs/RESEARCH-2026-09.md`](docs/RESEARCH-2026-09.md) - multi-agent/open-source ecosystem benchmark
+- [`docs/ARCHITECTURE-BLUEPRINT.md`](docs/ARCHITECTURE-BLUEPRINT.md) - detailed technical architecture
+- [`docs/REFERENCE-ADOPTION-MAP.md`](docs/REFERENCE-ADOPTION-MAP.md) - what to adopt, adapt, integrate, study or avoid
+- [`docs/AI-VERSE-INTEGRATION.md`](docs/AI-VERSE-INTEGRATION.md) - contracts with OS, Memory, Brain, Skills, Automations and Dashboard
+- [`docs/COORDINATION-PROTOCOL.md`](docs/COORDINATION-PROTOCOL.md) - Message, Task, Room, handoff, budget and safety protocol
 
-## Workspace law
+## Machine-readable starting contracts
 
-Scope comes from trusted runtime context.
+- [`schemas/coordination-v1.schema.json`](schemas/coordination-v1.schema.json)
+- [`templates/bot.yaml`](templates/bot.yaml)
+- [`templates/room.yaml`](templates/room.yaml)
 
-Bots must never invent filesystem roots or move themselves into another AI-Verse workspace by prompting each other.
+These are architecture-stage contracts and will be tightened through implementation/evaluation rather than treated as frozen API forever.
 
-Cross-workspace collaboration requires an explicit policy decision and should pass selected artifacts or summaries, not casually merge both workspaces into one context.
+## First production slice
 
-## Context law
+The first implementation should deliver one end-to-end vertical slice:
 
-Do not broadcast the complete shared history to every agent by default.
+1. Bot registry and durable Bot conversation.
+2. Room + Thread event stream.
+3. asynchronous Bot-to-Bot delivery.
+4. explicit active work owner.
+5. Task/Artifact/Event protocol.
+6. Coordination Gateway.
+7. local runtime adapter.
+8. execution-environment references/leases.
+9. `@mention` routing and pass semantics.
+10. manager, handoff, parallel panel and Room orchestration.
+11. temporary Worker squad execution.
+12. approval/policy hook.
+13. central budgets, loop controls and cancellation.
+14. presence + attention events.
+15. WebSocket/SSE subscriptions.
+16. AI-Verse OS native installer.
+17. A2A adapter.
+18. deterministic coordination evaluation suite.
 
-Each turn should receive a **context packet** containing only what that participant needs:
+The visual Bot roster belongs in AI-Verse Dashboard after this backend contract is stable.
 
-- current objective
-- relevant constraints
-- relevant room messages
-- referenced artifacts
-- assigned task
-- allowed tools
-- known decisions
-- required response contract
+## North-star rule
 
-This reduces context poisoning, token waste, and instruction leakage between agents.
-
-## Human visibility
-
-Agents should collaborate without forcing the operator to watch every tool call.
-
-The default UI should expose:
-
-- which Bots are active
-- who is speaking to whom
-- current tasks
-- short progress summaries
-- produced artifacts
-- blocked / waiting states
-- approvals
-- cost and token use
-- errors and retries
-
-Internal hidden reasoning is not a collaboration protocol. Bots should exchange explicit messages, evidence, structured results, and artifacts.
-
-## Interoperability
-
-The repository should support several adapter levels:
-
-1. **Native local adapter** for AI-Verse compatible runtimes.
-2. **Hermes adapter** for Hermes profiles/Bots.
-3. **OpenClaw adapter** for isolated OpenClaw agents.
-4. **OpenAI Agents adapter** for manager/handoff workflows.
-5. **Google ADK / Microsoft Agent Framework adapters** where useful.
-6. **A2A adapter** as the standard boundary for remote or opaque agents.
-7. **Generic process adapter** for CLI agents such as Claude Code, Codex, or other harnesses.
-
-MCP remains primarily an agent-to-tool protocol. A2A is the preferred standard for agent-to-agent interoperability.
-
-## Research-driven selection rule
-
-2026 evidence shows that multi-agent systems can underperform a strong single agent when coordination is unnecessary, redundant, or poorly structured.
-
-Therefore every run should begin with a topology decision:
-
-```text
-Can one suitable agent solve this reliably?
-    yes -> use one agent
-    no  -> why not?
-             |
-             +-- independent breadth needed -> parallel panel
-             +-- specialist ownership needed -> handoff
-             +-- decomposition needed -> manager + workers
-             +-- ordered transformation -> pipeline
-             +-- adversarial verification -> reviewer/debate
-             +-- persistent team discussion -> room
-             +-- unknown decomposition -> dynamic squad
-```
-
-Multi-agent execution must justify its additional complexity.
-
-## First implementation target
-
-The first production slice should implement the smallest complete substrate:
-
-1. Bot and Room manifests.
-2. Coordination Gateway.
-3. local runner adapter.
-4. durable DM and Room event logs.
-5. `@mention` routing.
-6. Bot-to-Bot task messaging.
-7. manager, handoff, parallel-panel, and group-room orchestration.
-8. hard budgets, cancellation, loop detection, and user escalation.
-9. WebSocket/SSE event stream.
-10. A2A-compatible remote adapter.
-11. AI-Verse OS native installer and registry integration.
-12. a deterministic test harness for coordination behavior.
-
-The visual Bot roster should be implemented through AI-Verse Dashboard or another client after the backend contract is stable.
-
-## Documents
-
-- [`docs/RESEARCH-2026-09.md`](docs/RESEARCH-2026-09.md) - September 2026 research and framework benchmark.
-- [`docs/ARCHITECTURE-BLUEPRINT.md`](docs/ARCHITECTURE-BLUEPRINT.md) - detailed technical architecture.
-- [`docs/REFERENCE-ADOPTION-MAP.md`](docs/REFERENCE-ADOPTION-MAP.md) - what to adopt, adapt, study, or avoid from existing projects.
-- [`docs/AI-VERSE-INTEGRATION.md`](docs/AI-VERSE-INTEGRATION.md) - exact boundaries with OS, Memory, Brain, Skills, and Dashboard.
-- [`docs/COORDINATION-PROTOCOL.md`](docs/COORDINATION-PROTOCOL.md) - message, task, room, handoff, budget, and safety contracts.
+> **Persistent Bots on the outside, bounded temporary teams on the inside, one event-driven Coordination Gateway in the middle, explicit ownership and permission around every action, and no duplicated source of truth.**
 
 ## Research snapshot
 
 Architecture research snapshot: **2026-09-09**.
 
-This project is inspired by publicly documented behavior and open-source architectures. It does not claim to reproduce proprietary xAI internals.
+This project is informed by publicly documented product behavior, open-source projects, open standards and research. It does not claim to reproduce proprietary xAI Grok Bot internals.
