@@ -12,6 +12,8 @@ The machine-readable companion is:
 
 The original `COORDINATION-PROTOCOL.md` remains useful background for delegation, Tasks, Artifacts, events, budgets, cancellation and A2A mapping. This document is the current protocol direction when the two differ.
 
+Unless an example explicitly includes every required schema field, treat it as an illustrative excerpt. Complete Bot and Room manifest examples live in `templates/bot.yaml` and `templates/room.yaml`. Protocol objects intended as wire examples should remain schema-compatible.
+
 ## 1. Protocol goals
 
 A persistent Bot system must support more than synchronous agent delegation.
@@ -68,6 +70,7 @@ thread_      Thread
 conv_        durable direct conversation
 run_         Team Run
 task_        Task
+handoff_     Handoff
 msg_         Message
 evt_         Event
 art_         Artifact
@@ -85,7 +88,7 @@ Human handles such as `@researcher` are aliases. They are never canonical identi
 
 A Bot has one stable addressable identity regardless of runtime/provider changes.
 
-Example:
+Illustrative excerpt:
 
 ```json
 {
@@ -204,7 +207,7 @@ Required concepts:
 - budgets;
 - attention/escalation settings.
 
-Example:
+Illustrative excerpt:
 
 ```yaml
 id: product-council
@@ -313,24 +316,26 @@ Every active Task/work item has one owner.
 ```json
 {
   "work_item_id": "task_01...",
-  "owner_id": "bot_research-lead",
+  "owner_id": "worker_source-auditor",
   "collaborator_ids": [
-    "bot_finance",
-    "worker_source-auditor"
+    "bot_finance"
   ]
 }
 ```
 
-A collaborator contributes but does not automatically gain authority to finalize/send/publish the owner's work.
+For a delegated child Task, `owner_id` identifies the actor accountable for that child Task. The delegating Bot can still retain ownership of the parent Task, root objective, or final user-facing synthesis. Only a handoff changes ownership of the handed-off work item.
+
+A collaborator contributes but does not automatically gain authority to finalize, send or publish the owner's work.
 
 ## 15. Delegation
 
-Delegation creates bounded work while the caller retains ownership.
+Delegation creates bounded work while the caller retains ownership of the parent/root work unless an explicit handoff occurs.
 
 Required:
 
 - creator;
 - assignee;
+- owner for the delegated Task;
 - workspace;
 - root objective;
 - reason;
@@ -344,6 +349,8 @@ Required:
 - budget;
 - deadline when relevant.
 
+For a normal delegated child Task, `owner_id` will usually equal `assignee_id`.
+
 Example:
 
 ```json
@@ -353,6 +360,7 @@ Example:
   "type": "task.delegate",
   "created_by": "bot_research-lead",
   "assignee_id": "worker_source-auditor",
+  "owner_id": "worker_source-auditor",
   "workspace_id": "product-x",
   "root_objective_id": "obj_01...",
   "reason": "Independent primary-source verification is required.",
@@ -413,7 +421,31 @@ Required handoff metadata:
 - capability/environment lease;
 - return policy.
 
-The target becomes owner only after acceptance/atomic adapter success.
+Structured handoff request example:
+
+```json
+{
+  "schema_version": "1.0",
+  "id": "handoff_01...",
+  "type": "handoff",
+  "source_owner_id": "bot_research-lead",
+  "target_bot_id": "bot_legal-reviewer",
+  "workspace_id": "product-x",
+  "root_objective_id": "obj_01...",
+  "reason": "The next stage requires legal review ownership.",
+  "required_constraints": [
+    "Do not publish externally",
+    "Preserve all cited source references"
+  ],
+  "artifact_refs": ["art_research-report"],
+  "capability_lease_id": "lease_legal-review",
+  "environment_lease_id": null,
+  "return_policy": "return_on_completion",
+  "status": "requested"
+}
+```
+
+The target becomes owner only after acceptance and the ownership transition is recorded atomically by the Gateway/adapter boundary.
 
 ## 18. Capability lease
 
