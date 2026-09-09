@@ -63,6 +63,15 @@ export interface PreparedDelegationSafety {
   budget: BudgetEnvelope;
 }
 
+export interface HandoffSafetyInput {
+  sourceOwnerId: string;
+  targetOwnerId: string;
+  workspaceId: string;
+  tools?: string[];
+  connections?: string[];
+  environmentPolicy?: string | null;
+}
+
 export class CoordinationPolicy {
   readonly requireRegisteredBots: boolean;
   readonly defaultMaxHops: number;
@@ -152,6 +161,30 @@ export class CoordinationPolicy {
     return { parentTaskId, requiredConstraints, hop, maxHops, deadlineAt, budget };
   }
 
+  prepareHandoff(input: HandoffSafetyInput): void {
+    if (input.sourceOwnerId === input.targetOwnerId) {
+      throw new PolicyError("INVALID_HANDOFF", "Handoff target must differ from the current owner");
+    }
+    if (!input.targetOwnerId.startsWith("bot_")) {
+      throw new PolicyError("INVALID_HANDOFF_TARGET", `Handoff target ${input.targetOwnerId} must be a durable Bot`);
+    }
+
+    this.assertPrincipalWorkspace(input.sourceOwnerId, input.workspaceId, "source owner");
+    this.assertPrincipalWorkspace(input.targetOwnerId, input.workspaceId, "target owner");
+    this.assertPeerAllowed(input.sourceOwnerId, input.targetOwnerId);
+
+    if (input.sourceOwnerId.startsWith("bot_")) {
+      const source = this.store.getObject(input.sourceOwnerId);
+      const permissions = source?.kind === "bot" ? asObject(source.payload.permissions) : null;
+      if (permissions?.can_handoff === false) {
+        throw new PolicyError("HANDOFF_DENIED", `${input.sourceOwnerId} is not allowed to hand off work`);
+      }
+    }
+
+    this.assertRequestedAuthority(input.targetOwnerId, input.tools ?? [], input.connections ?? []);
+    if (input.environmentPolicy) this.assertEnvironmentCompatibility(input.targetOwnerId, input.environmentPolicy);
+  }
+
   assertMessage(senderId: string, targetId: string, workspaceId: string): void {
     this.assertPrincipalWorkspace(senderId, workspaceId, "sender");
     this.assertPrincipalWorkspace(targetId, workspaceId, "target");
@@ -222,6 +255,21 @@ export class CoordinationPolicy {
           throw new PolicyError("CAPABILITY_UNAVAILABLE", `${assigneeId} is not granted connection ${connection}`);
         }
       }
+    }
+  }
+
+  private assertEnvironmentCompatibility(targetId: string, environmentPolicy: string): void {
+    const target = this.store.getObject(targetId);
+    if (!target || target.kind !== "bot") return;
+    const execution = asObject(target.payload.execution);
+    const targetPolicy = execution && typeof execution.environment_policy === "string"
+      ? execution.environment_policy
+      : null;
+    if (targetPolicy && targetPolicy !== environmentPolicy) {
+      throw new PolicyError(
+        "ENVIRONMENT_POLICY_MISMATCH",
+        `${targetId} uses environment policy ${targetPolicy}, but the Task environment is ${environmentPolicy}`
+      );
     }
   }
 
