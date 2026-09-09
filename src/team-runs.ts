@@ -121,6 +121,8 @@ export interface SpawnWorkerInput {
   runtimeProfileRef?: string | null;
   environmentPolicy?: "shared_workspace" | "isolated_run" | "external_managed";
   environmentRef?: string;
+  inputArtifactRefs?: string[];
+  purpose?: "general" | "verification";
 }
 
 export interface TeamRunCreationResult {
@@ -298,8 +300,11 @@ export class TeamRunCoordinator {
   spawnWorker(input: SpawnWorkerInput): SpawnWorkerResult {
     const run = this.requireRun(input.runId);
     const runStatus = String(run.payload.status) as TeamRunStatus;
-    if (!new Set<TeamRunStatus>(["planning", "running"]).has(runStatus)) {
-      throw new Error(`Team Run ${run.id} cannot create Workers from status ${runStatus}`);
+    const allowedRunStates = input.purpose === "verification"
+      ? new Set<TeamRunStatus>(["running", "verifying"])
+      : new Set<TeamRunStatus>(["planning", "running"]);
+    if (!allowedRunStates.has(runStatus)) {
+      throw new Error(`Team Run ${run.id} cannot create ${input.purpose === "verification" ? "verifier " : ""}Workers from status ${runStatus}`);
     }
     const workspaceId = String(run.workspaceId);
     const leaderId = String(run.payload.leader_id);
@@ -345,6 +350,7 @@ export class TeamRunCoordinator {
     const leaseExpiresAt = this.resolveLeaseExpiry(input.leaseExpiresAt);
     const runtime = this.resolveWorkerRuntime(leader, input);
     const execution = this.resolveWorkerExecution(leader, workspaceId, input);
+    const inputArtifactRefs = this.validateRunInputArtifacts(input.inputArtifactRefs ?? [], run, workspaceId);
 
     const capabilityLease = validateProtocolObject({
       schema_version: "1.0",
@@ -387,7 +393,7 @@ export class TeamRunCoordinator {
       required_constraints: requiredConstraints,
       constraints_digest: constraintsDigest(requiredConstraints),
       expected_output: input.expectedOutput ?? { contract: "artifact-or-structured-result" },
-      input_artifact_refs: [],
+      input_artifact_refs: inputArtifactRefs,
       lease_id: leaseId,
       environment_lease_id: environmentLeaseId,
       response_target: { kind: "bot", id: leaderId },
@@ -404,6 +410,7 @@ export class TeamRunCoordinator {
       id: workerId,
       type: "worker",
       kind: "temporary",
+      purpose: input.purpose ?? "general",
       run_id: run.id,
       task_id: taskId,
       created_by: leaderId,
@@ -687,6 +694,19 @@ export class TeamRunCoordinator {
       environment_ref: environmentRef,
       persistence: "run_scoped"
     };
+  }
+
+
+  private validateRunInputArtifacts(refs: string[], run: StoredObject, workspaceId: string): string[] {
+    const resolved: string[] = [];
+    for (const ref of [...new Set(refs.map((value) => value.trim()).filter(Boolean))]) {
+      const artifact = this.store.getObject(ref);
+      if (!artifact || artifact.kind !== "artifact") throw new Error(`Worker input Artifact ${ref} not found`);
+      if (artifact.workspaceId !== workspaceId) throw new Error(`Worker input Artifact ${ref} is outside workspace ${workspaceId}`);
+      if (String(artifact.payload.run_id ?? "") !== run.id) throw new Error(`Worker input Artifact ${ref} is outside Team Run ${run.id}`);
+      resolved.push(ref);
+    }
+    return resolved;
   }
 
   private prepareEvent(input: {

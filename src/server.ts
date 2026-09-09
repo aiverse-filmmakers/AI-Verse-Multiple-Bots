@@ -17,6 +17,7 @@ import { TeamRunFanout } from "./team-run-fanout.js";
 import { TeamRunHandoff } from "./team-run-handoff.js";
 import { TeamRunDiscussion } from "./team-run-discussion.js";
 import { TeamRunDisagreementDetector } from "./team-run-disagreement.js";
+import { TeamRunVerifier } from "./team-run-verifier.js";
 import { TeamRunCoordinator, type TeamRunStatus, type TeamRunTopology, type WorkerStatus } from "./team-runs.js";
 
 export interface GatewayServerOptions {
@@ -96,7 +97,8 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
   const handoffs = new TeamRunHandoff(teamRuns, gateway, executionQueue, runner);
   const discussion = new TeamRunDiscussion(teamRuns, gateway, executionQueue, runner);
   const disagreement = new TeamRunDisagreementDetector(teamRuns, gateway);
-  const supervisor = new ExecutionSupervisor(gateway, executionQueue, runner, 5000, managerTopology, fanout, handoffs, discussion);
+  const verifier = new TeamRunVerifier(teamRuns, gateway, executionQueue, runner);
+  const supervisor = new ExecutionSupervisor(gateway, executionQueue, runner, 5000, managerTopology, fanout, handoffs, discussion, verifier);
   supervisor.start();
 
   const server = createServer(async (req: any, res: any) => {
@@ -399,6 +401,52 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
           artifactRefs: Array.isArray(body.artifactRefs) ? body.artifactRefs.map(String) : undefined,
           confidenceGapThreshold: typeof body.confidenceGapThreshold === "number" ? body.confidenceGapThreshold : undefined,
           maxArtifacts: typeof body.maxArtifacts === "number" ? body.maxArtifacts : undefined
+        }));
+        return;
+      }
+
+      const verificationCancelMatch = url.pathname.match(/^\/v1\/team-runs\/([^/]+)\/verification\/cancel$/);
+      if (method === "POST" && verificationCancelMatch) {
+        const body = await readJson(req);
+        json(res, 200, await verifier.cancel(
+          decodeURIComponent(verificationCancelMatch[1] as string),
+          requiredString(body, "actorId"),
+          typeof body.reason === "string" ? body.reason : undefined
+        ));
+        return;
+      }
+
+      const verificationRunMatch = url.pathname.match(/^\/v1\/team-runs\/([^/]+)\/verification$/);
+      if (method === "GET" && verificationRunMatch) {
+        const runId = decodeURIComponent(verificationRunMatch[1] as string);
+        const run = teamRuns.getRun(runId);
+        if (!run) { json(res, 404, { error: "NOT_FOUND" }); return; }
+        json(res, 200, {
+          latest: verifier.latest(runId),
+          verdicts: verifier.list(runId),
+          pendingReportRefs: Array.isArray(run.payload.verification_required_report_refs) ? run.payload.verification_required_report_refs : [],
+          activeTaskId: typeof run.payload.active_verification_task_id === "string" ? run.payload.active_verification_task_id : null,
+          readyForSynthesis: run.payload.verification_ready_for_synthesis === true
+        });
+        return;
+      }
+      if (method === "POST" && verificationRunMatch) {
+        const body = await readJson(req);
+        json(res, 202, verifier.schedule({
+          runId: decodeURIComponent(verificationRunMatch[1] as string),
+          createdBy: requiredString(body, "createdBy"),
+          reportRefs: Array.isArray(body.reportRefs) ? body.reportRefs.map(String) : undefined,
+          runtimeAdapter: typeof body.runtimeAdapter === "string" ? body.runtimeAdapter : undefined,
+          runtimeProfileRef: body.runtimeProfileRef === null || typeof body.runtimeProfileRef === "string" ? body.runtimeProfileRef as string | null : undefined,
+          environmentPolicy: typeof body.environmentPolicy === "string" ? body.environmentPolicy as any : undefined,
+          environmentRef: typeof body.environmentRef === "string" ? body.environmentRef : undefined,
+          tools: Array.isArray(body.tools) ? body.tools.map(String) : [],
+          connections: Array.isArray(body.connections) ? body.connections.map(String) : [],
+          budget: typeof body.budget === "object" && body.budget !== null && !Array.isArray(body.budget) ? body.budget as BudgetEnvelope : undefined,
+          deadlineAt: typeof body.deadlineAt === "string" ? body.deadlineAt : undefined,
+          leaseExpiresAt: typeof body.leaseExpiresAt === "string" ? body.leaseExpiresAt : undefined,
+          recoveryPolicy: optionalRecoveryPolicy(body.recoveryPolicy),
+          maxAttempts: optionalMaxAttempts(body.maxAttempts)
         }));
         return;
       }
@@ -735,6 +783,7 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
     handoffs,
     discussion,
     disagreement,
+    verifier,
     runtimes,
     runner,
     supervisor,

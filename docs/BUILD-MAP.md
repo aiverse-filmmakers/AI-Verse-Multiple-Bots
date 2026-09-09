@@ -378,9 +378,22 @@ Goal: a durable Bot decides whether to work alone or create bounded temporary Wo
    - report/latest/debt inspection and explicit analysis are exposed through the localhost Gateway
    - reports survive restart and canonical disagreement events are replayable
 
+8. **Verifier/critic role - COMPLETE**
+   - unresolved hard-conflict disagreement reports can schedule a bounded temporary Verifier / Critic Worker
+   - verifier work reuses the canonical Worker -> Task -> capability/environment lease -> execution queue -> runtime path
+   - verifier inputs are explicit same-Run disagreement reports plus their scoped candidate evidence; hidden chain-of-thought is never requested or inferred
+   - only the durable Team Run leader can schedule verifier work and Worker creation remains fail-closed behind `can_create_workers: true`
+   - verifier tools, connections, runtime handles, budgets, deadlines and environment authority cannot exceed the leader/Team Run envelope
+   - runtime output must satisfy the strict `verifier-verdict-v1` contract and preserve report/finding lineage
+   - a resolved finding must cite same-TeamRun Artifact evidence; malformed or scope-escaping verdicts become `verifier_failed` and cannot clear debt
+   - one verifier Task may clear only the disagreement reports it explicitly resolves while unrelated verification debt remains sticky
+   - capability and environment leases remain Task-scoped and temporary verifier Workers never enter the durable Bot registry
+   - cancellation, retry-safe queue recovery, restart reconciliation, idempotent verdict persistence and Worker lifecycle reconciliation are explicit
+   - resolved verification records `verification_ready_for_synthesis` but deliberately does not perform synthesis or transition into a synthesis implementation
+   - localhost Gateway exposes verifier schedule/state/cancel controls
+
 ### Remaining major slices
 
-8. verifier/critic role
 9. synthesis
 10. Worker cleanup
 11. adaptive "single Bot vs squad" decision policy
