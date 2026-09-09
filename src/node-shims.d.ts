@@ -28,3 +28,14 @@ declare module "node:assert/strict" {
   const assert: any;
   export default assert;
 }
+declare module "node:http" {
+  export function createServer(handler: (req: any, res: any) => void | Promise<void>): any;
+  export function request(options: any, callback?: (res: any) => void): any;
+}
+declare module "node:url" {
+  export class URL {
+    constructor(input: string, base?: string);
+    pathname: string;
+    searchParams: { get(name: string): string | null };
+  }
+}

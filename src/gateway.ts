@@ -20,7 +20,14 @@ export interface SendMessageInput {
 }
 
 export class CoordinationGateway {
+  private readonly subscribers = new Set<(event: AppendedEvent) => void>();
+
   constructor(readonly store: CoordinationStore) {}
+
+  subscribeEvents(listener: (event: AppendedEvent) => void): () => void {
+    this.subscribers.add(listener);
+    return () => this.subscribers.delete(listener);
+  }
 
   createBot(manifest: BotManifest): StoredObject<BotManifest> {
     const bot = validateBotManifest(manifest);
@@ -123,6 +130,8 @@ export class CoordinationGateway {
       summary: input.summary ?? null,
       ...(input.attentionState ? { attention_state: input.attentionState } : {})
     };
-    return this.store.appendEvent(event, input.idempotencyKey);
+    const appended = this.store.appendEvent(event, input.idempotencyKey);
+    for (const listener of this.subscribers) listener(appended);
+    return appended;
   }
 }
