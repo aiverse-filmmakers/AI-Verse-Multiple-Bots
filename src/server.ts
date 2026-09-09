@@ -104,6 +104,45 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
         return;
       }
 
+      if (method === "GET" && url.pathname === "/v1/bots/resolve") {
+        const address = url.searchParams.get("address");
+        if (!address) throw new Error("address is required");
+        const workspaceId = url.searchParams.get("workspace");
+        const scope = url.searchParams.get("scope");
+        const bot = scope === "operator"
+          ? gateway.resolveOperatorBotAddress(address, true)
+          : workspaceId
+            ? gateway.resolveBotAddress(workspaceId, address, true)
+            : null;
+        if (!bot) {
+          json(res, 404, { error: "NOT_FOUND" });
+          return;
+        }
+        json(res, 200, bot);
+        return;
+      }
+
+      const botLifecycleMatch = url.pathname.match(/^\/v1\/bots\/([^/]+)\/(activate|disable|archive)$/);
+      if (method === "POST" && botLifecycleMatch) {
+        const body = await readJson(req);
+        const botId = decodeURIComponent(botLifecycleMatch[1] as string);
+        const action = botLifecycleMatch[2] as "activate" | "disable" | "archive";
+        const targetStatus = action === "activate" ? "active" : action === "disable" ? "disabled" : "archived";
+        json(res, 200, gateway.transitionBot(botId, targetStatus, requiredString(body, "actorId")));
+        return;
+      }
+
+      const botGetMatch = url.pathname.match(/^\/v1\/bots\/([^/]+)$/);
+      if (method === "GET" && botGetMatch) {
+        const bot = gateway.getBot(decodeURIComponent(botGetMatch[1] as string));
+        if (!bot) {
+          json(res, 404, { error: "NOT_FOUND" });
+          return;
+        }
+        json(res, 200, bot);
+        return;
+      }
+
       const runNextMatch = url.pathname.match(/^\/v1\/bots\/([^/]+)\/run-next$/);
       if (method === "POST" && runNextMatch) {
         const result = await runner.runNext(decodeURIComponent(runNextMatch[1] as string));
