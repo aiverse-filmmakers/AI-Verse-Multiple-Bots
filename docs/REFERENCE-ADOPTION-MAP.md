@@ -2,9 +2,9 @@
 
 **Snapshot:** 2026-09-09
 
-This document turns the research benchmark into an implementation policy.
+This document turns the research benchmark into implementation policy.
 
-The objective is not to fork one existing framework and rename it. AI-Verse Multiple Bots should have its own narrow coordination core, use open standards at its boundaries, adapt proven ideas deliberately, and avoid importing another platform's ownership model into AI-Verse OS.
+AI-Verse Multiple Bots should not fork one framework and rename it. The target is an independent Persistent Teammate Layer with a narrow coordination core, open interoperability boundaries, and adapters for existing runtimes.
 
 ## Adoption categories
 
@@ -12,281 +12,374 @@ The objective is not to fork one existing framework and rename it. AI-Verse Mult
 - **ADAPT**: preserve the useful idea but redesign it for AI-Verse boundaries.
 - **ADAPTER**: integrate with the framework instead of absorbing it.
 - **STUDY**: use as an implementation reference only.
-- **AVOID**: deliberately do not copy this architectural choice.
+- **AVOID**: deliberately do not copy the architectural choice.
 
 ## Reference map
 
 | Reference | Strongest idea | AI-Verse decision | Priority | Notes |
 |---|---|---|---|---|
-| xAI Grok Multi-Agent | Leader plus parallel task-scoped agents and one synthesized result | **ADAPT** | Critical | Implement Grok-style dynamic squads, but task-dependent rather than fixed 4/16 agent counts. Do not claim proprietary xAI internals are reproduced. |
-| Hermes Bot Mode | Durable named Bots, canonical DMs, rooms, mentions, pass behavior, routines, cross-machine teammates | **ADAPT** | Critical | This is the strongest human-facing mental model. Move orchestration out of Desktop/UI and into the backend Coordination Gateway. |
-| Microsoft Agent Framework | Sequential, concurrent, handoff, group chat, manager/Magentic as explicit orchestration patterns | **ADOPT** | Critical | Treat topologies as selectable primitives rather than one universal swarm loop. Optional adapter later, not a mandatory runtime dependency. |
-| A2A 1.0 | AgentCard, Task, Message, Artifact, streaming, push notifications, opaque agent interoperability | **ADOPT + ADAPTER** | Critical | Preferred external agent-to-agent boundary. Keep native local protocol smaller and map it cleanly to A2A. |
-| OpenAI Agents SDK | Clear distinction between manager-owned specialists and handoffs | **ADOPT** | Critical | `ask/delegate` and `handoff` must have different ownership semantics. Use explicit handoff metadata and context filtering. |
-| OpenClaw | Per-agent workspace, auth, state, session and channel isolation | **ADAPT + ADAPTER** | High | Preserve the isolation discipline. Do not turn Multiple Bots into another omnichannel gateway or duplicate OpenClaw itself. |
-| Google ADK | Agent transfer plus sequential/parallel/loop graph workflows | **STUDY + ADAPTER** | High | Mandatory transfer reason is especially valuable for preventing ping-pong handoffs. |
-| AgentScope | MsgHub abstraction, dynamic participants, distributed agents | **ADAPT** | High | Rooms should be real message hubs with delivery semantics, not one giant shared prompt. |
-| Pydantic AI | Typed delegation, explicit dependencies, usage accounting, cancellation, controlled history transfer | **ADAPT** | High | Use typed schemas and explicit context packets across every runtime adapter. |
-| LangGraph | Graph orchestration, checkpointers, supervisors, handoffs | **STUDY + ADAPTER** | Medium | Useful patterns, but avoid a magical supervisor abstraction and uncontrolled shared-state propagation. |
-| CrewAI | Autonomous crews wrapped in controlled Flows | **STUDY** | Medium | Reinforces deterministic orchestration around open-ended agents. Do not inherit role/persona ownership into the coordination layer. |
-| Agno | Teams plus workflow runtime and observability | **STUDY** | Medium | Good production reference, but too broad to become the foundation because AI-Verse already owns memory, knowledge, skills and UI layers. |
-| CAMEL | Role specialization, workforces, multi-agent research patterns | **STUDY** | Medium | Useful for dynamic role generation and research experiments, not as the universal runtime contract. |
-| MetaGPT | SOP-driven agent organization | **STUDY** | Medium | Procedure should come from AI-Verse Skills/Brain, not hard-coded software-company roles. |
-| ClawSwarm | Sidecar scheduler enabling shared OpenClaw group chat | **STUDY** | Medium | Strong proof of sidecar coordination architecture. GPL-3.0 means avoid copying implementation into a permissive core unless licensing strategy deliberately changes. |
-| ClawTeam and related swarm projects | Leader task split, inbox, broadcast, dependencies, isolated work areas | **STUDY** | Medium | Review individual maturity and licensing before reuse. |
+| **xAI Grok Bot** | Persistent named job-owning teammates, shared work environment, async Bot messaging, groups/threads, handoffs, Skills/Routines, approvals, attention-based UX | **ADOPT + ADAPT** | **Critical** | Primary product benchmark. Preserve the teammate model, but keep AI-Verse source-of-truth boundaries, model/runtime neutrality and configurable execution isolation. |
+| **xAI Grok Multi-Agent** | Leader plus parallel task-scoped agents and one synthesized result | **ADAPT** | **Critical** | Use as the inner dynamic-squad topology for difficult tasks, not as the whole persistent Bot product. Squad size should be task-dependent rather than fixed. |
+| **Hermes Bot Mode** | Durable named profiles, canonical DMs, rooms, mentions, pass behavior, routines and cross-machine teammates | **ADAPT + ADAPTER** | **Critical** | Strong open persistent-Bot reference. Move canonical orchestration to the backend Gateway rather than a desktop/UI lifecycle. |
+| **Microsoft Agent Framework** | Sequential, concurrent, handoff, group-chat and manager/Magentic orchestration as separate patterns | **ADOPT + ADAPTER** | **Critical** | Validates topology as a first-class choice rather than one universal swarm loop. |
+| **A2A 1.0** | AgentCard, Task, Message, Artifact, streaming, push, cancellation and opaque remote-agent interoperability | **ADOPT + ADAPTER** | **Critical** | Preferred external agent-to-agent boundary. Native local protocol can be smaller but should map cleanly to A2A. |
+| **OpenAI Agents SDK** | Clean distinction between manager-owned specialists and handoffs | **ADOPT + ADAPTER** | **Critical** | Delegation and handoff must have different lifecycle/ownership semantics. |
+| **OpenClaw** | Per-agent workspace, auth, state, session and channel isolation | **ADAPT + ADAPTER** | High | Preserve isolation discipline without turning Multiple Bots into another omnichannel gateway. |
+| **AgentScope** | MsgHub abstraction, dynamic participants and distributed agents | **ADAPT** | High | Rooms should be real message hubs with delivery semantics, not shared prompt concatenation. |
+| **Pydantic AI** | Typed delegation, dependency injection, usage accounting, cancellation and controlled history transfer | **ADAPT** | High | Use typed schemas and explicit context packets across every adapter. |
+| **Google ADK** | Transfer-oriented routing plus sequential/parallel/loop graph workflows | **STUDY + ADAPTER** | High | Explicit transfer reason is valuable for preventing ping-pong handoffs. |
+| **LangGraph** | Graph workflows, supervisors, handoffs and checkpointing | **STUDY + ADAPTER** | Medium | Useful implementation reference. Avoid magical supervisor semantics and uncontrolled shared-state propagation. |
+| **CrewAI** | Autonomous crews wrapped in controlled Flows | **STUDY** | Medium | Reinforces deterministic outer control around open-ended agents. |
+| **Agno** | Teams, workflow runtime and observability | **STUDY** | Medium | Strong platform reference, but too broad to become AI-Verse's core dependency. |
+| **CAMEL** | Workforce and role-specialized agent collaboration | **STUDY** | Medium | Useful for experiments/dynamic roles, not as the universal runtime contract. |
+| **MetaGPT** | SOP-driven multi-role organization | **STUDY** | Medium | Procedure belongs in AI-Verse Skills/Brain rather than hard-coded software-company roles. |
+| **ClawSwarm** | Sidecar scheduler adding shared group chat above OpenClaw | **STUDY** | Medium | Strong proof of sidecar coordination architecture. GPL-3.0 means implementation code should stay out of a permissive core unless licensing strategy changes. |
+| **ClawTeam and related projects** | Leader task split, inbox/broadcast, dependencies and isolated work areas | **STUDY** | Medium | Useful pattern references after project-by-project maturity/license review. |
 
-## What Grok got right
+## 1. What to adopt from Grok Bot
 
-The Grok reference should influence **task execution**, not permanent Bot identity.
+Grok Bot should shape the **outer persistent teammate product**.
 
-### Adopt
+### Persistent teammate as the primary object
 
-- leader owns synthesis;
-- parallel specialists can investigate different dimensions;
-- agent collaboration is hidden behind one coherent final response when appropriate;
-- fan-out is useful for broad research and verification;
-- worker outputs return to an orchestrator rather than competing directly for the user conversation.
+The user's main unit is not a disposable conversation. It is a stable coworker with:
 
-### Improve
+- name;
+- job/mission;
+- durable responsibility;
+- direct conversation;
+- role-scoped context;
+- tools;
+- execution environment;
+- current state;
+- recurring responsibilities;
+- approval boundaries.
 
-AI-Verse should add:
+AI-Verse should adopt this directly.
 
-- collaboration gate before fan-out;
-- configurable agent count;
-- cost and token ceilings;
-- explicit worker roles and output contracts;
-- participant-specific context packets;
+### Small focused roster
+
+Create a durable Bot when a responsibility deserves a long-lived owner.
+
+Do not create a permanent Bot for every temporary specialist thought.
+
+Temporary expertise belongs in Workers.
+
+### Work in real tools
+
+A Bot should be able to execute through:
+
+- APIs/connectors;
+- browser automation;
+- computer use;
+- filesystem;
+- terminal/process tools;
+- host Skills/operator packs.
+
+Multiple Bots coordinates access. It does not become the tool implementation layer.
+
+### Async peer communication
+
+Bots need durable mailbox semantics so one Bot can wake another and receive a later response without both being inside one synchronous model loop.
+
+### Rooms and Threads
+
+Persistent team collaboration should include:
+
+- group Rooms;
+- `@mentions`;
+- focused Threads;
+- Artifact sharing;
+- explicit work ownership;
+- Bot-to-Bot handoff.
+
+### Progressive autonomy
+
+Preserve the workflow:
+
+```text
+perform once
+  -> verify
+  -> capture reusable method
+  -> promote as Skill
+  -> bind Automation/Routine
+```
+
+AI-Verse improves the architecture by leaving reusable method ownership in Skills and trigger/schedule ownership in Automations.
+
+### Attention rather than surveillance
+
+Expose concise human states:
+
+```text
+working
+needs_input
+needs_approval
+handoff_waiting
+unread_result
+failed
+```
+
+Full traces remain secondary and inspectable.
+
+## 2. What to improve beyond Grok Bot
+
+### Configurable execution isolation
+
+Grok Bot's shared user computer makes collaboration easy but does not create a Bot-level security boundary.
+
+AI-Verse supports first-class policies:
+
+```text
+shared_workspace
+isolated_bot
+isolated_run
+external_managed
+```
+
+The host decides the environment policy. The model cannot promote itself into a broader environment.
+
+### Local-first and runtime-neutral
+
+Do not require one cloud platform or model provider.
+
+Support local runtimes and remote/cloud adapters.
+
+### Explicit canonical ownership
+
+Grok-like role memory must not duplicate AI-Verse OS/Memory truth.
+
+A Bot receives a role-scoped retrieval view rather than owning another full user/workspace truth tree.
+
+### Explicit leases
+
+Tool/environment authority is granted through task-scoped capability and environment leases.
+
+### Open remote interoperability
+
+Use A2A at the external agent boundary instead of creating a proprietary-only peer protocol.
+
+### Measured multi-agent use
+
+Do not assume more agents are better. Use a collaboration gate and record topology performance.
+
+## 3. What to adopt from Grok Multi-Agent
+
+Grok Multi-Agent should shape the **inner temporary squad execution pattern**.
+
+Adopt:
+
+- leader-owned synthesis;
+- parallel independent research/work;
+- task-scoped Workers;
+- selective cross-check/follow-up;
+- one coherent final result.
+
+Improve with:
+
+- task-dependent Worker count;
+- model/provider diversity when useful;
+- explicit output contracts;
+- immutable constraints;
+- workspace/capability leases;
+- cancellation;
+- verifier stage;
+- cost/time budgets;
 - evidence-weighted synthesis;
-- optional verifier;
-- cancellation propagation;
-- workspace and permission isolation;
-- visible structured progress when the host UI wants it;
-- ability to mix durable Bots and temporary Workers.
+- preserved disagreement.
 
-### Do not copy
+Avoid:
 
-- a fixed 4-agent or 16-agent assumption;
-- multi-agent use on every request;
-- one-provider dependency;
-- hidden permission inheritance;
-- architecture that requires sub-agents to use the same model or runtime.
+- forcing 4 or 16 agents everywhere;
+- fan-out for simple tasks;
+- assuming majority vote equals truth;
+- coupling all Workers to one provider/runtime.
 
-## What Hermes got right
+## 4. What to adopt from Hermes
 
-Hermes should influence **the persistent teammate experience**.
+Hermes is one of the strongest open references for persistent named Bots.
 
-### Adopt
+Adopt:
 
-- Bots are durable named identities;
-- each Bot has one stable direct conversation surface;
-- Bots can join group rooms;
-- explicit `@mentions` route attention;
-- Bots can mention other Bots;
-- a Bot can pass rather than manufacture filler;
-- room turns are bounded;
-- user escalation is explicit;
-- remote Bots can participate;
-- one Bot can participate in several teams/rooms;
-- routines can target a responsible Bot.
+- durable named Bot profiles;
+- one stable direct chat per Bot;
+- group Rooms;
+- mentions;
+- pass behavior;
+- bounded discussion;
+- user escalation;
+- remote/cross-machine teammates;
+- ability for one Bot to belong to several Rooms.
 
-### Redesign
+Redesign:
 
-- canonical room engine belongs in backend service;
-- push events replace polling as primary coordination transport;
-- one room event stream is canonical rather than independent member-owned versions of room history;
-- the room engine is usable from CLI, Dashboard, web, desktop and messaging channels equally;
-- runtime/model inheritance is explicit in manifests and adapter contracts;
-- local and remote members are resolved through one identity registry;
-- speaker scheduling has deterministic tests;
-- unresolved `@mentions` cannot silently disappear at caps;
-- activity and delivery state are protocol events rather than UI assumptions.
+- canonical Room engine lives in backend Gateway;
+- push delivery is primary;
+- one canonical Room event stream;
+- same behavior through desktop/web/CLI/channels;
+- explicit local/remote identity resolution;
+- deterministic mention/speaker tests;
+- unresolved mentions become visible events;
+- runtime/model configuration has one normalized contract.
 
-### Avoid
+Avoid:
 
-- orchestration logic coupled to Electron/Desktop lifecycle;
-- duplicated composer or chat semantics for group mode;
-- long polling between Bots;
-- separate backend behavior depending on which UI initiated the room;
-- accidental divergence between Bot DM configuration and room configuration.
+- desktop-owned orchestration;
+- long polling as normal Bot-to-Bot transport;
+- separate UI surfaces implementing different coordination semantics;
+- configuration drift between DM and Room execution paths.
 
-## What Microsoft Agent Framework validates
+## 5. What Microsoft Agent Framework validates
 
-Use separate first-class orchestration strategies:
+Use topology as an explicit strategy:
 
 ```text
 single
 manager
 handoff
-parallel
-room
-group_manager
+parallel_panel
+group_room
 pipeline
 review
 dynamic_squad
 hybrid
 ```
 
-The topology can change while the Bot identities remain constant.
+The Bot roster remains stable while the topology changes per task.
 
-This prevents the common mistake of describing all multi-agent work as a "swarm."
+This is more robust than treating every multi-agent run as a generic swarm.
 
-## What OpenAI Agents SDK validates
+## 6. What OpenAI Agents SDK validates
 
-AI-Verse protocol terminology should distinguish:
+### Delegation
 
-### Delegation / agent-as-tool
-
-The caller remains the owner.
+Caller retains ownership:
 
 ```text
-A asks B for a bounded result
-B returns result to A
-A remains responsible for user response
+A asks B for bounded work
+B returns result
+A owns final response
 ```
 
 ### Handoff
 
-Ownership changes.
+Ownership transfers:
 
 ```text
-A transfers active responsibility to B
-B becomes the current conversational owner
+A requests transfer to B
+B accepts
+B becomes active owner
 ```
 
-The two operations must never share one ambiguous method.
+Use different protocol commands, state transitions and context contracts for these operations.
 
-Recommended command names:
+## 7. What A2A should standardize
 
-```text
-bots.delegate
-bots.handoff
-```
+Do not reinvent remote-agent concepts A2A already covers:
 
-rather than a generic `bots.send_to_agent` for both meanings.
-
-## What A2A should standardize for us
-
-Use A2A at the external boundary for independently running agents.
-
-Do not reinvent remote-agent concepts that A2A already standardizes:
-
-- capability/discovery card;
-- task identity and lifecycle;
-- messages;
-- artifacts;
-- content parts;
-- streaming updates;
-- asynchronous push;
+- capability/discovery cards;
+- Tasks;
+- Messages;
+- Artifacts;
+- Parts;
+- status/progress;
+- streaming;
+- push notifications;
 - cancellation;
-- authentication declarations;
-- extension negotiation.
+- authentication declaration;
+- extensions.
 
-AI-Verse-specific concepts such as workspace lease metadata should be represented through namespaced extensions instead of changing A2A core semantics.
+AI-Verse-specific workspace and lease metadata should use namespaced extensions rather than changing A2A core semantics.
 
-## What OpenClaw should teach the isolation layer
+## 8. What OpenClaw should teach the isolation model
 
-Agent collaboration is not permission sharing.
+Collaboration is not permission sharing.
 
-A durable Bot should be able to have:
+Keep separate:
 
-- its own runtime profile;
-- its own model policy;
-- its own allowed tools;
-- its own connection grants;
-- a bounded workspace scope;
-- its own sessions;
-- explicit channel bindings.
+- runtime profile;
+- model policy;
+- credentials;
+- filesystem scope;
+- sessions;
+- channel bindings;
+- connection grants.
 
-When two Bots collaborate, only the task-scoped intersection of authority is usable.
+When agents collaborate, effective authority is narrowed to the current task lease.
 
-Do not merge their credentials, filesystem roots, or session stores.
+Do not merge credentials merely because two Bots are teammates.
 
-## Message hub architecture from AgentScope
+## 9. What AgentScope should teach Rooms
 
-A Room should implement delivery and participation explicitly.
-
-Bad model:
+Bad Room implementation:
 
 ```text
-join every agent transcript together
-send giant prompt to each agent
-hope the agents infer who should answer
+concatenate every transcript
+send everything to every agent
+hope the model infers who should speak
 ```
 
-Target model:
+Target Room implementation:
 
 ```text
-room event
-  -> gateway resolves eligible participants
-  -> speaker policy selects/queues recipients
-  -> each recipient gets its scoped context packet
-  -> recipient emits reply/pass/task/artifact event
-  -> gateway appends canonical event
+accepted Room event
+  -> Gateway resolves eligible members
+  -> speaker policy selects recipients
+  -> each recipient receives scoped context packet
+  -> recipient replies / passes / delegates / hands off / publishes Artifact
+  -> Gateway appends canonical event
   -> subscribers receive push update
 ```
 
-## Typed delegation from Pydantic AI
+## 10. What Pydantic AI should teach adapters
 
-Every runtime adapter must convert AI-Verse's typed Task/Message/Artifact contracts into the native framework rather than passing arbitrary prompt blobs around.
+Cross-agent work should be typed and validated.
 
-This enables:
+Every adapter must preserve:
 
-- schema validation;
-- permission checks before execution;
-- deterministic retries;
-- compatible history transfer;
-- usage accounting;
+- identity;
+- workspace;
+- objective;
+- immutable constraints;
+- expected output contract;
+- capability lease;
 - cancellation;
-- easier cross-framework adapters.
+- usage/budget accounting;
+- Artifact result semantics.
 
-## Lessons from LangGraph and supervisor frameworks
+Do not reduce the normalized protocol to a generic prompt string if the target runtime can preserve structure.
 
-### Keep useful ideas
+## 11. Lessons from LangGraph and supervisor frameworks
 
-- checkpointed runs;
-- graph-shaped workflows;
-- supervisor nodes;
-- explicit handoffs;
-- resumability.
+Keep:
 
-### Avoid recurring failure modes
+- checkpointable workflows;
+- resumability;
+- graph execution;
+- explicit handoff nodes;
+- supervisor/manager roles where useful.
 
-- dropping constraints during task reformulation;
-- assuming a high-level supervisor abstraction automatically enables true parallelism;
-- passing incompatible histories to another agent;
-- making all participants mutate one shared state object without an artifact concurrency contract;
-- assuming the final supervisor will notice that a delegated task silently lost part of the original requirement.
+Design against:
 
-AI-Verse solves these through root objective IDs, immutable constraints, typed outputs, artifact versions, and verification.
+- constraints dropped during reformulation;
+- fake parallelism;
+- incompatible history transfer;
+- uncontrolled shared mutable state;
+- supervisor accepting a result that no longer satisfies the original Task.
 
-## Licensing and code-reuse policy
+AI-Verse uses root objective IDs, immutable constraint sets, typed Artifacts, explicit ownership and verification to reduce these failures.
 
-The research intentionally distinguishes **ideas** from **copied implementation**.
+## 12. What not to use as the base
 
-Verified during this architecture phase:
+### Unofficial `grok-bot-app/grok-bot`
 
-- Hermes Agent: MIT;
-- Microsoft Agent Framework: MIT;
-- OpenAI Agents SDK: MIT;
-- OpenClaw: MIT;
-- A2A: Apache-2.0;
-- ClawSwarm: GPL-3.0 according to its repository metadata/documentation reviewed during research.
+The public repository using this name explicitly identifies itself as an unofficial community guide/reimplementation rather than xAI source.
 
-Before copying code from any other project, verify its exact current license and attribution obligations at implementation time.
+Its small example orchestrator routes an unstructured string from one Bot to another and includes a placeholder approval flow. It is useful as a conceptual demo, not as a production architecture base.
 
-### Recommended policy
+### No single framework wholesale
 
-1. Build the AI-Verse coordination core independently.
-2. Prefer dependencies/adapters for full external frameworks instead of vendoring them.
-3. Reuse only small, clearly useful permissively licensed components where doing so materially reduces risk or duplication.
-4. Preserve copyright/license notices when code is copied or substantially adapted.
-5. Maintain `THIRD_PARTY_NOTICES.md` as soon as the repository incorporates third-party code.
-6. Keep GPL implementation code out of a permissively licensed core unless the entire licensing decision is deliberately revisited.
-7. Public API behavior, papers, documentation and architecture concepts can inform design without pretending proprietary source code was obtained.
-
-## What should not become a dependency
-
-The core should not require:
+Do not make any of these the required core:
 
 - Hermes;
 - OpenClaw;
@@ -296,59 +389,101 @@ The core should not require:
 - LangGraph;
 - CrewAI;
 - Agno;
-- a vector database;
+- CAMEL;
+- MetaGPT.
+
+Adapters may use them when the host already does.
+
+## 13. Licensing and code-reuse policy
+
+Verified during this architecture phase:
+
+- Hermes Agent: MIT;
+- Microsoft Agent Framework: MIT;
+- OpenAI Agents SDK: MIT;
+- OpenClaw: MIT;
+- A2A: Apache-2.0;
+- ClawSwarm: GPL-3.0 based on repository metadata/documentation reviewed during research.
+
+Before copying code from any project, verify the current license again at implementation time.
+
+Recommended policy:
+
+1. Build the AI-Verse coordination core independently.
+2. Prefer adapters/dependencies to vendoring full frameworks.
+3. Reuse permissively licensed components only where they materially reduce risk/duplication.
+4. Preserve required copyright and license notices.
+5. Add `THIRD_PARTY_NOTICES.md` when implementation actually incorporates third-party code.
+6. Keep GPL implementation code outside a permissively licensed core unless the licensing strategy is intentionally changed.
+7. Product behavior, public API contracts, papers and documentation can inform design without implying access to proprietary source.
+
+## 14. Core dependencies should remain minimal
+
+The normal local install should not require:
+
 - Redis;
 - Kubernetes;
-- a cloud control plane;
-- one model provider.
+- a vector database;
+- one model vendor;
+- one cloud control plane;
+- one external orchestration framework.
 
-Those systems should integrate through adapters where valuable.
-
-## Core dependencies should stay boring
-
-The ideal local install requires only:
+A practical core can rely on:
 
 - one supported language runtime;
 - schema validation;
 - SQLite or equivalent local derived store;
-- local HTTP/WebSocket/SSE transport;
-- host runtime adapter.
+- append-first durable coordination records;
+- local HTTP/WebSocket/SSE or equivalent transport;
+- one host runtime adapter.
 
-Everything else is optional.
-
-## Implementation priority
+## 15. Implementation priority
 
 ### Tier 1: implement directly
 
-1. Bot registry and manifests.
-2. Worker/run identity.
-3. Room message hub.
-4. Task, Message, Artifact and Event models.
-5. Coordination Gateway.
-6. permission/capability lease engine.
-7. budget and loop controls.
-8. single, manager, handoff, parallel and room topologies.
-9. context packet builder.
-10. event-driven observability.
+1. durable Bot registry;
+2. stable Bot conversation;
+3. Room + Thread event hub;
+4. async peer delivery queue;
+5. Task/Message/Artifact/Event contracts;
+6. Coordination Gateway;
+7. ownership and handoff state;
+8. capability/environment leases;
+9. approval/policy hooks;
+10. presence/attention events;
+11. loop/budget/cancellation controls;
+12. context packet builder.
 
-### Tier 2: standards and native integration
+### Tier 2: orchestration
 
-1. A2A adapter.
-2. AI-Verse OS installer.
-3. Memory/Brain/Skills/Dashboard contracts.
-4. restart/checkpoint handling.
-5. evaluation harness.
+1. delegation;
+2. handoff;
+3. manager;
+4. parallel panel;
+5. group scheduler;
+6. pipeline;
+7. review/verifier;
+8. dynamic squad;
+9. collaboration gate.
 
-### Tier 3: external runtime adapters
+### Tier 3: native AI-Verse integration
 
-1. Hermes.
-2. OpenClaw.
-3. generic CLI runtime.
-4. OpenAI Agents SDK.
-5. Google ADK.
-6. Microsoft Agent Framework.
-7. other frameworks only when a real use case exists.
+1. OS installer/registry;
+2. workspace resolver;
+3. Brain Team Run boundary;
+4. Skills references;
+5. Memory/write-back candidates;
+6. Automation/Routine binding;
+7. Dashboard event projection.
+
+### Tier 4: interoperability
+
+1. A2A;
+2. Hermes;
+3. OpenClaw;
+4. generic CLI processes;
+5. optional framework-specific adapters.
 
 ## Final adoption rule
 
-> **Take Grok's squad intelligence, Hermes' teammate experience, Microsoft's topology discipline, OpenAI's ownership semantics, OpenClaw's isolation, AgentScope's message-hub model, Pydantic AI's typed delegation, and A2A's interoperability. Do not inherit any one framework's entire platform boundary.**
+> **Use Grok Bot for the persistent teammate product model, Grok Multi-Agent for temporary squad intelligence, Hermes for open persistent-Bot interaction patterns, Microsoft for topology discipline, OpenAI for ownership semantics, OpenClaw for isolation lessons, AgentScope for message-hub design, Pydantic AI for typed delegation, and A2A for interoperability. Build the AI-Verse coordination core independently rather than inheriting any one platform's entire boundary.**
