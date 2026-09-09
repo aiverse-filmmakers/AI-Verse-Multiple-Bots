@@ -14,14 +14,14 @@ The target is an installable persistent-teammate layer that can run standalone o
 
 ```text
 Phase 0  Research + Architecture        [COMPLETE]  100%
-Phase 1  Runnable Coordination Core     [ACTIVE]     ~96%
+Phase 1  Runnable Coordination Core     [ACTIVE]     ~97%
 Phase 2  Dynamic Multi-Agent Squads     [NOT STARTED]
 Phase 3  AI-Verse Native Integration    [NOT STARTED]
 Phase 4  Runtime / A2A Interoperability [NOT STARTED]
 Phase 5  Product + Install + Dashboard  [NOT STARTED]
 ```
 
-**Directional overall first-release progress:** roughly 39% complete.
+**Directional overall first-release progress:** roughly 40% complete.
 
 That overall figure is intentionally approximate because later phases contain different amounts of work. Passed phase gates, not percentages, are authoritative.
 
@@ -42,7 +42,7 @@ That overall figure is intentionally approximate because later phases contain di
 
 ## Phase 1 - Runnable Coordination Core
 
-**Status:** ACTIVE, approximately 96%
+**Status:** ACTIVE, approximately 97%
 
 ### 1.1 Repository/runtime skeleton
 
@@ -82,19 +82,31 @@ That overall figure is intentionally approximate because later phases contain di
 
 ### 1.4 Bot registry
 
-**PARTIAL - NEXT MAIN GATE**
+**PHASE-1 HARDENING COMPLETE**
 
-Complete:
 - create/get/list
-- active status validation
-- workspace association
-- runtime/execution/permission metadata
-
-Remaining:
-- explicit activate/disable/archive transitions
-- duplicate ID and normalized name/alias collision hardening
-- manager and peer relationship validation
-- lifecycle safety while a Bot still owns active work
+- immutable durable Bot IDs
+- duplicate ID protection
+- active/disabled/archived lifecycle
+- archived status is terminal
+- operator-audited activate/disable/archive transitions
+- workspace-scoped and operator-scoped registry namespaces
+- normalized identity addresses from Bot ID, shorthand ID, roster name, explicit aliases and UI handle
+- role titles are descriptive and never implicit addresses
+- same-scope address collision prevention
+- archived addresses stay reserved to protect stale automations from silent retargeting
+- explicit address resolution API
+- manager existence/scope/availability validation
+- self-manager rejection
+- manager-cycle detection
+- manager dependency guards during disable/archive
+- explicit peer validation
+- safe forward peer declarations with inbound scope validation when the target appears
+- self-peer and cross-scope peer rejection
+- lifecycle transition blocked while a Bot owns or is assigned live work
+- archive blocked while active Rooms still reference the Bot
+- disabled Room members cannot speak, resolve as active mentions, receive speaker scheduling or own Room work
+- registry behavior and HTTP lifecycle proven in CI
 
 ### 1.5 Runtime adapter contract
 
@@ -112,7 +124,7 @@ Remaining:
 
 Remaining before Phase 1 closes:
 - first real useful runtime adapter
-- provider-specific receipt normalization
+- provider/model receipt normalization
 
 ### 1.6 Persistent Task execution and recovery
 
@@ -204,7 +216,7 @@ Remaining before Phase 1 closes:
 - Room creation and membership
 - same-workspace validation
 - leaders
-- aliases and @mentions
+- registry-backed aliases and @mentions
 - visible unresolved/ambiguous mention errors
 - Threads
 - pass
@@ -214,6 +226,7 @@ Remaining before Phase 1 closes:
 - Bot Artifact/result publishes back into Room/Thread
 - Room event ordering/replay storage
 - Room replay HTTP API
+- disabled Bots remain durable members but are unavailable for active Room work
 
 Advanced group-turn/squad policies belong in later phases.
 
@@ -251,6 +264,7 @@ Implemented and enforced:
 - attention event for pending approval
 - machine-readable schema regression tests for Safety II and Handoff contracts
 - fail-safe crash recovery that never auto-replays work unless explicitly declared replay-safe
+- Bot identity/lifecycle rules that prevent silent retargeting or disabling a live owner
 
 Remaining integration item:
 - enforce Room `max_messages` / `max_rounds` budget envelopes across complete multi-turn runs. Core Room scheduling already has bounded per-turn speaker/message settings.
@@ -263,9 +277,8 @@ Phase 1 is complete only when all of the following pass together:
 
 ### Phase 1 major slices still left
 
-1. **Bot registry hardening:** lifecycle, collision and relationship rules
-2. **First real runtime adapter + Phase-1 end-to-end acceptance test**
-3. **Final Phase-1 contract pass:** Room aggregate limits and release-level conformance/restart scenarios
+1. **First real runtime adapter + Phase-1 end-to-end acceptance test**
+2. **Final Phase-1 contract pass:** Room aggregate limits and release-level conformance/restart scenarios
 
 ## Phase 2 - Dynamic Multi-Agent Squads
 
