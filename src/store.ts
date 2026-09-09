@@ -16,6 +16,37 @@ function parseObject(value: string): JsonObject {
   return JSON.parse(value) as JsonObject;
 }
 
+export interface AtomicMutationObject {
+  kind: ProtocolKind;
+  payload: JsonObject;
+}
+
+export interface AtomicMutationPrecondition {
+  id: string;
+  kind: ProtocolKind;
+  status?: string;
+  ownerId?: string;
+}
+
+export interface AtomicQueueRetarget {
+  itemId: string;
+  fromTargetId: string;
+  toTargetId: string;
+  required?: boolean;
+}
+
+export interface AtomicMutationInput {
+  preconditions?: AtomicMutationPrecondition[];
+  objects: AtomicMutationObject[];
+  events: CoordinationEvent[];
+  queueRetarget?: AtomicQueueRetarget;
+}
+
+export interface AtomicMutationResult {
+  objects: StoredObject[];
+  events: AppendedEvent[];
+}
+
 export class CoordinationStore {
   readonly dbPath: string;
   private readonly db: DatabaseSync;
@@ -114,21 +145,8 @@ export class CoordinationStore {
 
   putObject(kind: ProtocolKind, payload: JsonObject): StoredObject {
     validateProtocolObject(payload, kind);
-    const id = String(payload.id);
-    const workspaceId = this.extractWorkspaceId(payload);
-    const status = typeof payload.status === "string" ? payload.status : null;
-    const timestamp = nowIso();
-    this.db.prepare(`
-      INSERT INTO objects(id, kind, workspace_id, status, payload, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(id) DO UPDATE SET
-        kind = excluded.kind,
-        workspace_id = excluded.workspace_id,
-        status = excluded.status,
-        payload = excluded.payload,
-        updated_at = excluded.updated_at
-    `).run(id, kind, workspaceId, status, json(payload), timestamp, timestamp);
-    return this.getObject(id) as StoredObject;
+    this.writeObject(kind, payload, nowIso());
+    return this.getObject(String(payload.id)) as StoredObject;
   }
 
   getObject(id: string): StoredObject | null {
@@ -163,47 +181,53 @@ export class CoordinationStore {
 
     this.db.exec("BEGIN IMMEDIATE;");
     try {
-      let roomSequence: number | null = null;
-      if (event.room_id) {
-        this.db.prepare("INSERT OR IGNORE INTO room_sequences(room_id, last_sequence) VALUES (?, 0)").run(event.room_id);
-        this.db.prepare("UPDATE room_sequences SET last_sequence = last_sequence + 1 WHERE room_id = ?").run(event.room_id);
-        const seqRow = this.db.prepare("SELECT last_sequence FROM room_sequences WHERE room_id = ?").get(event.room_id) as { last_sequence: number };
-        roomSequence = Number(seqRow.last_sequence);
-      }
-
-      const result = this.db.prepare(`
-        INSERT INTO events(
-          id, type, timestamp, actor_id, workspace_id, run_id, task_id, room_id, thread_id,
-          correlation_id, causation_id, trace_id, room_sequence, payload
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(
-        event.id,
-        event.type,
-        event.timestamp,
-        event.actor_id,
-        event.workspace_id ?? null,
-        event.run_id ?? null,
-        event.task_id ?? null,
-        event.room_id ?? null,
-        event.thread_id ?? null,
-        event.correlation_id ?? null,
-        event.causation_id ?? null,
-        event.trace_id ?? null,
-        roomSequence,
-        json(event)
-      ) as { lastInsertRowid: number | bigint };
-
-      const appended: AppendedEvent = {
-        sequence: Number(result.lastInsertRowid),
-        roomSequence,
-        event
-      };
+      const appended = this.writeEvent(event);
       if (idempotencyKey) {
         this.db.prepare("INSERT INTO idempotency(key, operation, result_json, created_at) VALUES (?, ?, ?, ?)")
           .run(idempotencyKey, "appendEvent", json(appended), nowIso());
       }
       this.db.exec("COMMIT;");
       return appended;
+    } catch (error) {
+      this.db.exec("ROLLBACK;");
+      throw error;
+    }
+  }
+
+  atomicMutation(input: AtomicMutationInput): AtomicMutationResult {
+    for (const object of input.objects) validateProtocolObject(object.payload, object.kind);
+    for (const event of input.events) validateProtocolObject(event, "event");
+
+    this.db.exec("BEGIN IMMEDIATE;");
+    try {
+      for (const precondition of input.preconditions ?? []) {
+        const row = this.db.prepare("SELECT kind, status, payload FROM objects WHERE id = ?").get(precondition.id) as any;
+        if (!row) throw new Error(`Atomic precondition failed: object ${precondition.id} not found`);
+        if (String(row.kind) !== precondition.kind) {
+          throw new Error(`Atomic precondition failed: ${precondition.id} is ${String(row.kind)}, expected ${precondition.kind}`);
+        }
+        if (precondition.status !== undefined && String(row.status) !== precondition.status) {
+          throw new Error(`Atomic precondition failed: ${precondition.id} status is ${String(row.status)}, expected ${precondition.status}`);
+        }
+        if (precondition.ownerId !== undefined) {
+          const payload = parseObject(String(row.payload));
+          if (String(payload.owner_id) !== precondition.ownerId) {
+            throw new Error(`Atomic precondition failed: ${precondition.id} owner is ${String(payload.owner_id)}, expected ${precondition.ownerId}`);
+          }
+        }
+      }
+
+      if (input.queueRetarget) this.retargetQueueInTransaction(input.queueRetarget);
+
+      const timestamp = nowIso();
+      for (const object of input.objects) this.writeObject(object.kind, object.payload, timestamp);
+      const appendedEvents = input.events.map((event) => this.writeEvent(event));
+
+      this.db.exec("COMMIT;");
+      return {
+        objects: input.objects.map((object) => this.getObject(String(object.payload.id)) as StoredObject),
+        events: appendedEvents
+      };
     } catch (error) {
       this.db.exec("ROLLBACK;");
       throw error;
@@ -269,6 +293,85 @@ export class CoordinationStore {
     checks.events = Boolean(this.db.prepare("SELECT 1 AS ok FROM events LIMIT 1").get() ?? { ok: 1 });
     checks.deliveries = Boolean(this.db.prepare("SELECT 1 AS ok FROM deliveries LIMIT 1").get() ?? { ok: 1 });
     return { ok: Object.values(checks).every(Boolean), schemaVersion: this.schemaVersion(), checks };
+  }
+
+  private writeObject(kind: ProtocolKind, payload: JsonObject, timestamp: string): void {
+    const id = String(payload.id);
+    const workspaceId = this.extractWorkspaceId(payload);
+    const status = typeof payload.status === "string" ? payload.status : null;
+    this.db.prepare(`
+      INSERT INTO objects(id, kind, workspace_id, status, payload, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        kind = excluded.kind,
+        workspace_id = excluded.workspace_id,
+        status = excluded.status,
+        payload = excluded.payload,
+        updated_at = excluded.updated_at
+    `).run(id, kind, workspaceId, status, json(payload), timestamp, timestamp);
+  }
+
+  private writeEvent(event: CoordinationEvent): AppendedEvent {
+    let roomSequence: number | null = null;
+    if (event.room_id) {
+      this.db.prepare("INSERT OR IGNORE INTO room_sequences(room_id, last_sequence) VALUES (?, 0)").run(event.room_id);
+      this.db.prepare("UPDATE room_sequences SET last_sequence = last_sequence + 1 WHERE room_id = ?").run(event.room_id);
+      const seqRow = this.db.prepare("SELECT last_sequence FROM room_sequences WHERE room_id = ?").get(event.room_id) as { last_sequence: number };
+      roomSequence = Number(seqRow.last_sequence);
+    }
+
+    const result = this.db.prepare(`
+      INSERT INTO events(
+        id, type, timestamp, actor_id, workspace_id, run_id, task_id, room_id, thread_id,
+        correlation_id, causation_id, trace_id, room_sequence, payload
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      event.id,
+      event.type,
+      event.timestamp,
+      event.actor_id,
+      event.workspace_id ?? null,
+      event.run_id ?? null,
+      event.task_id ?? null,
+      event.room_id ?? null,
+      event.thread_id ?? null,
+      event.correlation_id ?? null,
+      event.causation_id ?? null,
+      event.trace_id ?? null,
+      roomSequence,
+      json(event)
+    ) as { lastInsertRowid: number | bigint };
+
+    return {
+      sequence: Number(result.lastInsertRowid),
+      roomSequence,
+      event
+    };
+  }
+
+  private retargetQueueInTransaction(input: AtomicQueueRetarget): void {
+    const table = this.db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'execution_queue'").get() as { name: string } | undefined;
+    if (!table) {
+      if (input.required) throw new Error("Atomic queue retarget required but execution_queue table is not available in this database connection");
+      return;
+    }
+    const row = this.db.prepare("SELECT target_id, state FROM execution_queue WHERE item_id = ?").get(input.itemId) as any;
+    if (!row) {
+      if (input.required) throw new Error(`Execution queue item for ${input.itemId} not found`);
+      return;
+    }
+    if (String(row.state) !== "queued") {
+      throw new Error(`Cannot hand off ${input.itemId} while execution state is ${String(row.state)}; only queued work can be retargeted atomically`);
+    }
+    if (String(row.target_id) !== input.fromTargetId) {
+      throw new Error(`Execution queue target for ${input.itemId} is ${String(row.target_id)}, expected ${input.fromTargetId}`);
+    }
+    const result = this.db.prepare(`
+      UPDATE execution_queue
+      SET target_id = ?, claimed_by = NULL, claimed_at = NULL, updated_at = ?
+      WHERE item_id = ? AND target_id = ? AND state = 'queued'
+    `).run(input.toTargetId, nowIso(), input.itemId, input.fromTargetId) as { changes: number | bigint };
+    if (Number(result.changes) !== 1) throw new Error(`Atomic queue retarget lost for ${input.itemId}`);
   }
 
   private extractWorkspaceId(payload: JsonObject): string | null {
