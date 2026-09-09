@@ -1,0 +1,19 @@
+{
+  "name": "@ai-verse/multiple-bots",
+  "version": "0.1.0-alpha.1",
+  "private": false,
+  "description": "Runtime-neutral coordination core for persistent AI teammates and bounded multi-agent teams.",
+  "type": "module",
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "npm run build && node --test dist/test/*.test.js",
+    "start": "node dist/src/cli.js",
+    "doctor": "npm run build && node dist/src/cli.js doctor"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.3"
+  }
+}
