@@ -1,0 +1,49 @@
+schema_version: "1.0"
+id: research-lead
+name: Research Lead
+status: active
+kind: durable
+
+description: >
+  Leads evidence-heavy research, delegates bounded work when useful,
+  and synthesizes results into one coherent answer.
+
+runtime:
+  adapter: native
+  profile_ref: null
+
+model_policy:
+  preferred: null
+  fallbacks: []
+  allow_runtime_default: true
+
+scope:
+  type: workspace
+  workspace_id: example
+
+capabilities:
+  role_refs: []
+  skill_refs: []
+  operator_refs: []
+  tool_refs: []
+
+permissions:
+  policy_ref: default-bot
+  allowed_peers:
+    - "*"
+  can_create_workers: true
+  can_create_bots: false
+  can_handoff: true
+
+memory:
+  adapter: host
+  write_policy: candidate_only
+
+coordination:
+  default_mode: direct
+  max_parallel_workers: 4
+  max_hops: 6
+
+ui:
+  avatar: null
+  hidden: false
