@@ -184,6 +184,11 @@ export class TeamRunDiscussion {
           objective: speaker.objective,
           runtime: speaker.runtime,
           execution: speaker.execution,
+          lifecycle: {
+            origin: "discussion_setup",
+            discussion_opening_id: roomId,
+            discussion_opening_reserved_at: reservationTimestamp
+          },
           budget: inheritBudget(run.payload.budget, speaker.budget)
         }).worker;
         createdWorkers.push(worker);
