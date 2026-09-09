@@ -25,8 +25,8 @@ function bot(adapter = "deterministic"): BotManifest {
     permissions: {
       policy_ref: "strict",
       allowed_peers: ["*"],
-      allowed_tools: [],
-      allowed_connections: [],
+      allowed_tools: ["tool.echo"],
+      allowed_connections: ["conn.notes"],
       can_create_workers: true,
       can_handoff: true
     },
@@ -84,6 +84,99 @@ test("group discussion uses a temporary Room while Workers stay outside durable 
     assert.equal(opened.workers.length, 2);
     assert.equal(env.teams.listWorkers(run.id).length, 2);
     assert.equal(opened.firstTask?.payload.assignee_id, "worker_discussion_builder");
+  } finally {
+    await closeFixture(env);
+  }
+});
+
+test("discussion Worker remains reusable immediately after a successful turn and never becomes terminal between rounds", async () => {
+  const env = fixture();
+  try {
+    const run = createRun(env);
+    const opened = env.discussion.open({ runId: run.id, createdBy: "bot_leader", topic: "Lifecycle-safe debate", speakers: speakers(), rounds: 2 });
+    const first = await env.runner.runNext("worker_discussion_builder");
+    assert.equal(first?.status, "completed");
+    assert.equal(env.store.getObject(opened.firstTask!.id)?.payload.status, "completed");
+    const worker = env.store.getObject("worker_discussion_builder");
+    assert.equal(worker?.payload.status, "waiting");
+    assert.equal(worker?.payload.terminal_at, null);
+    assert.equal(worker?.payload.last_completed_task_id, opened.firstTask!.id);
+    assert.equal((env.discussion.get(opened.room.id)?.payload.discussion as any)?.current_task_id, opened.firstTask!.id);
+  } finally {
+    await closeFixture(env);
+  }
+});
+
+test("speaker capability grants survive discussion setup and reach the turn-scoped capability lease", async () => {
+  const env = fixture();
+  try {
+    const run = createRun(env);
+    const [builder, skeptic] = speakers();
+    const opened = env.discussion.open({
+      runId: run.id,
+      createdBy: "bot_leader",
+      topic: "Capability-bounded debate",
+      speakers: [
+        { ...builder!, tools: ["tool.echo"], connections: ["conn.notes"] },
+        skeptic!
+      ],
+      rounds: 1,
+      maxMessages: 2
+    });
+    const lease = env.store.getObject(String(opened.firstTask?.payload.lease_id));
+    assert.equal(lease?.kind, "capability_lease");
+    assert.deepEqual(lease?.payload.tools, ["tool.echo"]);
+    assert.deepEqual(lease?.payload.connections, ["conn.notes"]);
+  } finally {
+    await closeFixture(env);
+  }
+});
+
+test("temporary Worker Room publication fails closed across Team Run boundaries", async () => {
+  const env = fixture();
+  try {
+    const run = createRun(env);
+    const opened = env.discussion.open({ runId: run.id, createdBy: "bot_leader", topic: "Scoped debate", speakers: speakers(), rounds: 1, maxMessages: 2 });
+    const foreignRun = createRun(env, "group_room", { max_workers: 1, max_messages: 2, max_rounds: 1, max_tasks: 1, max_actions: 2 });
+    env.teams.createWorker({
+      runId: foreignRun.id,
+      createdBy: "bot_leader",
+      workerId: "worker_foreign_discussion",
+      roleTitle: "Foreign Worker",
+      objective: "Must not publish across runs."
+    });
+    assert.throws(
+      () => env.gateway.publishRoomMessage({
+        senderId: "worker_foreign_discussion",
+        roomId: opened.room.id,
+        workspaceId: "ws_discussion",
+        text: "Cross-run output",
+        artifactRefs: []
+      }),
+      /durable or cross-run Room/
+    );
+  } finally {
+    await closeFixture(env);
+  }
+});
+
+test("stale discussion setup reservation blocks a second opener before creating temporary Workers", async () => {
+  const env = fixture();
+  try {
+    const run = createRun(env);
+    const reservationId = `room_${randomUUID()}`;
+    env.gateway.record("team_run", {
+      ...run.payload,
+      discussion_opening_id: reservationId,
+      discussion_opening_reserved_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    });
+    assert.throws(
+      () => env.discussion.open({ runId: run.id, createdBy: "bot_leader", topic: "Second opener", speakers: speakers() }),
+      /discussion setup .* in progress/
+    );
+    assert.equal(env.teams.listWorkers(run.id).length, 0);
+    assert.equal(env.discussion.list(run.id).length, 0);
   } finally {
     await closeFixture(env);
   }
@@ -233,6 +326,8 @@ test("restart after a completed but unreconciled turn resumes at the next turn w
     const first = await env.runner.runNext("worker_discussion_builder");
     assert.equal(first?.status, "completed");
     assert.equal(env.store.getObject(firstTaskId)?.payload.status, "completed");
+    assert.equal(env.store.getObject("worker_discussion_builder")?.payload.status, "waiting");
+    assert.equal(env.store.getObject("worker_discussion_builder")?.payload.terminal_at, null);
     assert.equal((env.discussion.get(roomId)?.payload.discussion as any)?.current_task_id, firstTaskId);
     env.queue.close();
     env.store.close();
@@ -255,6 +350,9 @@ test("restart after a completed but unreconciled turn resumes at the next turn w
       const firstArtifactMessages = env.store.listObjects("message", "ws_discussion")
         .filter((message) => message.payload.room_id === roomId && Array.isArray(message.payload.artifact_refs) && message.payload.artifact_refs.includes(firstArtifactId));
       assert.equal(firstArtifactMessages.length, 2); // Worker candidate message + final leader collection message
+      const workerTurnMessages = env.store.listObjects("message", "ws_discussion")
+        .filter((message) => message.payload.room_id === roomId && message.payload.sender_id === "worker_discussion_builder");
+      assert.equal(new Set(workerTurnMessages.map((message) => message.id)).size, workerTurnMessages.length);
     } finally {
       await closeFixture(env);
     }
