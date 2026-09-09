@@ -117,12 +117,25 @@ export function validateProtocolObject(value: unknown, expectedKind?: ProtocolKi
       if (!Array.isArray(value.required_constraints)) issues.push("required_constraints must be an array");
       requiredObject(value, "expected_output", issues);
       break;
-    case "handoff":
-      for (const key of ["source_owner_id", "target_owner_id", "workspace_id", "work_item_id", "root_objective_id", "reason", "status"]) {
+    case "handoff": {
+      for (const key of ["source_owner_id", "target_bot_id", "workspace_id", "task_id", "root_objective_id", "reason", "return_policy", "status"]) {
         requiredString(value, key, issues);
       }
       if (!Array.isArray(value.required_constraints)) issues.push("required_constraints must be an array");
+      if (
+        typeof value.return_policy === "string"
+        && !["stay_with_target", "return_on_completion", "return_on_block", "explicit_only"].includes(value.return_policy)
+      ) {
+        issues.push("return_policy is not supported");
+      }
+      if (
+        typeof value.status === "string"
+        && !["requested", "accepted", "rejected", "ownership_changed", "completed", "canceled", "failed"].includes(value.status)
+      ) {
+        issues.push("handoff.status is not supported");
+      }
       break;
+    }
     case "artifact":
       for (const key of ["workspace_id", "created_by", "kind"]) requiredString(value, key, issues);
       requiredObject(value, "provenance", issues);
@@ -136,10 +149,15 @@ export function validateProtocolObject(value: unknown, expectedKind?: ProtocolKi
     case "environment_lease":
       for (const key of ["issued_to", "workspace_id", "environment_policy", "environment_ref", "expires_at"]) requiredString(value, key, issues);
       break;
-    case "approval":
+    case "approval": {
       for (const key of ["workspace_id", "actor_id", "status"]) requiredString(value, key, issues);
-      requiredObject(value, "action", issues);
+      const action = requiredObject(value, "action", issues);
+      if (action) {
+        requiredString(action, "kind", issues);
+        requiredString(action, "summary", issues);
+      }
       break;
+    }
     case "event":
       requiredString(value, "type", issues);
       requiredString(value, "timestamp", issues);
