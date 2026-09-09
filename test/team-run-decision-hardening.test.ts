@@ -211,6 +211,57 @@ test("poisoned collaboration decision Artifact fails validation before a Team Ru
   store.close();
 });
 
+test("tampering stored adaptive inputs breaks the deterministic digest before run creation", () => {
+  const store = new CoordinationStore(":memory:");
+  const gateway = new CoordinationGateway(store);
+  gateway.createBot(bot());
+  const policy = new TeamRunDecisionPolicy(store);
+
+  const result = policy.decide({
+    leaderId: "bot_leader",
+    workspaceId: "ws_decision_hardening",
+    rootObjectiveId: "obj_digest_poison",
+    objective: "Compare two scoped candidates.",
+    work: { independentWorkstreams: 2, parallelSafe: true },
+    budget: { max_workers: 2, max_tasks: 2 }
+  });
+  store.putObject("artifact", {
+    ...result.artifact.payload,
+    objective: "A different objective injected after the decision was recorded."
+  });
+
+  assert.throws(() => policy.openSelectedRun(result.artifact.id), /input_digest does not match stored decision inputs/);
+  assert.equal(store.listObjects("team_run", "ws_decision_hardening").length, 0);
+  store.close();
+});
+
+test("adaptive reuse refuses an existing Team Run that has no explicit Worker identity ceiling", () => {
+  const store = new CoordinationStore(":memory:");
+  const gateway = new CoordinationGateway(store);
+  gateway.createBot(bot());
+  const teams = new TeamRunCoordinator(store);
+  teams.createRun({
+    leaderId: "bot_leader",
+    workspaceId: "ws_decision_hardening",
+    rootObjectiveId: "obj_unbounded_reuse",
+    objective: "Legacy unbounded run.",
+    topology: "manager",
+    budget: { max_tasks: 2 }
+  });
+  const policy = new TeamRunDecisionPolicy(store);
+
+  assert.throws(() => policy.decide({
+    leaderId: "bot_leader",
+    workspaceId: "ws_decision_hardening",
+    rootObjectiveId: "obj_unbounded_reuse",
+    objective: "Do not inherit an unbounded Worker lifetime.",
+    work: { specialistRoles: 1 },
+    budget: { max_tasks: 2 }
+  }), /no explicit bounded max_workers ceiling/);
+  assert.equal(policy.listDecisions("ws_decision_hardening").length, 0);
+  store.close();
+});
+
 test("multiple Team Runs for one root objective are treated as an orchestration-loop inconsistency", () => {
   const store = new CoordinationStore(":memory:");
   const gateway = new CoordinationGateway(store);
