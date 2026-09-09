@@ -144,6 +144,18 @@ export class TeamRunVerifier {
     this.assertLeaderAuthority(leader, input.tools ?? [], input.connections ?? []);
     this.assertWorkerCapacity(latestRun);
 
+    const leaderExecution = asObject(leader.payload.execution);
+    const leaderEnvironmentPolicy = typeof leaderExecution.environment_policy === "string" ? leaderExecution.environment_policy : null;
+    if (!leaderEnvironmentPolicy) throw new Error(`Team Run leader ${leader.id} has no execution environment policy`);
+    const executionOverride = input.execution ?? {};
+    if (
+      typeof executionOverride.environment_policy === "string"
+      && executionOverride.environment_policy !== leaderEnvironmentPolicy
+    ) {
+      throw new Error(`Verifier Worker cannot change leader environment policy from ${leaderEnvironmentPolicy} to ${executionOverride.environment_policy}`);
+    }
+    const workerExecution: JsonObject = { ...leaderExecution, ...executionOverride, environment_policy: leaderEnvironmentPolicy };
+
     const workerId = input.workerId ?? createId("worker");
     if (!workerId.startsWith("worker_")) throw new Error(`Verifier Worker ID must start with worker_: ${workerId}`);
     if (this.gateway.store.getObject(workerId)) throw new Error(`Protocol object ${workerId} already exists`);
@@ -169,7 +181,7 @@ export class TeamRunVerifier {
         objective: "Evaluate explicit disagreement findings against scoped candidate evidence and return a structured verdict without expanding the original objective."
       },
       runtime: input.runtime ?? {},
-      execution: input.execution ?? {},
+      execution: workerExecution,
       capability_lease_id: leaseId,
       environment_lease_id: null,
       budget: effectiveBudget,
