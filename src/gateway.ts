@@ -43,6 +43,7 @@ export interface DelegateInput {
   maxHops?: number;
   hop?: number;
   leaseExpiresAt?: string;
+  deadlineAt?: string;
   responseTarget?: ResponseTarget;
 }
 
@@ -121,7 +122,8 @@ export class CoordinationGateway {
       connections: input.connections,
       parentTaskId: input.parentTaskId,
       hop: input.hop,
-      maxHops: input.maxHops
+      maxHops: input.maxHops,
+      deadlineAt: input.deadlineAt
     }) ?? {
       parentTaskId: input.parentTaskId ?? null,
       requiredConstraints: input.requiredConstraints ?? [],
@@ -163,6 +165,7 @@ export class CoordinationGateway {
       lease_id: leaseId,
       environment_lease_id: null,
       response_target: input.responseTarget ?? null,
+      deadline_at: input.deadlineAt ?? null,
       hop: prepared.hop,
       max_hops: prepared.maxHops,
       status: "assigned"
