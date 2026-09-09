@@ -74,6 +74,7 @@ export interface CreateWorkerInput {
   taskId?: string | null;
   runtime?: JsonObject;
   execution?: JsonObject;
+  lifecycle?: JsonObject;
   capabilityLeaseId?: string | null;
   environmentLeaseId?: string | null;
   budget?: BudgetEnvelope;
@@ -207,7 +208,6 @@ export class TeamRunCoordinator {
     const workerBudget = normalizeBudget(input.budget);
     this.assertWorkerBudgetWithinRun(runBudget, workerBudget);
     const timestamp = nowIso();
-    const discussionOpeningId = typeof run.payload.discussion_opening_id === "string" ? run.payload.discussion_opening_id : null;
     const worker: JsonObject = {
       schema_version: "1.0",
       id: workerId,
@@ -226,13 +226,7 @@ export class TeamRunCoordinator {
       status: task ? "ready" : "created",
       created_at: timestamp,
       updated_at: timestamp,
-      ...(discussionOpeningId ? {
-        lifecycle: {
-          origin: "discussion_setup",
-          discussion_opening_id: discussionOpeningId,
-          discussion_opening_reserved_at: run.payload.discussion_opening_reserved_at ?? null
-        }
-      } : {}),
+      ...(input.lifecycle ? { lifecycle: input.lifecycle } : {}),
       ...(input.execution ? { execution: input.execution } : {})
     };
     const updatedRun: JsonObject = {
