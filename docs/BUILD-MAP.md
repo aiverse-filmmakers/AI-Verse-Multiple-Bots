@@ -14,14 +14,16 @@ The target is an installable persistent-teammate layer that can run standalone o
 
 ```text
 Phase 0  Research + Architecture        [COMPLETE]  100%
-Phase 1  Runnable Coordination Core     [ACTIVE]     ~70%
+Phase 1  Runnable Coordination Core     [ACTIVE]     ~80%
 Phase 2  Dynamic Multi-Agent Squads     [NOT STARTED]
 Phase 3  AI-Verse Native Integration    [NOT STARTED]
 Phase 4  Runtime / A2A Interoperability [NOT STARTED]
 Phase 5  Product + Install + Dashboard  [NOT STARTED]
 ```
 
-Overall product completion should be judged by passed milestones, not calendar time. At this checkpoint, the architecture is complete and most of the single-Task/persistent-team substrate exists, but dynamic squads, native AI-Verse integration, external-runtime interoperability, installer/product hardening, and final release acceptance remain.
+**Directional overall first-release progress:** roughly one-third complete.
+
+That overall figure is intentionally approximate because later phases contain different amounts of work. Passed phase gates, not percentages, are authoritative.
 
 ## Phase 0 - Research + Architecture
 
@@ -40,7 +42,7 @@ Overall product completion should be judged by passed milestones, not calendar t
 
 ## Phase 1 - Runnable Coordination Core
 
-**Status:** ACTIVE, approximately 70%
+**Status:** ACTIVE, approximately 80%
 
 ### 1.1 Repository/runtime skeleton
 
@@ -72,9 +74,10 @@ Overall product completion should be judged by passed milestones, not calendar t
 - global sequence
 - per-Room sequence
 - correlation/causation/trace fields
-- replay
+- global replay
+- Room/Thread replay
 - SSE
-- Room/Thread replay storage
+- HTTP Room replay endpoint
 
 ### 1.4 Bot registry
 
@@ -93,21 +96,23 @@ Remaining:
 
 ### 1.5 Runtime adapter contract
 
-**COMPLETE FOR TEST SUBSTRATE**
+**CORE CONTRACT COMPLETE**
 
 - runtime-neutral adapter interface
 - structured invocation/result
-- deterministic adapter
 - runtime registry
+- deterministic adapter
+- abort signal
+- adapter cancellation hook
+- execution deadline integration
 
 Remaining before Phase 1 closes:
 - first real useful runtime adapter
-- cancellation/timeout propagation through adapter
 - richer runtime/tool receipts
 
 ### 1.6 Persistent Task execution
 
-**COMPLETE FOR HAPPY PATH + BASIC FAILURE PATH**
+**MOSTLY COMPLETE**
 
 - persistent execution queue
 - atomic claim
@@ -115,31 +120,37 @@ Remaining before Phase 1 closes:
 - startup recovery scan
 - Task -> runtime -> Artifact -> completion
 - owner notification
-- expired capability lease rejection
+- capability lease validation
+- expired lease rejection
+- explicit cancellation
+- cancellation of running runtime
+- recursive parent -> child cancellation
+- deadline enforcement
+- canceled Tasks publish no successful Artifact
 
 Remaining:
-- cancellation
 - retry/dead-letter policy
 - stale-claim recovery
-- deadline enforcement
-- multi-process lease hardening
+- multi-process execution ownership/heartbeat hardening
 
 ### 1.7 Delegation
 
-**COMPLETE FOR CORE SEMANTICS**
+**CORE SEMANTICS COMPLETE**
 
 - explicit owner
 - root objective
 - scoped capability lease
-- parent lineage support
-- hop metadata
+- parent lineage
+- inherited constraints
+- hop metadata/ceilings
 - response target
 - Task-backed Room work
+- strict policy enabled by default in installable Gateway
+- cancellation propagation
+- deadline propagation
 
 Remaining:
-- strict policy enabled by default in installable Gateway
-- budget propagation
-- cancellation propagation
+- token/cost/resource budget propagation
 
 ### 1.8 Handoffs
 
@@ -161,7 +172,7 @@ Remaining:
 
 ### 1.9 Rooms + Threads
 
-**COMPLETE FOR CORE PHASE-1 BEHAVIOR**
+**CORE PHASE-1 BEHAVIOR COMPLETE**
 
 - Room creation and membership
 - same-workspace validation
@@ -175,16 +186,15 @@ Remaining:
 - Room work creates real Tasks
 - Bot Artifact/result publishes back into Room/Thread
 - Room event ordering/replay storage
+- Room replay HTTP API
 
-Remaining:
-- expose Room replay over HTTP
-- advanced group-turn policies belong in later squad/product phases
+Advanced group-turn/squad policies belong in later phases.
 
 ### 1.10 Safety substrate
 
-**PARTIAL**
+**ADVANCED, STILL ACTIVE**
 
-Implemented policy primitives:
+Implemented and enforced:
 - workspace enforcement
 - registered/active Bot checks
 - peer allowlists
@@ -193,15 +203,18 @@ Implemented policy primitives:
 - root-objective preservation
 - hop ceilings
 - duplicate active-Task prevention
+- strict policy active by default in localhost/installable Gateway
+- explicit Task cancellation
+- recursive cancellation propagation
+- runtime abort signaling
+- wall-clock Task deadlines
+- deadline evidence events
 
 Remaining:
-- enable strict policy by default in the installable Gateway
-- cancellation propagation
-- wall-clock deadlines
 - token/cost/resource budgets
 - loop/ping-pong detection
 - no-progress detection
-- Room turn/message ceilings as enforced runtime budgets
+- Room turn/message ceilings as runtime-enforced budgets
 - approval interceptor
 - user escalation
 
@@ -210,6 +223,14 @@ Remaining:
 Phase 1 is complete only when all of the following pass together:
 
 > Two persistent Bots independently exist, communicate asynchronously, delegate actual work, transfer responsibility safely, collaborate in a Room/Thread, execute through a real runtime adapter, respect enforced policy/limits/approvals, recover from Gateway restart, and cancel/fail without losing coordination integrity.
+
+### Phase 1 major slices still left
+
+1. **Safety II:** budgets, loop/no-progress detection, approval interception, escalation
+2. **Handoff hardening:** atomic transfer, reject, lease/queue handling
+3. **Execution recovery:** stale claim/heartbeat/retry/dead-letter rules
+4. **Bot registry hardening:** lifecycle and collision/relationship rules
+5. **First real runtime adapter + Phase-1 end-to-end acceptance test**
 
 ## Phase 2 - Dynamic Multi-Agent Squads
 
