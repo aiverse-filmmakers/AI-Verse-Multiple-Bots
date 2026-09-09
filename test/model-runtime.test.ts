@@ -214,6 +214,7 @@ test("raw model credentials in a Bot manifest fail before network execution and 
   });
 
   const service = createGatewayServer({ dbPath: `/tmp/ai-verse-model-secret-${randomUUID()}.db`, port: 0 });
+  await service.listen();
   try {
     service.gateway.createBot({
       ...modelBot("bot_raw-secret", "Raw Secret Bot", `http://127.0.0.1:${modelAddress.port}/v1/chat/completions`),
