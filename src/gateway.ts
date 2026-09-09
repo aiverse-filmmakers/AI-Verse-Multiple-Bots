@@ -1,4 +1,5 @@
 import type { BudgetEnvelope } from "./budget.js";
+import { constraintsDigest, normalizeConstraints } from "./constraints.js";
 import { createId } from "./id.js";
 import { ExecutionQueue } from "./execution-queue.js";
 import { CoordinationPolicy } from "./policy.js";
@@ -12,6 +13,10 @@ function nowIso(): string {
 
 function objectValue(value: unknown): JsonObject {
   return typeof value === "object" && value !== null && !Array.isArray(value) ? value as JsonObject : {};
+}
+
+function stringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.map(String) : [];
 }
 
 export interface SendMessageInput {
@@ -69,7 +74,7 @@ export interface HandoffInput {
   reason: string;
   requiredConstraints?: string[];
   artifactRefs?: string[];
-  returnPolicy?: string;
+  returnPolicy?: "stay_with_target" | "return_on_completion" | "return_on_block" | "explicit_only";
 }
 
 export interface PublishRoomMessageInput {
@@ -82,6 +87,22 @@ export interface PublishRoomMessageInput {
   artifactRefs?: string[];
   correlationId?: string;
   replyToMessageId?: string;
+}
+
+interface EmitInput {
+  type: string;
+  actorId: string;
+  workspaceId?: string | null;
+  roomId?: string | null;
+  threadId?: string | null;
+  runId?: string | null;
+  taskId?: string | null;
+  correlationId?: string | null;
+  causationId?: string | null;
+  traceId?: string | null;
+  summary?: string | null;
+  attentionState?: string;
+  idempotencyKey?: string;
 }
 
 export class CoordinationGateway {
@@ -156,6 +177,7 @@ export class CoordinationGateway {
     const taskId = createId("task");
     const approvalRequired = input.approval?.required === true;
     const approvalId = approvalRequired ? createId("approval") : null;
+    const normalizedConstraints = normalizeConstraints(prepared.requiredConstraints);
     const lease: JsonObject = {
       schema_version: "1.0",
       id: leaseId,
@@ -182,7 +204,8 @@ export class CoordinationGateway {
       parent_task_id: prepared.parentTaskId,
       reason: input.reason,
       objective: input.objective,
-      required_constraints: prepared.requiredConstraints,
+      required_constraints: normalizedConstraints,
+      constraints_digest: constraintsDigest(normalizedConstraints),
       expected_output: input.expectedOutput ?? { contract: "artifact-or-structured-result" },
       input_artifact_refs: [],
       lease_id: leaseId,
@@ -340,19 +363,66 @@ export class CoordinationGateway {
   }
 
   requestHandoff(input: HandoffInput): { handoff: StoredObject; event: AppendedEvent } {
+    const task = this.store.getObject(input.workItemId);
+    if (!task || task.kind !== "task") throw new Error(`Handoff Task ${input.workItemId} not found`);
+    if (task.workspaceId !== input.workspaceId) throw new Error(`Task ${task.id} is outside workspace ${input.workspaceId}`);
+    if (String(task.payload.root_objective_id) !== input.rootObjectiveId) {
+      throw new Error(`Task ${task.id} does not belong to root objective ${input.rootObjectiveId}`);
+    }
+    if (String(task.payload.owner_id) !== input.sourceOwnerId) {
+      throw new Error(`Task ${task.id} is owned by ${String(task.payload.owner_id)}, not ${input.sourceOwnerId}`);
+    }
+    if (!new Set(["assigned", "waiting_approval"]).has(String(task.payload.status))) {
+      throw new Error(`Task ${task.id} cannot be handed off from status ${String(task.payload.status)}`);
+    }
+
+    const activeHandoff = this.store.listObjects("handoff", input.workspaceId)
+      .find((candidate) => {
+        const candidateTaskId = String(candidate.payload.task_id ?? candidate.payload.work_item_id ?? "");
+        return candidateTaskId === task.id && new Set(["requested", "accepted"]).has(String(candidate.payload.status));
+      });
+    if (activeHandoff) throw new Error(`Task ${task.id} already has active Handoff ${activeHandoff.id}`);
+
+    const sourceLease = this.requireCapabilityLease(String(task.payload.lease_id));
+    const environmentLease = this.optionalEnvironmentLease(task.payload.environment_lease_id);
+    const environmentPolicy = environmentLease ? String(environmentLease.payload.environment_policy) : null;
+    this.policy?.prepareHandoff({
+      sourceOwnerId: input.sourceOwnerId,
+      targetOwnerId: input.targetOwnerId,
+      workspaceId: input.workspaceId,
+      tools: stringArray(sourceLease.payload.tools),
+      connections: stringArray(sourceLease.payload.connections),
+      environmentPolicy
+    });
+
+    if (environmentLease && environmentPolicy !== "shared_workspace") {
+      throw new Error(`Environment ${environmentLease.id} uses ${environmentPolicy} and cannot be transferred by the Phase 1 shared-environment handoff path`);
+    }
+
+    const currentConstraints = normalizeConstraints(task.payload.required_constraints);
+    const currentDigest = constraintsDigest(currentConstraints);
+    if (typeof task.payload.constraints_digest === "string" && task.payload.constraints_digest !== currentDigest) {
+      throw new Error(`Task ${task.id} immutable constraint digest does not match its current constraints`);
+    }
+    const handoffConstraints = normalizeConstraints([...currentConstraints, ...(input.requiredConstraints ?? [])]);
     const handoffId = createId("handoff");
     const handoff: JsonObject = {
       schema_version: "1.0",
       id: handoffId,
       type: "handoff",
       source_owner_id: input.sourceOwnerId,
+      target_bot_id: input.targetOwnerId,
       target_owner_id: input.targetOwnerId,
       workspace_id: input.workspaceId,
-      work_item_id: input.workItemId,
+      task_id: task.id,
+      work_item_id: task.id,
       root_objective_id: input.rootObjectiveId,
       reason: input.reason,
-      required_constraints: input.requiredConstraints ?? [],
+      required_constraints: handoffConstraints,
+      constraints_digest: constraintsDigest(handoffConstraints),
       artifact_refs: input.artifactRefs ?? [],
+      capability_lease_id: sourceLease.id,
+      environment_lease_id: environmentLease?.id ?? null,
       return_policy: input.returnPolicy ?? "return_on_completion",
       status: "requested"
     };
@@ -361,37 +431,362 @@ export class CoordinationGateway {
       type: "handoff.requested",
       actorId: input.sourceOwnerId,
       workspaceId: input.workspaceId,
-      taskId: input.workItemId.startsWith("task_") ? input.workItemId : null,
+      taskId: task.id,
       correlationId: input.rootObjectiveId,
-      summary: `Handoff requested from ${input.sourceOwnerId} to ${input.targetOwnerId}`
+      summary: `Handoff requested from ${input.sourceOwnerId} to ${input.targetOwnerId}`,
+      attentionState: "handoff_waiting"
     });
     return { handoff: stored, event };
   }
 
-  acceptHandoff(handoffId: string, actorId: string): { handoff: StoredObject; workItem: StoredObject | null; events: AppendedEvent[] } {
-    const stored = this.store.getObject(handoffId);
-    if (!stored || stored.kind !== "handoff") throw new Error(`Handoff ${handoffId} not found`);
-    const handoff = { ...stored.payload };
-    if (handoff.status !== "requested") throw new Error(`Handoff ${handoffId} is not requested`);
-    if (handoff.target_owner_id !== actorId) throw new Error(`Only target owner ${String(handoff.target_owner_id)} can accept this handoff`);
-    handoff.status = "accepted";
-    handoff.accepted_at = nowIso();
-    const accepted = this.store.putObject("handoff", handoff);
+  acceptHandoff(handoffId: string, actorId: string): { handoff: StoredObject; workItem: StoredObject; events: AppendedEvent[] } {
+    const storedHandoff = this.requireHandoff(handoffId);
+    if (storedHandoff.payload.status !== "requested") throw new Error(`Handoff ${handoffId} is not requested`);
+    const targetId = String(storedHandoff.payload.target_bot_id ?? storedHandoff.payload.target_owner_id ?? "");
+    if (targetId !== actorId) throw new Error(`Only target Bot ${targetId} can accept this handoff`);
 
-    const workItemId = String(handoff.work_item_id);
-    const workItem = this.store.getObject(workItemId);
-    let updatedWorkItem: StoredObject | null = null;
-    if (workItem && (workItem.kind === "task" || workItem.kind === "team_run")) {
-      const payload = { ...workItem.payload, owner_id: actorId };
-      updatedWorkItem = this.store.putObject(workItem.kind, payload);
+    const taskId = String(storedHandoff.payload.task_id ?? storedHandoff.payload.work_item_id ?? "");
+    const task = this.store.getObject(taskId);
+    if (!task || task.kind !== "task") throw new Error(`Handoff Task ${taskId} not found`);
+    const sourceOwnerId = String(storedHandoff.payload.source_owner_id);
+    const workspaceId = String(storedHandoff.payload.workspace_id);
+    const rootObjectiveId = String(storedHandoff.payload.root_objective_id);
+    if (task.workspaceId !== workspaceId) throw new Error(`Task ${task.id} is outside Handoff workspace ${workspaceId}`);
+    if (String(task.payload.owner_id) !== sourceOwnerId) {
+      throw new Error(`Task ${task.id} owner changed before Handoff acceptance`);
+    }
+    if (!new Set(["assigned", "waiting_approval"]).has(String(task.payload.status))) {
+      throw new Error(`Task ${task.id} cannot accept Handoff from status ${String(task.payload.status)}`);
     }
 
-    const workspaceId = String(handoff.workspace_id);
-    const events = [
-      this.emit({ type: "handoff.accepted", actorId, workspaceId, correlationId: String(handoff.root_objective_id), summary: `Accepted handoff ${handoffId}` }),
-      this.emit({ type: "ownership.changed", actorId, workspaceId, taskId: workItem?.kind === "task" ? workItemId : null, correlationId: String(handoff.root_objective_id), summary: `${actorId} now owns ${workItemId}` })
+    const handoffConstraints = normalizeConstraints(storedHandoff.payload.required_constraints);
+    const recordedDigest = String(storedHandoff.payload.constraints_digest ?? "");
+    if (!recordedDigest || recordedDigest !== constraintsDigest(handoffConstraints)) {
+      throw new Error(`Handoff ${handoffId} immutable constraint digest is invalid`);
+    }
+    const taskConstraints = normalizeConstraints(task.payload.required_constraints);
+    for (const constraint of taskConstraints) {
+      if (!handoffConstraints.includes(constraint)) {
+        throw new Error(`Handoff ${handoffId} dropped immutable Task constraint: ${constraint}`);
+      }
+    }
+    if (typeof task.payload.constraints_digest === "string" && task.payload.constraints_digest !== constraintsDigest(taskConstraints)) {
+      throw new Error(`Task ${task.id} immutable constraint digest is invalid`);
+    }
+
+    const sourceLease = this.requireCapabilityLease(String(task.payload.lease_id));
+    if (String(sourceLease.payload.issued_to) !== sourceOwnerId || String(sourceLease.payload.task_id) !== task.id) {
+      throw new Error(`Capability lease ${sourceLease.id} is not owned by ${sourceOwnerId} for Task ${task.id}`);
+    }
+    const leaseExpiry = Date.parse(String(sourceLease.payload.expires_at));
+    if (!Number.isFinite(leaseExpiry) || leaseExpiry <= Date.now()) throw new Error(`Capability lease ${sourceLease.id} is expired`);
+
+    const sourceEnvironmentLease = this.optionalEnvironmentLease(task.payload.environment_lease_id);
+    const environmentPolicy = sourceEnvironmentLease ? String(sourceEnvironmentLease.payload.environment_policy) : null;
+    if (sourceEnvironmentLease) {
+      if (environmentPolicy !== "shared_workspace") {
+        throw new Error(`Environment ${sourceEnvironmentLease.id} requires adapter-specific transfer for policy ${environmentPolicy}`);
+      }
+      if (String(sourceEnvironmentLease.payload.issued_to) !== sourceOwnerId) {
+        throw new Error(`Environment lease ${sourceEnvironmentLease.id} is not issued to ${sourceOwnerId}`);
+      }
+    }
+
+    this.policy?.prepareHandoff({
+      sourceOwnerId,
+      targetOwnerId: targetId,
+      workspaceId,
+      tools: stringArray(sourceLease.payload.tools),
+      connections: stringArray(sourceLease.payload.connections),
+      environmentPolicy
+    });
+
+    const timestamp = nowIso();
+    const newLeaseId = createId("lease");
+    const revokedLease: JsonObject = {
+      ...sourceLease.payload,
+      revoked_at: timestamp,
+      revoked_reason: `Handoff ${handoffId} accepted by ${targetId}`,
+      superseded_by: newLeaseId
+    };
+    const newLease: JsonObject = {
+      ...sourceLease.payload,
+      id: newLeaseId,
+      issued_to: targetId,
+      transferred_from: sourceLease.id,
+      transferred_at: timestamp,
+      revoked_at: null,
+      revoked_reason: null,
+      superseded_by: null
+    };
+
+    const objects: Array<{ kind: any; payload: JsonObject }> = [
+      {
+        kind: "handoff",
+        payload: {
+          ...storedHandoff.payload,
+          target_bot_id: targetId,
+          target_owner_id: targetId,
+          task_id: task.id,
+          work_item_id: task.id,
+          capability_lease_id: newLeaseId,
+          accepted_at: timestamp,
+          accepted_by: actorId,
+          status: "accepted"
+        }
+      },
+      { kind: "capability_lease", payload: revokedLease },
+      { kind: "capability_lease", payload: newLease }
     ];
-    return { handoff: accepted, workItem: updatedWorkItem, events };
+
+    let newEnvironmentLeaseId: string | null = null;
+    if (sourceEnvironmentLease) {
+      newEnvironmentLeaseId = createId("envlease");
+      objects.push({
+        kind: "environment_lease",
+        payload: {
+          ...sourceEnvironmentLease.payload,
+          revoked_at: timestamp,
+          revoked_reason: `Handoff ${handoffId} accepted by ${targetId}`,
+          superseded_by: newEnvironmentLeaseId
+        }
+      });
+      objects.push({
+        kind: "environment_lease",
+        payload: {
+          ...sourceEnvironmentLease.payload,
+          id: newEnvironmentLeaseId,
+          issued_to: targetId,
+          transferred_from: sourceEnvironmentLease.id,
+          transferred_at: timestamp,
+          revoked_at: null,
+          revoked_reason: null,
+          superseded_by: null
+        }
+      });
+    }
+
+    const updatedTaskPayload: JsonObject = {
+      ...task.payload,
+      owner_id: targetId,
+      assignee_id: targetId,
+      required_constraints: handoffConstraints,
+      constraints_digest: recordedDigest,
+      lease_id: newLeaseId,
+      environment_lease_id: newEnvironmentLeaseId,
+      handoff_id: handoffId,
+      handed_off_from: sourceOwnerId,
+      handed_off_at: timestamp
+    };
+    objects.push({ kind: "task", payload: updatedTaskPayload });
+
+    const preconditions: Array<{ id: string; kind: any; status?: string; ownerId?: string }> = [
+      { id: storedHandoff.id, kind: "handoff", status: "requested" },
+      { id: task.id, kind: "task", status: String(task.payload.status), ownerId: sourceOwnerId }
+    ];
+
+    if (task.payload.status === "waiting_approval") {
+      const approvalId = typeof task.payload.approval_id === "string" ? task.payload.approval_id : null;
+      if (!approvalId) throw new Error(`Task ${task.id} is waiting for approval but has no approval_id`);
+      const approval = this.requireApproval(approvalId);
+      if (approval.payload.status !== "pending") throw new Error(`Approval ${approvalId} is not pending`);
+      objects.push({
+        kind: "approval",
+        payload: {
+          ...approval.payload,
+          actor_id: targetId,
+          retargeted_at: timestamp,
+          retargeted_by_handoff: handoffId
+        }
+      });
+      preconditions.push({ id: approval.id, kind: "approval", status: "pending" });
+      const unexpectedQueue = this.executionQueue?.getByItem(task.id);
+      if (unexpectedQueue && new Set(["queued", "claimed", "running"]).has(unexpectedQueue.state)) {
+        throw new Error(`Approval-gated Task ${task.id} unexpectedly has executable queue state ${unexpectedQueue.state}`);
+      }
+    }
+
+    let queueRetarget: { itemId: string; fromTargetId: string; toTargetId: string; required?: boolean } | undefined;
+    if (task.payload.status === "assigned") {
+      const queued = this.executionQueue?.getByItem(task.id);
+      if (this.executionQueue && !queued) throw new Error(`Assigned Task ${task.id} has no execution queue item`);
+      if (queued && queued.state !== "queued") {
+        throw new Error(`Cannot accept Handoff ${handoffId} while Task ${task.id} execution is ${queued.state}`);
+      }
+      queueRetarget = this.executionQueue
+        ? { itemId: task.id, fromTargetId: sourceOwnerId, toTargetId: targetId, required: true }
+        : undefined;
+    }
+
+    const eventInputs: EmitInput[] = [
+      {
+        type: "handoff.accepted",
+        actorId,
+        workspaceId,
+        taskId: task.id,
+        correlationId: rootObjectiveId,
+        summary: `Accepted handoff ${handoffId}`
+      },
+      {
+        type: "ownership.changed",
+        actorId,
+        workspaceId,
+        taskId: task.id,
+        correlationId: rootObjectiveId,
+        summary: `${targetId} now owns ${task.id}`
+      },
+      {
+        type: "capability_lease.reissued",
+        actorId,
+        workspaceId,
+        taskId: task.id,
+        correlationId: rootObjectiveId,
+        summary: `Reissued Task authority from ${sourceOwnerId} to ${targetId}`
+      }
+    ];
+    if (sourceEnvironmentLease) {
+      eventInputs.push({
+        type: "environment_lease.reissued",
+        actorId,
+        workspaceId,
+        taskId: task.id,
+        correlationId: rootObjectiveId,
+        summary: `Transferred shared execution environment to ${targetId}`
+      });
+    }
+    if (task.payload.status === "waiting_approval") {
+      eventInputs.push({
+        type: "approval.retargeted",
+        actorId,
+        workspaceId,
+        taskId: task.id,
+        correlationId: rootObjectiveId,
+        summary: `Approval actor retargeted to ${targetId}`,
+        attentionState: "needs_approval"
+      });
+    } else {
+      eventInputs.push({
+        type: "task.assigned",
+        actorId,
+        workspaceId,
+        taskId: task.id,
+        correlationId: rootObjectiveId,
+        summary: `Handed-off Task ${task.id} assigned to ${targetId}`
+      });
+    }
+
+    const mutation = this.store.atomicMutation({
+      preconditions,
+      objects,
+      events: eventInputs.map((entry) => this.buildEvent(entry)),
+      queueRetarget
+    });
+    this.publishCommitted(mutation.events);
+
+    const accepted = mutation.objects.find((object) => object.id === storedHandoff.id);
+    const workItem = mutation.objects.find((object) => object.id === task.id);
+    if (!accepted || !workItem) throw new Error(`Atomic Handoff ${handoffId} committed without expected objects`);
+    return { handoff: accepted, workItem, events: mutation.events };
+  }
+
+  rejectHandoff(handoffId: string, actorId: string, reason = "Handoff rejected"): { handoff: StoredObject; events: AppendedEvent[] } {
+    const handoff = this.requireHandoff(handoffId);
+    if (handoff.payload.status !== "requested") throw new Error(`Handoff ${handoffId} is not requested`);
+    const targetId = String(handoff.payload.target_bot_id ?? handoff.payload.target_owner_id ?? "");
+    if (actorId !== targetId && !actorId.startsWith("operator_")) {
+      throw new Error(`Only target Bot ${targetId} or an operator can reject Handoff ${handoffId}`);
+    }
+    const taskId = String(handoff.payload.task_id ?? handoff.payload.work_item_id ?? "");
+    const rejectedPayload: JsonObject = {
+      ...handoff.payload,
+      status: "rejected",
+      rejected_by: actorId,
+      rejected_at: nowIso(),
+      rejection_reason: reason
+    };
+    const event = this.buildEvent({
+      type: "handoff.rejected",
+      actorId,
+      workspaceId: String(handoff.payload.workspace_id),
+      taskId,
+      correlationId: String(handoff.payload.root_objective_id),
+      summary: reason,
+      attentionState: "unread_result"
+    });
+    const mutation = this.store.atomicMutation({
+      preconditions: [{ id: handoff.id, kind: "handoff", status: "requested" }],
+      objects: [{ kind: "handoff", payload: rejectedPayload }],
+      events: [event]
+    });
+    this.publishCommitted(mutation.events);
+    const rejected = mutation.objects[0];
+    if (!rejected) throw new Error(`Rejected Handoff ${handoffId} was not persisted`);
+    return { handoff: rejected, events: mutation.events };
+  }
+
+  settleHandoffForTask(taskId: string, outcome: "completed" | "blocked" | "failed" | "canceled", actorId: string): { handoff: StoredObject; task: StoredObject; events: AppendedEvent[] } | null {
+    const task = this.store.getObject(taskId);
+    if (!task || task.kind !== "task") return null;
+    const handoff = this.store.listObjects("handoff", task.workspaceId ?? undefined)
+      .find((candidate) => {
+        const candidateTaskId = String(candidate.payload.task_id ?? candidate.payload.work_item_id ?? "");
+        return candidateTaskId === taskId && candidate.payload.status === "accepted";
+      });
+    if (!handoff) return null;
+
+    const sourceOwnerId = String(handoff.payload.source_owner_id);
+    const targetId = String(handoff.payload.target_bot_id ?? handoff.payload.target_owner_id ?? "");
+    if (String(task.payload.owner_id) !== targetId) return null;
+    const returnPolicy = String(handoff.payload.return_policy ?? "return_on_completion");
+    const shouldReturn = (outcome === "completed" && returnPolicy === "return_on_completion")
+      || (outcome === "blocked" && returnPolicy === "return_on_block");
+    const terminalHandoff = outcome === "completed" ? "completed" : outcome === "failed" ? "failed" : outcome === "canceled" ? "canceled" : shouldReturn ? "completed" : "accepted";
+    if (outcome === "blocked" && !shouldReturn) return null;
+
+    const updatedTaskPayload: JsonObject = shouldReturn
+      ? { ...task.payload, owner_id: sourceOwnerId, ownership_returned_at: nowIso(), ownership_returned_from: targetId }
+      : { ...task.payload };
+    const updatedHandoffPayload: JsonObject = {
+      ...handoff.payload,
+      status: terminalHandoff,
+      settled_at: nowIso(),
+      outcome,
+      ownership_returned: shouldReturn
+    };
+    const eventInputs: EmitInput[] = [{
+      type: terminalHandoff === "completed" ? "handoff.completed" : `handoff.${terminalHandoff}`,
+      actorId,
+      workspaceId: task.workspaceId,
+      taskId,
+      correlationId: String(task.payload.root_objective_id),
+      summary: `Handoff ${handoff.id} settled from Task outcome ${outcome}`
+    }];
+    if (shouldReturn) {
+      eventInputs.push({
+        type: "ownership.changed",
+        actorId,
+        workspaceId: task.workspaceId,
+        taskId,
+        correlationId: String(task.payload.root_objective_id),
+        summary: `${sourceOwnerId} regained ownership of ${taskId}`
+      });
+    }
+    const mutation = this.store.atomicMutation({
+      preconditions: [
+        { id: handoff.id, kind: "handoff", status: "accepted" },
+        { id: task.id, kind: "task", status: String(task.payload.status), ownerId: targetId }
+      ],
+      objects: [
+        { kind: "handoff", payload: updatedHandoffPayload },
+        { kind: "task", payload: updatedTaskPayload }
+      ],
+      events: eventInputs.map((entry) => this.buildEvent(entry))
+    });
+    this.publishCommitted(mutation.events);
+    const settledHandoff = mutation.objects.find((object) => object.id === handoff.id);
+    const settledTask = mutation.objects.find((object) => object.id === task.id);
+    if (!settledHandoff || !settledTask) throw new Error(`Handoff settlement for ${taskId} committed without expected objects`);
+    return { handoff: settledHandoff, task: settledTask, events: mutation.events };
   }
 
   sendMessage(input: SendMessageInput): { message: StoredObject; delivery: DeliveryRecord; event: AppendedEvent } {
@@ -495,22 +890,14 @@ export class CoordinationGateway {
     return { message: stored, event };
   }
 
-  emit(input: {
-    type: string;
-    actorId: string;
-    workspaceId?: string | null;
-    roomId?: string | null;
-    threadId?: string | null;
-    runId?: string | null;
-    taskId?: string | null;
-    correlationId?: string | null;
-    causationId?: string | null;
-    traceId?: string | null;
-    summary?: string | null;
-    attentionState?: string;
-    idempotencyKey?: string;
-  }): AppendedEvent {
-    const event: CoordinationEvent = {
+  emit(input: EmitInput): AppendedEvent {
+    const appended = this.store.appendEvent(this.buildEvent(input), input.idempotencyKey);
+    this.publishCommitted([appended]);
+    return appended;
+  }
+
+  private buildEvent(input: EmitInput): CoordinationEvent {
+    return {
       schema_version: "1.0",
       id: createId("evt"),
       type: input.type,
@@ -527,15 +914,37 @@ export class CoordinationGateway {
       summary: input.summary ?? null,
       ...(input.attentionState ? { attention_state: input.attentionState } : {})
     };
-    const appended = this.store.appendEvent(event, input.idempotencyKey);
-    for (const listener of this.subscribers) listener(appended);
-    return appended;
+  }
+
+  private publishCommitted(events: AppendedEvent[]): void {
+    for (const event of events) {
+      for (const listener of this.subscribers) listener(event);
+    }
   }
 
   private requireApproval(approvalId: string): StoredObject {
     const approval = this.store.getObject(approvalId);
     if (!approval || approval.kind !== "approval") throw new Error(`Approval ${approvalId} not found`);
     return approval;
+  }
+
+  private requireHandoff(handoffId: string): StoredObject {
+    const handoff = this.store.getObject(handoffId);
+    if (!handoff || handoff.kind !== "handoff") throw new Error(`Handoff ${handoffId} not found`);
+    return handoff;
+  }
+
+  private requireCapabilityLease(leaseId: string): StoredObject {
+    const lease = this.store.getObject(leaseId);
+    if (!lease || lease.kind !== "capability_lease") throw new Error(`Capability lease ${leaseId} not found`);
+    return lease;
+  }
+
+  private optionalEnvironmentLease(value: unknown): StoredObject | null {
+    if (typeof value !== "string" || value.length === 0) return null;
+    const lease = this.store.getObject(value);
+    if (!lease || lease.kind !== "environment_lease") throw new Error(`Environment lease ${value} not found`);
+    return lease;
   }
 
   private assertOperatorDecision(actorId: string): void {
