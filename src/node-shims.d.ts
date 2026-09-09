@@ -8,6 +8,10 @@ declare module "node:sqlite" {
 }
 declare module "node:crypto" {
   export function randomUUID(): string;
+  export function createHash(algorithm: string): {
+    update(data: string): any;
+    digest(encoding: "hex"): string;
+  };
 }
 declare module "node:fs" {
   export function mkdirSync(path: string, options?: any): void;
