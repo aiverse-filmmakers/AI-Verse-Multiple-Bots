@@ -35,6 +35,11 @@ export class BotRunner {
     if (!bot) throw new Error(`Bot ${botId} not found`);
     if (bot.payload.status !== "active") throw new Error(`Bot ${botId} is not active`);
 
+    const adapterId = String(bot.payload.runtime.adapter);
+    if (!this.runtimes.has(adapterId)) {
+      throw new Error(`Runtime adapter ${adapterId} is not registered`);
+    }
+
     const claimed = this.queue.claimNext(botId, this.runnerId);
     if (!claimed) return null;
 
@@ -95,7 +100,6 @@ export class BotRunner {
         summary: `${botId} started ${task.id}`
       });
 
-      const adapterId = String(bot.payload.runtime.adapter);
       const adapter = this.runtimes.get(adapterId);
       const result = await adapter.execute({
         bot,
