@@ -76,6 +76,7 @@ export class BotRegistryRules {
     }
     this.assertAddressAvailability(bot);
     this.assertRelationships(bot);
+    this.assertInboundPeerDeclarations(bot);
     return bot;
   }
 
@@ -95,6 +96,7 @@ export class BotRegistryRules {
     if (targetStatus === "active") {
       this.assertAddressAvailability(stored.payload, stored.id);
       this.assertRelationships(stored.payload);
+      this.assertInboundPeerDeclarations(stored.payload);
     }
     if (targetStatus === "archived") {
       this.assertNoActiveManagerDependents(stored);
@@ -140,7 +142,8 @@ export class BotRegistryRules {
         if (!peerId.startsWith("bot_")) {
           throw new BotRegistryError("INVALID_PEER", `Explicit peer ${peerId} must be a durable Bot ID or *`);
         }
-        const peer = this.requireBot(peerId);
+        const peer = this.optionalBot(peerId);
+        if (!peer) continue;
         if (this.scopeKey(peer.payload) !== scopeKey) {
           throw new BotRegistryError("PEER_SCOPE_MISMATCH", `Peer ${peerId} is outside registry scope ${scopeKey}`);
         }
@@ -189,6 +192,23 @@ export class BotRegistryRules {
         throw new BotRegistryError(
           "BOT_ADDRESS_COLLISION",
           `Bot ${manifest.id} conflicts with ${stored.id} in ${scopeKey} on address ${overlap.map((address) => `@${address}`).join(", ")}`
+        );
+      }
+    }
+  }
+
+  private assertInboundPeerDeclarations(manifest: BotManifest): void {
+    const scopeKey = this.scopeKey(manifest);
+    for (const existing of this.store.listObjects("bot") as StoredObject<BotManifest>[]) {
+      if (existing.id === manifest.id || existing.payload.status === "archived") continue;
+      const permissions = asObject(existing.payload.permissions);
+      if (!permissions || !Array.isArray(permissions.allowed_peers)) continue;
+      const peers = stringArray(permissions.allowed_peers);
+      if (!peers.includes(manifest.id)) continue;
+      if (this.scopeKey(existing.payload) !== scopeKey) {
+        throw new BotRegistryError(
+          "PEER_SCOPE_MISMATCH",
+          `Bot ${existing.id} declared ${manifest.id} as a peer from a different registry scope`
         );
       }
     }
@@ -255,10 +275,15 @@ export class BotRegistryRules {
     }
   }
 
-  private requireBot(botId: string): StoredObject<BotManifest> {
+  private optionalBot(botId: string): StoredObject<BotManifest> | null {
     const object = this.store.getObject(botId);
-    if (!object || object.kind !== "bot") throw new BotRegistryError("BOT_NOT_FOUND", `Bot ${botId} not found`);
-    return object as StoredObject<BotManifest>;
+    return object?.kind === "bot" ? object as StoredObject<BotManifest> : null;
+  }
+
+  private requireBot(botId: string): StoredObject<BotManifest> {
+    const bot = this.optionalBot(botId);
+    if (!bot) throw new BotRegistryError("BOT_NOT_FOUND", `Bot ${botId} not found`);
+    return bot;
   }
 
   private scopeKey(manifest: BotManifest): string {
