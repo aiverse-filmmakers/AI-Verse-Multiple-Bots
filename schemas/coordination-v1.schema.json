@@ -375,6 +375,7 @@
         "created_by": { "$ref": "#/$defs/Id" },
         "assignee_id": { "$ref": "#/$defs/Id" },
         "owner_id": { "$ref": "#/$defs/Id" },
+        "root_owner_id": { "$ref": "#/$defs/Id" },
         "workspace_id": { "$ref": "#/$defs/Id" },
         "run_id": { "type": ["string", "null"] },
         "root_objective_id": { "$ref": "#/$defs/Id" },

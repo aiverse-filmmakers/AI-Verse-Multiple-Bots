@@ -63,6 +63,7 @@ export class DeterministicRuntimeAdapter implements RuntimeAdapter {
         executed_by: context.bot.id,
         runtime_adapter: this.id,
         lease_id: context.capabilityLease.id,
+        environment_lease_id: context.environmentLease?.id ?? null,
         result: `Completed: ${objective}`
       },
       usage: {

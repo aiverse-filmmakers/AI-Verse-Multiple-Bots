@@ -118,6 +118,26 @@ export class BotRunner {
         if (!environmentLease || environmentLease.kind !== "environment_lease") {
           throw new Error(`Environment lease ${String(task.payload.environment_lease_id)} not found`);
         }
+        if (environmentLease.payload.issued_to !== botId) {
+          throw new Error(`Environment lease ${environmentLease.id} is not issued to ${botId}`);
+        }
+        if (environmentLease.payload.task_id !== task.id) {
+          throw new Error(`Environment lease ${environmentLease.id} is not scoped to task ${task.id}`);
+        }
+        if (environmentLease.workspaceId !== claimed.workspaceId) {
+          throw new Error(`Environment lease ${environmentLease.id} is outside workspace ${claimed.workspaceId}`);
+        }
+        const environmentExpiresAt = Date.parse(String(environmentLease.payload.expires_at));
+        if (!Number.isFinite(environmentExpiresAt) || environmentExpiresAt <= Date.now()) {
+          throw new Error(`Environment lease ${environmentLease.id} is expired`);
+        }
+        const botExecution = asObject(bot.payload.execution);
+        const botEnvironmentPolicy = typeof botExecution?.environment_policy === "string" ? botExecution.environment_policy : null;
+        if (botEnvironmentPolicy && environmentLease.payload.environment_policy !== botEnvironmentPolicy) {
+          throw new Error(
+            `Environment lease ${environmentLease.id} policy ${String(environmentLease.payload.environment_policy)} does not match Bot policy ${botEnvironmentPolicy}`
+          );
+        }
       }
 
       const inputArtifacts = stringArray(task.payload.input_artifact_refs)

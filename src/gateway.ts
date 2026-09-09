@@ -47,6 +47,7 @@ export interface DelegateInput {
   reason: string;
   requiredConstraints?: string[];
   expectedOutput?: JsonObject;
+  inputArtifactRefs?: string[];
   tools?: string[];
   connections?: string[];
   parentTaskId?: string;
@@ -180,7 +181,13 @@ export class CoordinationGateway {
     return this.store.putObject(kind, validateProtocolObject(payload, kind));
   }
 
-  delegate(input: DelegateInput): { task: StoredObject; lease: StoredObject; approval: StoredObject | null; event: AppendedEvent } {
+  delegate(input: DelegateInput): {
+    task: StoredObject;
+    lease: StoredObject;
+    environmentLease: StoredObject | null;
+    approval: StoredObject | null;
+    event: AppendedEvent;
+  } {
     const prepared = this.policy?.prepareDelegation({
       createdBy: input.createdBy,
       assigneeId: input.assigneeId,
@@ -204,12 +211,17 @@ export class CoordinationGateway {
       budget: input.budget ?? {}
     };
 
-    const leaseId = createId("lease");
+    const inputArtifacts = this.validateDelegationInputArtifacts(input.workspaceId, input.inputArtifactRefs);
+    const inputArtifactRefs = inputArtifacts.map((artifact) => artifact.id);
     const taskId = createId("task");
+    const leaseId = createId("lease");
     const approvalRequired = input.approval?.required === true;
     const approvalId = approvalRequired ? createId("approval") : null;
     const normalizedConstraints = normalizeConstraints(prepared.requiredConstraints);
-    const lease: JsonObject = {
+    const rootOwnerId = this.resolveDelegationRootOwner(prepared.parentTaskId, input.createdBy);
+    const leaseExpiresAt = input.leaseExpiresAt ?? new Date(Date.now() + 60 * 60 * 1000).toISOString();
+
+    const lease: JsonObject = validateProtocolObject({
       schema_version: "1.0",
       id: leaseId,
       type: "capability_lease",
@@ -217,19 +229,27 @@ export class CoordinationGateway {
       issued_to: input.assigneeId,
       workspace_id: input.workspaceId,
       task_id: taskId,
-      tools: input.tools ?? [],
-      connections: input.connections ?? [],
+      tools: [...new Set(input.tools ?? [])],
+      connections: [...new Set(input.connections ?? [])],
       destructive_actions: approvalRequired ? "approval_required" : "deny",
-      expires_at: input.leaseExpiresAt ?? new Date(Date.now() + 60 * 60 * 1000).toISOString()
-    };
-    const storedLease = this.store.putObject("capability_lease", validateProtocolObject(lease, "capability_lease"));
-    const task: JsonObject = {
+      expires_at: leaseExpiresAt
+    }, "capability_lease");
+
+    const environmentLeasePayload = this.prepareDelegationEnvironmentLease(
+      input.assigneeId,
+      input.workspaceId,
+      taskId,
+      leaseExpiresAt
+    );
+
+    const task: JsonObject = validateProtocolObject({
       schema_version: "1.0",
       id: taskId,
       type: "task.delegate",
       created_by: input.createdBy,
       assignee_id: input.assigneeId,
       owner_id: input.assigneeId,
+      root_owner_id: rootOwnerId,
       workspace_id: input.workspaceId,
       root_objective_id: input.rootObjectiveId,
       parent_task_id: prepared.parentTaskId,
@@ -238,9 +258,9 @@ export class CoordinationGateway {
       required_constraints: normalizedConstraints,
       constraints_digest: constraintsDigest(normalizedConstraints),
       expected_output: input.expectedOutput ?? { contract: "artifact-or-structured-result" },
-      input_artifact_refs: [],
+      input_artifact_refs: inputArtifactRefs,
       lease_id: leaseId,
-      environment_lease_id: null,
+      environment_lease_id: environmentLeasePayload?.id ?? null,
       response_target: input.responseTarget ?? null,
       deadline_at: prepared.deadlineAt,
       budget: prepared.budget,
@@ -248,9 +268,9 @@ export class CoordinationGateway {
       hop: prepared.hop,
       max_hops: prepared.maxHops,
       status: approvalRequired ? "waiting_approval" : "assigned"
-    };
-    const storedTask = this.store.putObject("task", validateProtocolObject(task, "task"));
+    }, "task");
 
+    let approvalPayload: JsonObject | null = null;
     if (approvalRequired && approvalId) {
       const requestedAction = objectValue(input.approval?.action);
       const approvalAction: JsonObject = {
@@ -261,7 +281,7 @@ export class CoordinationGateway {
           : `Execute Task ${taskId}: ${input.objective}`,
         task_id: taskId
       };
-      const approvalPayload: JsonObject = {
+      approvalPayload = validateProtocolObject({
         schema_version: "1.0",
         id: approvalId,
         type: "approval",
@@ -273,8 +293,18 @@ export class CoordinationGateway {
         status: "pending",
         reason: input.approval?.reason ?? input.reason,
         action: approvalAction
-      };
-      const approval = this.store.putObject("approval", validateProtocolObject(approvalPayload, "approval"));
+      }, "approval");
+    }
+
+    // All references and protocol objects are validated before the first durable write.
+    const storedLease = this.store.putObject("capability_lease", lease);
+    const storedEnvironmentLease = environmentLeasePayload
+      ? this.store.putObject("environment_lease", environmentLeasePayload)
+      : null;
+    const storedTask = this.store.putObject("task", task);
+
+    if (approvalPayload) {
+      const approval = this.store.putObject("approval", approvalPayload);
       const event = this.emit({
         type: "approval.requested",
         actorId: input.createdBy,
@@ -286,9 +316,21 @@ export class CoordinationGateway {
         summary: `Approval required before ${input.assigneeId} can execute ${taskId}`,
         attentionState: "needs_approval"
       });
-      return { task: storedTask, lease: storedLease, approval, event };
+      return { task: storedTask, lease: storedLease, environmentLease: storedEnvironmentLease, approval, event };
     }
 
+    if (inputArtifactRefs.length > 0) {
+      this.emit({
+        type: "task.inputs_attached",
+        actorId: input.createdBy,
+        workspaceId: input.workspaceId,
+        taskId,
+        correlationId: input.rootObjectiveId,
+        summary: `Attached ${inputArtifactRefs.length} input Artifact${inputArtifactRefs.length === 1 ? "" : "s"} to ${taskId}`
+      });
+    }
+
+    // Input Artifact refs are already on the durable Task before the execution queue can expose it.
     this.executionQueue?.enqueueTask(taskId, input.assigneeId, input.workspaceId);
     const event = this.emit({
       type: "task.assigned",
@@ -300,7 +342,7 @@ export class CoordinationGateway {
       correlationId: input.rootObjectiveId,
       summary: `Delegated task ${taskId} to ${input.assigneeId}`
     });
-    return { task: storedTask, lease: storedLease, approval: null, event };
+    return { task: storedTask, lease: storedLease, environmentLease: storedEnvironmentLease, approval: null, event };
   }
 
   approve(approvalId: string, actorId: string): { approval: StoredObject; task: StoredObject; events: AppendedEvent[] } {
@@ -917,6 +959,78 @@ export class CoordinationGateway {
 
   private publishCommitted(events: AppendedEvent[]): void {
     this.events.publishCommitted(events);
+  }
+
+
+  private validateDelegationInputArtifacts(workspaceId: string, refs: string[] | undefined): StoredObject[] {
+    const artifacts: StoredObject[] = [];
+    for (const ref of [...new Set((refs ?? []).map((value) => value.trim()).filter(Boolean))]) {
+      const artifact = this.store.getObject(ref);
+      if (!artifact || artifact.kind !== "artifact") throw new Error(`Input Artifact ${ref} not found`);
+      if (artifact.workspaceId !== workspaceId) throw new Error(`Input Artifact ${ref} is outside workspace ${workspaceId}`);
+      artifacts.push(artifact);
+    }
+    return artifacts;
+  }
+
+  private resolveDelegationRootOwner(parentTaskId: string | null, createdBy: string): string {
+    if (!parentTaskId) return createdBy;
+    const visited = new Set<string>();
+    let taskId: string | null = parentTaskId;
+    let fallback = createdBy;
+    while (taskId) {
+      if (visited.has(taskId)) throw new Error(`Delegation parent lineage contains a cycle at ${taskId}`);
+      visited.add(taskId);
+      const task = this.store.getObject(taskId);
+      if (!task || task.kind !== "task") throw new Error(`Parent Task ${taskId} not found`);
+      if (typeof task.payload.root_owner_id === "string" && task.payload.root_owner_id.length > 0) {
+        return task.payload.root_owner_id;
+      }
+      if (typeof task.payload.created_by === "string" && task.payload.created_by.length > 0) fallback = task.payload.created_by;
+      taskId = typeof task.payload.parent_task_id === "string" && task.payload.parent_task_id.length > 0
+        ? task.payload.parent_task_id
+        : null;
+    }
+    return fallback;
+  }
+
+  private prepareDelegationEnvironmentLease(
+    assigneeId: string,
+    workspaceId: string,
+    taskId: string,
+    expiresAt: string
+  ): JsonObject | null {
+    const bot = this.getBot(assigneeId);
+    if (!bot) return null;
+    const execution = objectValue(bot.payload.execution);
+    const environmentPolicy = typeof execution.environment_policy === "string" ? execution.environment_policy : null;
+    if (!environmentPolicy) throw new Error(`Bot ${assigneeId} has no trusted execution environment policy`);
+    if (!["shared_workspace", "isolated_bot", "isolated_run", "external_managed"].includes(environmentPolicy)) {
+      throw new Error(`Bot ${assigneeId} has unsupported environment policy ${environmentPolicy}`);
+    }
+
+    let environmentRef = typeof execution.environment_ref === "string" && execution.environment_ref.length > 0
+      ? execution.environment_ref
+      : null;
+    if (!environmentRef && environmentPolicy === "shared_workspace") environmentRef = `workspace:${workspaceId}`;
+    if (!environmentRef && environmentPolicy === "isolated_bot") environmentRef = `bot:${assigneeId}`;
+    if (!environmentRef) {
+      throw new Error(
+        `Bot ${assigneeId} requires trusted runtime infrastructure to resolve an environment_ref for ${environmentPolicy}`
+      );
+    }
+
+    return validateProtocolObject({
+      schema_version: "1.0",
+      id: createId("envlease"),
+      type: "environment_lease",
+      issued_to: assigneeId,
+      workspace_id: workspaceId,
+      task_id: taskId,
+      environment_policy: environmentPolicy,
+      environment_ref: environmentRef,
+      expires_at: expiresAt
+    }, "environment_lease");
   }
 
   private requireApproval(approvalId: string): StoredObject {
