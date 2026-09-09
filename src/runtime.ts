@@ -1,3 +1,4 @@
+import type { RuntimeUsage } from "./budget.js";
 import type { BotManifest, JsonObject, StoredObject } from "./types.js";
 
 export interface RuntimeExecutionContext {
@@ -13,6 +14,8 @@ export interface RuntimeExecutionResult {
   summary: string;
   artifactKind: string;
   output: JsonObject;
+  usage?: RuntimeUsage;
+  receipts?: JsonObject[];
 }
 
 export interface RuntimeAdapter {
@@ -45,7 +48,7 @@ export class DeterministicRuntimeAdapter implements RuntimeAdapter {
   readonly id = "deterministic";
 
   async execute(context: RuntimeExecutionContext): Promise<RuntimeExecutionResult> {
-    if (context.signal.aborted) throw context.signal.reason ?? new Error("Execution canceled");
+    if (context.signal.aborted) throw context.signal.reason ?? new Error("Task canceled");
     const objective = String(context.task.payload.objective ?? "");
     const constraints = Array.isArray(context.task.payload.required_constraints)
       ? context.task.payload.required_constraints.map(String)
@@ -61,7 +64,14 @@ export class DeterministicRuntimeAdapter implements RuntimeAdapter {
         runtime_adapter: this.id,
         lease_id: context.capabilityLease.id,
         result: `Completed: ${objective}`
-      }
+      },
+      usage: {
+        input_tokens: 0,
+        output_tokens: 0,
+        cost: 0,
+        actions: 1
+      },
+      receipts: [{ kind: "deterministic_execution", adapter: this.id }]
     };
   }
 }
