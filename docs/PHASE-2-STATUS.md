@@ -6,7 +6,7 @@
 
 **Overall status:** IN PROGRESS
 
-**Directional phase progress:** approximately 45%
+**Directional phase progress:** approximately 55%
 
 This file is the implementation ledger for Phase 2. The canonical product roadmap remains `BUILD-MAP.md`.
 
@@ -18,9 +18,9 @@ The package must remain host-neutral. Phase 2 coordination primitives may be emb
 
 ## Current verification
 
-GitHub Actions run 127 on 2026-09-09 passed **74/74 tests**, with 0 failures, 0 canceled, and 0 skipped, at commit `daa9693d14114d01b2a97d6e3b830d7ea2ad735b`.
+GitHub Actions run 139 on 2026-09-09 passed **82/82 tests**, with 0 failures, 0 canceled, and 0 skipped, at commit `308d8737a4bc4c1c0c96bf0064f8dc47d0fcd4a5`.
 
-The eight Phase 2.4 acceptance tests pass alongside the previous 66-test suite.
+The eight Phase 2.5 acceptance tests pass alongside the previous 74-test suite.
 
 ## Slice 2.1 - Team Run object and lifecycle
 
@@ -157,7 +157,7 @@ Implemented:
 
 ### Cross-process concurrency hardening
 
-- `CoordinationStore.atomicMutation` now supports an optional `updatedAt` compare-and-swap precondition
+- `CoordinationStore.atomicMutation` supports an optional `updatedAt` compare-and-swap precondition
 - existing store callers remain backward-compatible
 - fan-out creation compares the Team Run row it planned against before committing
 - fan-out activation/settlement uses bounded CAS retry when another Gateway process changed the Team Run
@@ -165,7 +165,7 @@ Implemented:
 
 ## Phase 2.4 acceptance proof
 
-The new tests prove:
+The tests prove:
 
 1. three independent Workers execute simultaneously and all successful Artifacts are collected
 2. scheduling rejects fan-outs above the central concurrency or Team Run Worker ceiling before creating work
@@ -176,18 +176,86 @@ The new tests prove:
 7. explicit fan-out cancellation propagates to every queued/running Worker Task
 8. two stale retry-safe parallel Workers recover after database reopen and satisfy the persisted join
 
-**Verified suite:** 74 passed, 0 failed, 0 canceled, 0 skipped.
+## Slice 2.5 - Direct handoff topology
+
+**COMPLETE**
+
+Phase 2.5 deliberately reuses the canonical Protocol v1.1 `handoff` object rather than inventing a second TeamRun-specific transfer protocol. `TeamRunHandoff` adds bounded TeamRun principal rules around that canonical record.
+
+Implemented:
+
+### Mixed-principal ownership transfer
+
+- host-neutral `TeamRunHandoff` coordinator
+- direct queued Task transfer between temporary Workers
+- direct queued Task transfer from a temporary Worker to a durable Bot
+- durable Bots remain durable registry identities; Workers remain temporary `worker_*` identities
+- target Workers are bound to transferred work without Bot registration or promotion
+- source Worker participation terminates after accepted transfer rather than remaining a second live owner
+- durable Bot targets are added to Team Run participant tracking without changing their registry lifecycle
+- same workspace, Team Run, root objective, and Task lineage are preserved
+
+### Immutable safety and authority
+
+- current Task constraint digest is verified before transfer
+- Handoff-required constraints may only tighten the Task contract
+- capability authority is revoked/reissued to the new principal
+- shared-workspace environment authority is transferred through a new scoped lease
+- unsupported environment-transfer policies fail closed
+- pending Approval actors retarget to the new owner without prematurely creating executable work
+- only queued executable work may move; claimed/running execution fails closed
+- queue retarget and protocol ownership mutation are atomic on the file-backed package database
+
+### TeamRun-aware runner hardening
+
+- public `PrincipalRunner` validates active Team Run scope for durable Bot-owned run Tasks immediately before runtime execution
+- run-scoped durable Bots cannot execute after the Team Run leaves an executable state
+- run-scoped durable Bot results count toward the same aggregate Team Run token/cost/action budget as Worker results
+- aggregate usage is persisted with compare-and-swap protection
+- over-budget durable Bot output is rejected before successful Artifact acceptance
+- Handoff settlement now applies when the execution target is a Worker as well as when it is a Bot
+- Artifact provenance continues to record the actual producing principal
+
+### Chain controls and cancellation
+
+- Handoff transitions obey the Task/TeamRun hop ceiling across mixed Bot/Worker ownership
+- repeated ownership cycles are bounded by recorded Handoff history instead of permitting indefinite ping-pong
+- run-wide cancellation reaches queued TeamRun work even after ownership moved to a durable Bot
+- accepted Handoffs settle when transferred work completes, fails, or is canceled
+- no Room/group discussion is required for direct topology
+
+### Restart and storage proof
+
+- accepted Worker-to-Worker ownership survives a file-backed SQLite close/reopen cycle
+- reopened execution queue still targets the accepted Worker
+- transferred lease remains scoped to the accepted Worker and Task
+- target Worker executes after restart and the accepted Handoff settles correctly
+
+## Phase 2.5 acceptance proof
+
+The eight new tests prove:
+
+1. Worker -> Worker moves queued ownership, preserves temporary identity, executes, and settles
+2. Worker -> durable Bot keeps the Bot durable, enforces TeamRun scope, and persists aggregate usage
+3. a run-scoped durable Bot cannot bypass aggregate Team Run budget
+4. claimed execution fails closed without changing Worker, queue, or lease ownership
+5. a target Worker must belong to the same Team Run
+6. combined delegation/Handoff hop ceilings and recorded ownership-loop history stop runaway chains
+7. canceling a handoff Team Run cancels durable-Bot-owned queued work and settles the Handoff
+8. accepted Worker handoff survives database reopen, executes under the target Worker, and settles
+
+**Verified suite:** 82 passed, 0 failed, 0 canceled, 0 skipped in GitHub Actions run 139.
 
 ## Reusability boundary
 
-Phase 2.4 remains package-owned and host-neutral:
+Phase 2.5 remains package-owned and host-neutral:
 
 ```text
-TeamRunManager / TeamRunFanout / PrincipalRunner / ExecutionSupervisor
+TeamRunManager / TeamRunFanout / TeamRunHandoff / PrincipalRunner / ExecutionSupervisor
   -> CoordinationStore + ExecutionQueue
   -> RuntimeAdapter contract
-  -> protocol validator
-  -> package policy / budget / lease primitives
+  -> canonical Handoff / TeamRun / Worker / Task protocol objects
+  -> package policy / budget / lease / cancellation primitives
 ```
 
 There is no import from AI-Verse OS, Brain, Memory, Skills, Dashboard, Automations, or any AI-Verse-specific filesystem/state format.
@@ -196,21 +264,19 @@ AI-Verse native integration remains Phase 3 and must arrive through adapters and
 
 ## Next slice
 
-### 2.5 - Direct handoff topology
+### 2.6 - Group/discussion topology where justified
 
 Required next work:
 
-1. TeamRun-level direct handoff topology distinct from the Phase 1 durable-Bot Task handoff primitive
-2. explicit source/target principal rules for durable leader, temporary Worker, and durable Bot where topology permits
-3. ownership transfer that never silently promotes a Worker or bypasses the durable Bot registry
-4. same-workspace/run/root-objective and immutable-constraint preservation
-5. capability/environment authority reissue or fail-closed behavior at each ownership boundary
-6. queue ownership transfer only when execution is safely movable
-7. return-to-leader and stay-with-target completion semantics for TeamRun work
-8. cancellation/failure propagation across a handoff chain
-9. hop/loop bounds across mixed Bot/Worker principals
-10. restart/recovery proof for a handed-off TeamRun Task
-11. Artifact lineage proving which principal produced each result
-12. acceptance tests demonstrating direct handoff without Room/group discussion
+1. define when a Team Run is allowed to open a temporary discussion surface rather than using manager, fan-out, or direct handoff
+2. keep temporary Worker participation separate from durable Room membership
+3. choose a bounded discussion object/turn contract that reuses existing Room/Thread/event primitives where possible instead of creating a parallel messaging substrate
+4. enforce explicit speaker selection, `max_messages`, `max_rounds`, Team Run budgets, and cancellation
+5. preserve workspace, run, root-objective, constraint, and Artifact lineage through every discussion turn
+6. prevent free-form all-to-all chatter and Worker ping-pong
+7. allow the durable leader to collect discussion outputs as structured candidate Artifacts for later disagreement/synthesis stages
+8. define completion/settlement semantics that do not leave temporary Workers active after the discussion closes
+9. prove restart/recovery without silently rescheduling completed discussion turns
+10. add acceptance tests showing discussion is used only where topology requires it
 
-After direct handoff topology, continue through selective group discussion, disagreement detection, verifier/critic, synthesis, Worker cleanup hardening, adaptive collaboration gate, and final squad budget/cancellation controls.
+After selective group discussion, continue through disagreement detection, verifier/critic, synthesis, Worker cleanup hardening, adaptive collaboration gate, and final squad budget/cancellation controls.
