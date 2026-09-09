@@ -1,6 +1,6 @@
 # AI-Verse Multiple Bots - Build Map
 
-**Updated:** 2026-09-09
+**Updated:** 2026-09-10
 
 This is the canonical progress map for the project. Update it whenever a meaningful implementation slice lands so repository state alone shows where the build is, what is complete, and what remains.
 
@@ -15,13 +15,13 @@ The target is an installable persistent-teammate layer that can run standalone o
 ```text
 Phase 0  Research + Architecture        [COMPLETE]    100%
 Phase 1  Runnable Coordination Core     [COMPLETE]    100%
-Phase 2  Dynamic Multi-Agent Squads     [IN PROGRESS] ~88%
+Phase 2  Dynamic Multi-Agent Squads     [IN PROGRESS] ~93%
 Phase 3  AI-Verse Native Integration    [NOT STARTED]
 Phase 4  Runtime / A2A Interoperability [NOT STARTED]
 Phase 5  Product + Install + Dashboard  [NOT STARTED]
 ```
 
-**Directional overall first-release progress:** roughly 61% complete.
+**Directional overall first-release progress:** roughly 62% complete.
 
 That overall figure is intentionally approximate because later phases contain different amounts of work. Passed phase gates, not percentages, are authoritative.
 
@@ -165,9 +165,9 @@ None.
 
 **Status:** IN PROGRESS
 
-**Current phase progress:** approximately 88%.
+**Current phase progress:** approximately 93%.
 
-**Current verification:** GitHub Actions run 191 on 2026-09-09 passed **134/134 tests** at commit `120ecb079ef9e19ae7cdfe5d7c1f17a468389c44`.
+**Current verification:** GitHub Actions run 213 passed **147/147 tests** at audited PR-head commit `18f36dd6d6f361d5563b430ed51cecb822923526`.
 
 Goal: a durable Bot decides whether to work alone or create bounded temporary Workers, coordinates them through the topology justified by the work, and returns a bounded, auditable result without turning temporary helpers into durable identities.
 
@@ -182,9 +182,9 @@ Major slices:
 7. disagreement detection - **COMPLETE**
 8. verifier/critic role - **COMPLETE**
 9. synthesis - **COMPLETE**
-10. Worker cleanup hardening - **NEXT**
-11. adaptive `single Bot vs squad` decision policy - remaining
-12. squad budget/cancellation controls - remaining beyond current Worker, fan-out, aggregate usage, direct-handoff, discussion, disagreement, verifier, synthesis, cancellation, recovery and CAS foundations
+10. Worker cleanup hardening - **COMPLETE**
+11. adaptive `single Bot vs squad` decision policy - **NEXT**
+12. squad budget/cancellation controls - remaining beyond current Worker, fan-out, aggregate usage, direct-handoff, discussion, disagreement, verifier, synthesis, cleanup, cancellation, recovery and CAS foundations
 
 ### Phase 2 capabilities now implemented
 
@@ -265,7 +265,7 @@ Major slices:
 - setup is protected by a Team Run CAS reservation before Worker creation; competing setup fails closed
 - deterministic kickoff, Thread, turn Message and idempotent events make restart reconciliation replay-safe
 - completed-but-unreconciled turns resume from the next explicit speaker without duplicating completed work
-- stale setup reservations intentionally fail closed; timeout/reaping is not claimed yet
+- discussion-created setup Workers are explicitly tagged to their opening reservation; stale setup reaping never infers unrelated Workers into the discussion
 - explicit cancellation closes the current discussion and temporary participant set
 
 #### Structured disagreement detection
@@ -327,6 +327,21 @@ Major slices:
 - malformed/canceled synthesis creates no canonical final and leaves a nonterminal run retryable in `synthesizing`
 - aggregate budget exhaustion preserves terminal `budget_exhausted` state and cannot be overwritten by synthesis settlement
 - completed-but-unreconciled synthesis survives database reopen and is reconciled by `ExecutionSupervisor`
+
+#### Worker cleanup hardening
+
+- host-neutral `TeamRunCleanup` handles post-run temporary state without deleting canonical protocol evidence
+- cleanup is a maintenance/recovery boundary, so completed/failed/canceled Worker settlement remains observable before later expiry
+- nonterminal Team Runs are refused; inconsistent live Tasks/Workers and unresolved Handoffs block cleanup visibly
+- terminal temporary Workers expire without entering or mutating the durable Bot registry
+- run-scoped capability leases and run-exclusive environment leases are revoked; environment leases still referenced by another Team Run are preserved
+- residual execution-queue records are canceled
+- stale pending Approvals attached to terminal run Tasks become non-actionable without deleting their records
+- actionable mailbox deliveries targeting run Workers are canceled while Messages remain auditable
+- temporary Team Run Rooms/Threads close while Messages, Tasks, Handoffs, Approvals, Workers, events, Artifacts and provenance remain intact
+- structured cleanup summaries and audit events are idempotent and preserve side-effect evidence across compare-and-swap retries
+- stale discussion opening reservations are reaped only through explicit setup lifecycle tags; active/task-bound/ambiguous state fails closed
+- supervisor startup/recovery sweeps recover stale setup and terminal cleanup after database reopen
 
 ### Phase 2.6 acceptance gate
 
@@ -408,15 +423,33 @@ The sixteen synthesis acceptance/hardening tests prove:
 15. a poisoned final Artifact pointer fails closed instead of silently re-synthesizing
 16. late Worker creation blocks canonical finalization until that work is explicitly closed, after which the same completed synthesis Task settles once
 
-The full package suite now passes **134/134 tests**.
+### Phase 2.10 acceptance gate
+
+**PASSED.**
+
+The cleanup acceptance/hardening suite proves:
+
+1. terminal Worker identity, capability authority and residual execution are cleaned while Artifacts and durable Bots remain intact
+2. run-exclusive environment leases are revoked while shared environment leases remain available to other Team Runs
+3. temporary Rooms/Threads close while Messages and Artifacts remain auditable
+4. cleanup is idempotent and emits one canonical completion event
+5. nonterminal runs cannot be cleaned and inconsistent live state blocks visibly
+6. stale explicitly tagged discussion setup is reaped while unrelated Workers survive and capacity is released
+7. fresh reservations stay intact and task-bound stale setup fails closed
+8. supervisor restart recovers terminal cleanup and stale setup state
+9. unresolved Handoffs block cleanup rather than being silently rewritten
+10. stale pending Approvals become non-actionable without deletion
+11. Worker-target mailbox deliveries are canceled while Message audit remains
+
+The full package suite now passes **147/147 tests** on the audited Phase 2.10 PR head.
 
 ### Next Phase 2 gate
 
-**2.10 - Worker cleanup hardening**
+**2.11 - Adaptive single-Bot-vs-squad decision policy**
 
-Harden post-run cleanup across all topologies without deleting the audit/provenance needed to explain the canonical final result. This gate must finish temporary Worker expiry/reaping, stale discussion/setup reservations, run-scoped transient execution/lease/surface cleanup, restart-safe idempotent cleanup, and operator-visible failure handling while preserving final Artifacts and ensuring temporary identities never become durable Bots or durable Room members.
+Build an explicit, inspectable decision layer that keeps simple work with one durable Bot and forms the minimum justified bounded squad only when the work shape warrants it. The decision must use structured signals such as independence/parallelism, uncertainty, verification need, authority, cost/latency budget and available topology support; preserve root objective/workspace/constraints; record rationale without hidden chain-of-thought; prevent repeated squad-creation loops; and remain restart-safe/idempotent where state is persisted.
 
-After 2.10, continue through adaptive collaboration choice and final squad-wide budget/cancellation consolidation.
+After 2.11, finish Phase 2 with final squad-wide budget/cancellation consolidation.
 
 ## Phase 3 - AI-Verse Native Integration
 
