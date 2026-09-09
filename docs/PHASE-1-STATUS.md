@@ -4,7 +4,7 @@
 
 **Phase:** 1
 
-**Overall status:** in progress, approximately 80%
+**Overall status:** in progress, approximately 88%
 
 This file is the implementation ledger for Phase 1. It records what is actually on `main`, what has been tested, and what remains before the Phase 1 completion milestone is claimed.
 
@@ -27,7 +27,7 @@ That milestone is **not yet claimed**.
 - SQLite coordination state
 - protocol objects
 - persistent Bots
-- persistent Messages/Tasks/Handoffs/Artifacts/leases
+- persistent Messages/Tasks/Handoffs/Artifacts/Approvals/leases
 - conversational mailbox
 - separate executable Task queue
 - append-only events
@@ -48,6 +48,7 @@ Task assigned
   -> queue claim
   -> Task running
   -> runtime adapter
+  -> budget/loop/progress checks
   -> Artifact published
   -> Task completed
   -> creator/Room notified
@@ -61,7 +62,7 @@ Implemented safeguards:
 - lease expiry enforcement
 - environment lease lookup
 - runtime availability checked before claim
-- canceled/failed execution cannot publish a normal completion Artifact
+- canceled/failed/over-budget/no-progress execution cannot publish a normal completion Artifact
 
 ### Runtime adapter boundary
 
@@ -75,8 +76,10 @@ Implemented:
 - abort signal
 - optional runtime cancellation hook
 - execution deadline support
+- usage reporting for input/output tokens, cost and actions
+- runtime receipt surface
 
-A real external/model runtime adapter is intentionally still deferred until the remaining safety controls are present.
+A real external/model runtime adapter is intentionally still deferred until handoff and crash-recovery rules are hardened.
 
 ### Delegation
 
@@ -90,9 +93,12 @@ Implemented:
 - scoped capability lease
 - tools/connections
 - response target
-- deadline field
-- automatic execution enqueue
+- deadline field and inherited deadline clamp
+- inherited budget envelope
+- child cannot expand parent token/cost/action/task/hop limits
+- automatic execution enqueue for immediately executable work
 - Room-backed Task delegation
+- loop/ping-pong guard before Task creation
 
 ### Rooms and Threads
 
@@ -117,7 +123,7 @@ Implemented:
 
 ### Strict coordination policy
 
-The installable localhost Gateway now enables strict coordination policy by default.
+The installable localhost Gateway enables strict coordination policy by default.
 
 Enforced:
 
@@ -132,6 +138,7 @@ Enforced:
 - hop ceilings
 - duplicate active Task prevention
 - deadline validity
+- Task-count ceiling per root objective when configured
 
 ### Cancellation and deadlines
 
@@ -151,6 +158,65 @@ Implemented:
 - `task.canceled`
 - canceled/deadline-exceeded Task produces no successful Artifact
 
+### Safety II: budgets, loops and progress
+
+Implemented:
+
+- first-class inherited budget envelope
+- token limit
+- cost limit
+- action limit
+- wall-clock limit
+- root Task-count limit
+- max-hop budget integration
+- child budget cannot expand parent budget
+- runtime usage checked before successful Artifact acceptance
+- `task.budget_exceeded`
+- Task lineage loop detection
+- Bot A -> Bot B -> Bot A -> Bot B ping-pong detection
+- stable result fingerprinting
+- repeated-result/no-progress detection
+- `task.no_progress`
+
+### Approval boundary
+
+Implemented first-class approval gating:
+
+```text
+Task prepared
+  -> approval pending
+  -> Task waiting_approval
+  -> NOT in execution queue
+
+operator approves
+  -> approval approved
+  -> Task assigned
+  -> execution queued
+
+operator denies
+  -> approval denied
+  -> Task canceled
+  -> no successful Artifact
+```
+
+Implemented:
+
+- Approval protocol object
+- approval action summary
+- pending/approved/denied lifecycle
+- approval-required capability lease marker
+- only operator identities can decide an Approval
+- non-operator approval attempts fail
+- approval-required Task does not enter execution queue before approval
+- deny path cancels Task
+- `approval.requested`
+- `approval.approved`
+- `approval.denied`
+- `GET /v1/approvals`
+- `POST /v1/approvals/:id/approve`
+- `POST /v1/approvals/:id/deny`
+- `needs_approval` attention event
+
 ### Handoff core
 
 Implemented:
@@ -164,7 +230,7 @@ Implemented:
 - `ownership.changed`
 - HTTP request/accept endpoints
 
-This remains one of the main unfinished Phase 1 areas because the transition is not yet transactionally atomic across all related state.
+This is now the immediate next main Phase 1 area. The current implementation predates the final protocol-v1.1 handoff field naming and does not yet perform one atomic transaction across handoff state, ownership, leases, queue state and events.
 
 ## Current HTTP surface
 
@@ -177,6 +243,9 @@ Implemented main endpoints include:
 - `GET /v1/mailbox/:id`
 - `POST /v1/delegations`
 - `POST /v1/tasks/:id/cancel`
+- `GET /v1/approvals`
+- `POST /v1/approvals/:id/approve`
+- `POST /v1/approvals/:id/deny`
 - `POST /v1/handoffs`
 - `POST /v1/handoffs/:id/accept`
 - `GET /v1/execution/:id`
@@ -196,19 +265,26 @@ Default binding remains localhost-oriented.
 
 ## Test and CI status
 
-Latest verified GitHub Actions suite after cancellation/deadline work: **16/16 passing**.
+Latest verified GitHub Actions suite after Safety II and Approval work: **23/23 passing**.
 
 Newly proven behavior includes:
 
-- strict Gateway rejects unregistered Bot routing
-- Room replay API works
-- explicit cancellation aborts running execution
-- running cancellation produces no successful Artifact
-- deadline expiry cancels execution and records evidence
-- parent cancellation propagates to active child Tasks
+- child Task budget inheritance and anti-expansion
+- root Task-count budget
+- lineage ping-pong protection
+- runtime usage over budget fails before Artifact publication
+- repeated identical results eventually fail as no progress
+- approval-required work cannot execute before approval
+- Bot cannot approve its own approval gate
+- operator approval releases the Task to execution
+- denied approval cancels the Task and produces no Artifact
+- HTTP approval queue and decision path
 
 Previously proven behavior remains covered:
 
+- strict Gateway routing
+- Room replay
+- cancellation and deadline enforcement
 - delegation + capability leases
 - ownership semantics
 - mailbox persistence
@@ -223,29 +299,18 @@ Node's built-in `node:sqlite` still emits its experimental-feature warning on No
 
 ## Remaining Phase 1 work
 
-### A. Safety II
+### A. Handoff hardening - NEXT
 
-Next main slice:
-
-- token budget
-- cost budget
-- resource/action budget
-- loop/ping-pong detection
-- no-progress detection
-- Room runtime turn/message ceilings
-- approval interceptor
-- explicit user escalation
-
-### B. Handoff hardening
-
+- align runtime implementation with Protocol v1.1 handoff fields
 - transactional handoff + ownership + event update
 - reject flow
 - execution queue retargeting
-- capability/environment lease intersection or transfer
+- capability lease intersection/reissue
+- environment lease transfer safety
 - immutable constraint digest verification
 - return-policy execution
 
-### C. Execution recovery hardening
+### B. Execution recovery hardening
 
 - stale claimed/running detection
 - execution heartbeat/lease
@@ -256,22 +321,30 @@ Next main slice:
 
 Do not blindly retry unknown external side effects after a crash.
 
-### D. Bot registry hardening
+### C. Bot registry hardening
 
 - disable/archive transitions
 - alias/collision rules outside Rooms
 - relationship validation
 
-### E. First real runtime adapter
+### D. First real runtime adapter
 
-After Safety II and the critical handoff/recovery rules are green:
+After handoff/recovery rules are green:
 
 - attach one real useful runtime behind the existing interface
-- record runtime/tool receipts
+- normalize runtime/tool receipts
 - prove two persistent Bots collaborating end-to-end with the real adapter
+
+### E. Final Phase-1 contract pass
+
+- sync the JSON Schema with all Safety II runtime budget fields
+- complete Handoff schema/implementation alignment
+- apply Room aggregate max-message/max-round envelopes
+- conformance tests across canonical JSON Schema and runtime validator
+- final restart/cancel/handoff/approval acceptance scenario
 
 ## Immediate next implementation step
 
-Build **Safety II**, starting with bounded budgets and loop/no-progress detection, then approval interception and escalation.
+Build **Handoff Hardening**.
 
-This is the correct next step before connecting Hermes, OpenClaw, Codex, Claude Code, or another powerful runtime.
+The safe target is an atomic ownership transfer where the target accepts responsibility, inherited constraints are verified, authority is narrowed rather than expanded, queued execution is retargeted consistently, and partial failure cannot leave the Handoff, Task, lease or queue disagreeing about who owns the work.
