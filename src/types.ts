@@ -1,3 +1,4 @@
+export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
 export type JsonObject = Record<string, unknown>;
 
 export type ProtocolKind =
