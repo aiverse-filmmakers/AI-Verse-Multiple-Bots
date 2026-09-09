@@ -14,14 +14,14 @@ The target is an installable persistent-teammate layer that can run standalone o
 
 ```text
 Phase 0  Research + Architecture        [COMPLETE]  100%
-Phase 1  Runnable Coordination Core     [ACTIVE]     ~92%
+Phase 1  Runnable Coordination Core     [ACTIVE]     ~96%
 Phase 2  Dynamic Multi-Agent Squads     [NOT STARTED]
 Phase 3  AI-Verse Native Integration    [NOT STARTED]
 Phase 4  Runtime / A2A Interoperability [NOT STARTED]
 Phase 5  Product + Install + Dashboard  [NOT STARTED]
 ```
 
-**Directional overall first-release progress:** roughly 37% complete.
+**Directional overall first-release progress:** roughly 39% complete.
 
 That overall figure is intentionally approximate because later phases contain different amounts of work. Passed phase gates, not percentages, are authoritative.
 
@@ -42,7 +42,7 @@ That overall figure is intentionally approximate because later phases contain di
 
 ## Phase 1 - Runnable Coordination Core
 
-**Status:** ACTIVE, approximately 92%
+**Status:** ACTIVE, approximately 96%
 
 ### 1.1 Repository/runtime skeleton
 
@@ -82,7 +82,7 @@ That overall figure is intentionally approximate because later phases contain di
 
 ### 1.4 Bot registry
 
-**PARTIAL**
+**PARTIAL - NEXT MAIN GATE**
 
 Complete:
 - create/get/list
@@ -91,9 +91,10 @@ Complete:
 - runtime/execution/permission metadata
 
 Remaining:
-- explicit disable/archive transition API
-- alias/collision hardening outside Rooms
-- relationship validation hardening
+- explicit activate/disable/archive transitions
+- duplicate ID and normalized name/alias collision hardening
+- manager and peer relationship validation
+- lifecycle safety while a Bot still owns active work
 
 ### 1.5 Runtime adapter contract
 
@@ -113,14 +114,13 @@ Remaining before Phase 1 closes:
 - first real useful runtime adapter
 - provider-specific receipt normalization
 
-### 1.6 Persistent Task execution
+### 1.6 Persistent Task execution and recovery
 
-**MOSTLY COMPLETE**
+**PHASE-1 HARDENING COMPLETE**
 
 - persistent execution queue
 - atomic claim
 - event-driven Bot wake-up
-- startup recovery scan
 - Task -> runtime -> Artifact -> completion
 - owner notification
 - capability lease validation
@@ -131,13 +131,25 @@ Remaining before Phase 1 closes:
 - deadline enforcement
 - budget enforcement before Artifact acceptance
 - Handoff settlement on completion/failure/cancellation
+- unique runner identity
+- runner-owned execution claims
+- execution lease expiry
+- continuous heartbeat
+- ownership-checked state transitions
+- atomic file-backed Task/Artifact/queue finalization
+- late runner cannot overwrite recovered work
+- startup and periodic stale execution sweep
+- conservative recovery policies: `manual` and `retry_safe`
+- persistent recovery policy and max-attempt metadata
+- replay-safe stale work can be requeued only while attempts remain
+- unknown/consequential work dead-letters instead of being blindly replayed
+- retry-safe work dead-letters after attempt exhaustion
+- terminal Task state reconciles stale queue state without replay
+- dead-letter Task becomes visibly blocked with recovery metadata
+- operator-only dead-letter retry
+- HTTP dead-letter listing and retry controls
+- live long-running runtime heartbeat proven in CI
 - canceled/failed/over-budget Tasks publish no successful Artifact
-
-Remaining:
-- retry/dead-letter policy
-- stale-claim recovery
-- execution heartbeat/lease
-- multi-process execution ownership hardening
 
 ### 1.7 Delegation
 
@@ -158,6 +170,7 @@ Remaining:
 - inherited budget envelopes
 - child Tasks cannot expand parent limits
 - root Task-count ceiling
+- optional persistent execution recovery policy and max-attempt ceiling
 
 ### 1.8 Handoffs
 
@@ -180,7 +193,7 @@ Remaining:
 - `stay_with_target`, `return_on_completion`, `return_on_block`, and `explicit_only` policy contract
 - automatic Handoff settlement on Task completion/failure/cancellation
 - completion ownership return where configured
-- `handoff.requested`, `handoff.accepted`, `handoff.rejected`, `handoff.completed`, terminal failure/cancel events and ownership audit events
+- Handoff lifecycle and ownership audit events
 - HTTP request/accept/reject endpoints
 - JSON Schema/runtime validator contract alignment
 
@@ -237,6 +250,7 @@ Implemented and enforced:
 - denied approval cancels work and produces no Artifact
 - attention event for pending approval
 - machine-readable schema regression tests for Safety II and Handoff contracts
+- fail-safe crash recovery that never auto-replays work unless explicitly declared replay-safe
 
 Remaining integration item:
 - enforce Room `max_messages` / `max_rounds` budget envelopes across complete multi-turn runs. Core Room scheduling already has bounded per-turn speaker/message settings.
@@ -249,10 +263,9 @@ Phase 1 is complete only when all of the following pass together:
 
 ### Phase 1 major slices still left
 
-1. **Execution recovery:** stale claim/heartbeat/retry/dead-letter and multi-process ownership rules
-2. **Bot registry hardening:** lifecycle and collision/relationship rules
-3. **First real runtime adapter + Phase-1 end-to-end acceptance test**
-4. **Final Phase-1 contract pass:** Room aggregate limits and release-level conformance/restart scenarios
+1. **Bot registry hardening:** lifecycle, collision and relationship rules
+2. **First real runtime adapter + Phase-1 end-to-end acceptance test**
+3. **Final Phase-1 contract pass:** Room aggregate limits and release-level conformance/restart scenarios
 
 ## Phase 2 - Dynamic Multi-Agent Squads
 
