@@ -1,11 +1,12 @@
 import type { BudgetEnvelope } from "./budget.js";
+import { BotRegistryRules, type BotLifecycleStatus } from "./bot-registry.js";
 import { constraintsDigest, normalizeConstraints } from "./constraints.js";
 import { createId } from "./id.js";
 import { ExecutionQueue } from "./execution-queue.js";
 import { CoordinationPolicy } from "./policy.js";
 import { CoordinationStore } from "./store.js";
 import type { AppendedEvent, BotManifest, CoordinationEvent, DeliveryRecord, JsonObject, StoredObject } from "./types.js";
-import { validateBotManifest, validateProtocolObject } from "./validator.js";
+import { validateProtocolObject } from "./validator.js";
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -107,12 +108,15 @@ interface EmitInput {
 
 export class CoordinationGateway {
   private readonly subscribers = new Set<(event: AppendedEvent) => void>();
+  readonly registry: BotRegistryRules;
 
   constructor(
     readonly store: CoordinationStore,
     readonly executionQueue?: ExecutionQueue,
     readonly policy?: CoordinationPolicy
-  ) {}
+  ) {
+    this.registry = new BotRegistryRules(store);
+  }
 
   subscribeEvents(listener: (event: AppendedEvent) => void): () => void {
     this.subscribers.add(listener);
@@ -120,7 +124,7 @@ export class CoordinationGateway {
   }
 
   createBot(manifest: BotManifest): StoredObject<BotManifest> {
-    const bot = validateBotManifest(manifest);
+    const bot = this.registry.prepareCreate(manifest);
     const stored = this.store.putObject("bot", bot) as StoredObject<BotManifest>;
     this.emit({
       type: "bot.created",
@@ -129,6 +133,28 @@ export class CoordinationGateway {
       summary: `Created Bot ${bot.name}`
     });
     return stored;
+  }
+
+  transitionBot(botId: string, targetStatus: BotLifecycleStatus, actorId: string): StoredObject<BotManifest> {
+    this.assertOperatorDecision(actorId);
+    const plan = this.registry.prepareTransition(botId, targetStatus);
+    const stored = this.store.putObject("bot", plan.payload) as StoredObject<BotManifest>;
+    const eventType = targetStatus === "active" ? "bot.activated" : targetStatus === "disabled" ? "bot.disabled" : "bot.archived";
+    this.emit({
+      type: eventType,
+      actorId,
+      workspaceId: stored.workspaceId,
+      summary: `${actorId} changed ${botId} from ${plan.previousStatus} to ${targetStatus}`
+    });
+    return stored;
+  }
+
+  resolveBotAddress(workspaceId: string, address: string, includeDisabled = true): StoredObject<BotManifest> | null {
+    return this.registry.resolveAddress(workspaceId, address, includeDisabled);
+  }
+
+  resolveOperatorBotAddress(address: string, includeDisabled = true): StoredObject<BotManifest> | null {
+    return this.registry.resolveOperatorAddress(address, includeDisabled);
   }
 
   listBots(workspaceId?: string): StoredObject<BotManifest>[] {
@@ -842,11 +868,15 @@ export class CoordinationGateway {
     if (room.workspaceId !== input.workspaceId) throw new Error(`Room ${input.roomId} is not in workspace ${input.workspaceId}`);
 
     const members = Array.isArray(room.payload.members) ? room.payload.members.map(String) : [];
-    if (input.senderId.startsWith("bot_") && !members.includes(input.senderId)) {
-      throw new Error(`Bot ${input.senderId} is not a member of Room ${input.roomId}`);
+    if (input.senderId.startsWith("bot_")) {
+      if (!members.includes(input.senderId)) throw new Error(`Bot ${input.senderId} is not a member of Room ${input.roomId}`);
+      const sender = this.getBot(input.senderId);
+      if (!sender || sender.payload.status !== "active") throw new Error(`Bot ${input.senderId} is not active`);
     }
     for (const mentionId of input.mentions ?? []) {
       if (!members.includes(mentionId)) throw new Error(`Mentioned Bot ${mentionId} is not a member of Room ${input.roomId}`);
+      const mentioned = this.getBot(mentionId);
+      if (!mentioned || mentioned.payload.status !== "active") throw new Error(`Mentioned Bot ${mentionId} is not active`);
     }
 
     if (input.threadId) {
@@ -948,6 +978,6 @@ export class CoordinationGateway {
   }
 
   private assertOperatorDecision(actorId: string): void {
-    if (!actorId.startsWith("operator_")) throw new Error(`Only an operator can decide approvals; received ${actorId}`);
+    if (!actorId.startsWith("operator_")) throw new Error(`Only an operator can decide approvals or Bot lifecycle changes; received ${actorId}`);
   }
 }
