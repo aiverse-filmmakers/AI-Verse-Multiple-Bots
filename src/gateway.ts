@@ -20,6 +20,13 @@ export interface SendMessageInput {
   idempotencyKey?: string;
 }
 
+export interface ResponseTarget {
+  kind: "bot" | "room" | "thread" | "operator";
+  id: string;
+  roomId?: string;
+  threadId?: string;
+}
+
 export interface DelegateInput {
   createdBy: string;
   assigneeId: string;
@@ -34,6 +41,7 @@ export interface DelegateInput {
   maxHops?: number;
   hop?: number;
   leaseExpiresAt?: string;
+  responseTarget?: ResponseTarget;
 }
 
 export interface HandoffInput {
@@ -46,6 +54,18 @@ export interface HandoffInput {
   requiredConstraints?: string[];
   artifactRefs?: string[];
   returnPolicy?: string;
+}
+
+export interface PublishRoomMessageInput {
+  senderId: string;
+  roomId: string;
+  workspaceId: string;
+  text: string;
+  threadId?: string;
+  mentions?: string[];
+  artifactRefs?: string[];
+  correlationId?: string;
+  replyToMessageId?: string;
 }
 
 export class CoordinationGateway {
@@ -116,6 +136,7 @@ export class CoordinationGateway {
       input_artifact_refs: [],
       lease_id: leaseId,
       environment_lease_id: null,
+      response_target: input.responseTarget ?? null,
       hop: input.hop ?? 0,
       max_hops: input.maxHops ?? 6,
       status: "assigned"
@@ -127,6 +148,8 @@ export class CoordinationGateway {
       actorId: input.createdBy,
       workspaceId: input.workspaceId,
       taskId,
+      roomId: input.responseTarget?.roomId ?? (input.responseTarget?.kind === "room" ? input.responseTarget.id : null),
+      threadId: input.responseTarget?.threadId ?? (input.responseTarget?.kind === "thread" ? input.responseTarget.id : null),
       summary: `Delegated task ${taskId} to ${input.assigneeId}`
     });
     return { task: storedTask, lease: storedLease, event };
@@ -228,6 +251,61 @@ export class CoordinationGateway {
       idempotencyKey: input.idempotencyKey
     });
     return { message: stored, delivery, event };
+  }
+
+  publishRoomMessage(input: PublishRoomMessageInput): { message: StoredObject; event: AppendedEvent } {
+    const room = this.store.getObject(input.roomId);
+    if (!room || room.kind !== "room") throw new Error(`Room ${input.roomId} not found`);
+    if (room.payload.status !== "active") throw new Error(`Room ${input.roomId} is not active`);
+    if (room.workspaceId !== input.workspaceId) throw new Error(`Room ${input.roomId} is not in workspace ${input.workspaceId}`);
+
+    const members = Array.isArray(room.payload.members) ? room.payload.members.map(String) : [];
+    if (input.senderId.startsWith("bot_") && !members.includes(input.senderId)) {
+      throw new Error(`Bot ${input.senderId} is not a member of Room ${input.roomId}`);
+    }
+    for (const mentionId of input.mentions ?? []) {
+      if (!members.includes(mentionId)) throw new Error(`Mentioned Bot ${mentionId} is not a member of Room ${input.roomId}`);
+    }
+
+    if (input.threadId) {
+      const thread = this.store.getObject(input.threadId);
+      if (!thread || thread.kind !== "thread") throw new Error(`Thread ${input.threadId} not found`);
+      if (thread.payload.room_id !== input.roomId) throw new Error(`Thread ${input.threadId} does not belong to Room ${input.roomId}`);
+    }
+
+    const messageId = createId("msg");
+    const message: JsonObject = {
+      schema_version: "1.0",
+      id: messageId,
+      type: "message.chat",
+      timestamp: nowIso(),
+      sender_id: input.senderId,
+      target: { kind: input.threadId ? "thread" : "room", id: input.threadId ?? input.roomId },
+      workspace_id: input.workspaceId,
+      room_id: input.roomId,
+      thread_id: input.threadId ?? null,
+      reply_to_message_id: input.replyToMessageId ?? null,
+      correlation_id: input.correlationId ?? null,
+      delivery_state: "delivered",
+      content: [{ kind: "text", text: input.text }],
+      mentions: input.mentions ?? [],
+      artifact_refs: input.artifactRefs ?? [],
+      provenance: {
+        origin: input.senderId.startsWith("bot_") ? "bot_generated" : input.senderId.startsWith("worker_") ? "worker_generated" : "operator_input",
+        trusted_instruction: !input.senderId.startsWith("bot_") && !input.senderId.startsWith("worker_")
+      }
+    };
+    const stored = this.store.putObject("message", validateProtocolObject(message, "message"));
+    const event = this.emit({
+      type: "room.message",
+      actorId: input.senderId,
+      workspaceId: input.workspaceId,
+      roomId: input.roomId,
+      threadId: input.threadId,
+      correlationId: input.correlationId,
+      summary: input.text.length > 160 ? `${input.text.slice(0, 157)}...` : input.text
+    });
+    return { message: stored, event };
   }
 
   emit(input: {
