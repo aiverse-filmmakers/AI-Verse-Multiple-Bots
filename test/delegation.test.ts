@@ -52,7 +52,10 @@ test("handoff changes ownership only after target acceptance", () => {
     const accepted = gateway.acceptHandoff(requested.handoff.id, "bot_b");
     assert.equal(accepted.handoff.payload.status, "accepted");
     assert.equal(accepted.workItem?.payload.owner_id, "bot_b");
-    assert.equal(accepted.events.length, 2);
+    const eventTypes = accepted.events.map((entry) => entry.event.type);
+    assert.ok(eventTypes.includes("handoff.accepted"));
+    assert.ok(eventTypes.includes("ownership.changed"));
+    assert.ok(eventTypes.includes("capability_lease.reissued"));
   } finally {
     store.close();
   }
