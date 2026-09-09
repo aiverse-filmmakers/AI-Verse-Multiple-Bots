@@ -14,14 +14,14 @@ The target is an installable persistent-teammate layer that can run standalone o
 
 ```text
 Phase 0  Research + Architecture        [COMPLETE]  100%
-Phase 1  Runnable Coordination Core     [ACTIVE]     ~80%
+Phase 1  Runnable Coordination Core     [ACTIVE]     ~88%
 Phase 2  Dynamic Multi-Agent Squads     [NOT STARTED]
 Phase 3  AI-Verse Native Integration    [NOT STARTED]
 Phase 4  Runtime / A2A Interoperability [NOT STARTED]
 Phase 5  Product + Install + Dashboard  [NOT STARTED]
 ```
 
-**Directional overall first-release progress:** roughly one-third complete.
+**Directional overall first-release progress:** roughly 35% complete.
 
 That overall figure is intentionally approximate because later phases contain different amounts of work. Passed phase gates, not percentages, are authoritative.
 
@@ -42,7 +42,7 @@ That overall figure is intentionally approximate because later phases contain di
 
 ## Phase 1 - Runnable Coordination Core
 
-**Status:** ACTIVE, approximately 80%
+**Status:** ACTIVE, approximately 88%
 
 ### 1.1 Repository/runtime skeleton
 
@@ -60,7 +60,7 @@ That overall figure is intentionally approximate because later phases contain di
 
 - SQLite coordination state
 - protocol object store
-- Bots, Messages, Tasks, Handoffs, Artifacts, leases
+- Bots, Messages, Tasks, Handoffs, Artifacts, approvals and leases
 - async mailboxes
 - execution queue
 - idempotency
@@ -105,10 +105,12 @@ Remaining:
 - abort signal
 - adapter cancellation hook
 - execution deadline integration
+- runtime usage receipts
+- runtime tool/action receipt surface
 
 Remaining before Phase 1 closes:
 - first real useful runtime adapter
-- richer runtime/tool receipts
+- provider-specific receipt normalization
 
 ### 1.6 Persistent Task execution
 
@@ -126,7 +128,8 @@ Remaining before Phase 1 closes:
 - cancellation of running runtime
 - recursive parent -> child cancellation
 - deadline enforcement
-- canceled Tasks publish no successful Artifact
+- budget enforcement before Artifact acceptance
+- canceled/failed/over-budget Tasks publish no successful Artifact
 
 Remaining:
 - retry/dead-letter policy
@@ -148,13 +151,13 @@ Remaining:
 - strict policy enabled by default in installable Gateway
 - cancellation propagation
 - deadline propagation
-
-Remaining:
-- token/cost/resource budget propagation
+- inherited budget envelopes
+- child Tasks cannot expand parent limits
+- root Task-count ceiling
 
 ### 1.8 Handoffs
 
-**PARTIAL**
+**PARTIAL - NEXT MAIN GATE**
 
 Complete:
 - request
@@ -163,10 +166,12 @@ Complete:
 - ownership events
 
 Remaining:
+- align implementation with canonical protocol field names
 - atomic transaction across handoff + ownership + events + execution queue
 - reject flow
 - queue retargeting
-- capability/environment lease intersection or transfer
+- capability lease intersection/reissue
+- environment lease safety/transfer rules
 - immutable-constraint digest verification
 - return-policy execution
 
@@ -192,7 +197,7 @@ Advanced group-turn/squad policies belong in later phases.
 
 ### 1.10 Safety substrate
 
-**ADVANCED, STILL ACTIVE**
+**CORE SAFETY II COMPLETE**
 
 Implemented and enforced:
 - workspace enforcement
@@ -208,15 +213,23 @@ Implemented and enforced:
 - recursive cancellation propagation
 - runtime abort signaling
 - wall-clock Task deadlines
-- deadline evidence events
+- token budgets
+- cost budgets
+- action budgets
+- root Task-count budgets
+- child budget inheritance without privilege expansion
+- delegation-loop detection
+- Bot ping-pong detection
+- repeated-result/no-progress detection
+- first-class Approval objects
+- approval queue
+- operator-only approval decisions
+- approval-required Tasks remain outside the execution queue
+- denied approval cancels work and produces no Artifact
+- attention event for pending approval
 
-Remaining:
-- token/cost/resource budgets
-- loop/ping-pong detection
-- no-progress detection
-- Room turn/message ceilings as runtime-enforced budgets
-- approval interceptor
-- user escalation
+Remaining integration item:
+- enforce Room `max_messages` / `max_rounds` budget envelopes across complete multi-turn runs. Core Room scheduling already has bounded per-turn speaker/message settings.
 
 ### Phase 1 completion gate
 
@@ -226,11 +239,11 @@ Phase 1 is complete only when all of the following pass together:
 
 ### Phase 1 major slices still left
 
-1. **Safety II:** budgets, loop/no-progress detection, approval interception, escalation
-2. **Handoff hardening:** atomic transfer, reject, lease/queue handling
-3. **Execution recovery:** stale claim/heartbeat/retry/dead-letter rules
-4. **Bot registry hardening:** lifecycle and collision/relationship rules
-5. **First real runtime adapter + Phase-1 end-to-end acceptance test**
+1. **Handoff hardening:** atomic transfer, rejection, constraint/lease/queue handling and protocol alignment
+2. **Execution recovery:** stale claim/heartbeat/retry/dead-letter rules
+3. **Bot registry hardening:** lifecycle and collision/relationship rules
+4. **First real runtime adapter + Phase-1 end-to-end acceptance test**
+5. **Final Phase-1 contract pass:** schema sync, Room aggregate limits and release-level conformance tests
 
 ## Phase 2 - Dynamic Multi-Agent Squads
 
