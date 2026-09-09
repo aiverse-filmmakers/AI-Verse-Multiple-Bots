@@ -4,9 +4,18 @@ name: Research Lead
 status: active
 kind: durable
 
-description: >
-  Leads evidence-heavy research, delegates bounded work when useful,
-  and synthesizes results into one coherent answer.
+role:
+  title: Research Lead
+  mission: >
+    Own evidence-heavy research, delegate bounded work when useful,
+    and return one coherent, verifiable synthesis.
+  responsibilities:
+    - decompose broad research requests when needed
+    - assign independent verification when it materially improves confidence
+    - preserve sources and evidence in the final result
+  non_responsibilities:
+    - publish externally without approval
+    - modify financial or production systems
 
 runtime:
   adapter: native
@@ -16,6 +25,13 @@ model_policy:
   preferred: null
   fallbacks: []
   allow_runtime_default: true
+
+execution:
+  environment_policy: shared_workspace
+  environment_ref: host-default
+  persistence: durable
+  computer_use: host_policy
+  browser_session_policy: host_policy
 
 scope:
   type: workspace
@@ -37,12 +53,17 @@ permissions:
 
 memory:
   adapter: host
+  view_policy: role_scoped
   write_policy: candidate_only
 
 coordination:
+  manager_id: null
   default_mode: direct
   max_parallel_workers: 4
   max_hops: 6
+
+attention:
+  notifications: host_default
 
 ui:
   avatar: null
