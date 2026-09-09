@@ -4,7 +4,7 @@
 
 **Phase:** 1
 
-**Overall status:** in progress, approximately 88%
+**Overall status:** in progress, approximately 92%
 
 This file is the implementation ledger for Phase 1. It records what is actually on `main`, what has been tested, and what remains before the Phase 1 completion milestone is claimed.
 
@@ -34,6 +34,7 @@ That milestone is **not yet claimed**.
 - global and per-Room ordering
 - idempotency
 - restart persistence
+- reusable atomic multi-object/event/queue mutation primitive
 - SSE event stream
 - GitHub Actions CI
 
@@ -51,6 +52,7 @@ Task assigned
   -> budget/loop/progress checks
   -> Artifact published
   -> Task completed
+  -> Handoff settlement when applicable
   -> creator/Room notified
 ```
 
@@ -79,7 +81,7 @@ Implemented:
 - usage reporting for input/output tokens, cost and actions
 - runtime receipt surface
 
-A real external/model runtime adapter is intentionally still deferred until handoff and crash-recovery rules are hardened.
+A real external/model runtime adapter is intentionally still deferred until crash-recovery rules are hardened.
 
 ### Delegation
 
@@ -89,6 +91,7 @@ Implemented:
 - root objective
 - parent Task lineage
 - inherited constraints
+- immutable constraint digest
 - hop/max-hop controls
 - scoped capability lease
 - tools/connections
@@ -217,20 +220,34 @@ Implemented:
 - `POST /v1/approvals/:id/deny`
 - `needs_approval` attention event
 
-### Handoff core
+### Handoff hardening
+
+**Phase-1 gate complete.**
 
 Implemented:
 
-- Handoff object
-- requested state
+- Protocol v1.1 canonical `target_bot_id` and `task_id`
+- source ownership/root/workspace/status checks before request
+- one active Handoff per Task
 - target-only acceptance
-- ownership changes only after target accepts
-- `handoff.requested`
-- `handoff.accepted`
-- `ownership.changed`
-- HTTP request/accept endpoints
-
-This is now the immediate next main Phase 1 area. The current implementation predates the final protocol-v1.1 handoff field naming and does not yet perform one atomic transaction across handoff state, ownership, leases, queue state and events.
+- target/operator rejection
+- atomic SQLite mutation across Handoff, Task, leases, Approval retargeting, queue routing and audit events
+- queue retarget only while execution is still queued
+- claimed/running Task Handoff fails closed
+- old capability lease revoked/superseded and new Task-scoped authority reissued to target
+- target capability compatibility checks
+- shared-workspace environment lease reissue
+- isolated/external environment transfer fails closed pending adapter-specific secure transfer
+- approval-gated Task remains outside execution queue after Handoff
+- pending Approval actor moves to the new target
+- immutable constraint digest verification
+- stricter Handoff constraints preserved in the Task
+- return policy contract: `stay_with_target`, `return_on_completion`, `return_on_block`, `explicit_only`
+- automatic Handoff settlement on completion, failure and cancellation
+- ownership returns to source on completion when configured
+- runtime event subscribers receive atomic committed event batches
+- `POST /v1/handoffs/:id/reject`
+- canonical JSON Schema/validator alignment
 
 ## Current HTTP surface
 
@@ -248,6 +265,7 @@ Implemented main endpoints include:
 - `POST /v1/approvals/:id/deny`
 - `POST /v1/handoffs`
 - `POST /v1/handoffs/:id/accept`
+- `POST /v1/handoffs/:id/reject`
 - `GET /v1/execution/:id`
 - `POST /v1/bots/:id/run-next`
 - `GET /v1/rooms`
@@ -265,9 +283,22 @@ Default binding remains localhost-oriented.
 
 ## Test and CI status
 
-Latest verified GitHub Actions suite after Safety II and Approval work: **23/23 passing**.
+Latest verified GitHub Actions suite after Handoff Hardening and contract alignment: **32/32 passing**.
 
-Newly proven behavior includes:
+Newly proven Handoff behavior includes:
+
+- accepted Handoff atomically retargets queued execution
+- capability authority is reissued rather than reused
+- pending Approval follows the new Task owner without prematurely queueing work
+- rejected Handoff leaves Task, queue and authority unchanged
+- Handoff acceptance refuses already-claimed execution
+- immutable constraint tampering blocks acceptance
+- `return_on_completion` returns ownership to the source after successful target execution
+- `stay_with_target` preserves target ownership after completion
+- Safety II budget fields and canonical Handoff keys are locked by schema regression tests
+- runtime validator rejects legacy-only Handoff aliases
+
+Previously proven behavior remains covered:
 
 - child Task budget inheritance and anti-expansion
 - root Task-count budget
@@ -275,23 +306,15 @@ Newly proven behavior includes:
 - runtime usage over budget fails before Artifact publication
 - repeated identical results eventually fail as no progress
 - approval-required work cannot execute before approval
-- Bot cannot approve its own approval gate
-- operator approval releases the Task to execution
-- denied approval cancels the Task and produces no Artifact
-- HTTP approval queue and decision path
-
-Previously proven behavior remains covered:
-
+- operator approval/denial behavior
 - strict Gateway routing
 - Room replay
 - cancellation and deadline enforcement
 - delegation + capability leases
-- ownership semantics
 - mailbox persistence
 - restart Task execution
 - lease expiry failure
 - Room/Thread work and replies
-- policy lineage/hop/workspace/peer/capability checks
 - append-only event ordering/idempotency
 - event-driven Bot wake-up
 
@@ -299,18 +322,7 @@ Node's built-in `node:sqlite` still emits its experimental-feature warning on No
 
 ## Remaining Phase 1 work
 
-### A. Handoff hardening - NEXT
-
-- align runtime implementation with Protocol v1.1 handoff fields
-- transactional handoff + ownership + event update
-- reject flow
-- execution queue retargeting
-- capability lease intersection/reissue
-- environment lease transfer safety
-- immutable constraint digest verification
-- return-policy execution
-
-### B. Execution recovery hardening
+### A. Execution recovery hardening - NEXT
 
 - stale claimed/running detection
 - execution heartbeat/lease
@@ -321,30 +333,29 @@ Node's built-in `node:sqlite` still emits its experimental-feature warning on No
 
 Do not blindly retry unknown external side effects after a crash.
 
-### C. Bot registry hardening
+### B. Bot registry hardening
 
 - disable/archive transitions
 - alias/collision rules outside Rooms
 - relationship validation
 
-### D. First real runtime adapter
+### C. First real runtime adapter
 
-After handoff/recovery rules are green:
+After recovery rules are green:
 
 - attach one real useful runtime behind the existing interface
 - normalize runtime/tool receipts
 - prove two persistent Bots collaborating end-to-end with the real adapter
 
-### E. Final Phase-1 contract pass
+### D. Final Phase-1 contract pass
 
-- sync the JSON Schema with all Safety II runtime budget fields
-- complete Handoff schema/implementation alignment
 - apply Room aggregate max-message/max-round envelopes
-- conformance tests across canonical JSON Schema and runtime validator
+- release-level conformance tests
 - final restart/cancel/handoff/approval acceptance scenario
+- verify clean install/doctor prerequisites needed for Phase 5 packaging
 
 ## Immediate next implementation step
 
-Build **Handoff Hardening**.
+Build **Execution Recovery Hardening**.
 
-The safe target is an atomic ownership transfer where the target accepts responsibility, inherited constraints are verified, authority is narrowed rather than expanded, queued execution is retargeted consistently, and partial failure cannot leave the Handoff, Task, lease or queue disagreeing about who owns the work.
+The recovery rule is conservative: pure/idempotent work may be safely requeued after a stale execution lease, but work with unknown or consequential external side effects must never be blindly replayed after a crash. It must enter a visible dead-letter/manual-recovery state instead.
