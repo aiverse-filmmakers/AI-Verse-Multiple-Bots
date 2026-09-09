@@ -72,10 +72,15 @@ test("Worker -> Worker moves queued ownership, preserves temporary identity, exe
     assert.notEqual(accepted.task.payload.lease_id, a.task.payload.lease_id);
     env.supervisor.start(); await env.supervisor.waitForIdle();
     const task = env.store.getObject(a.task.id); const artifact = env.store.listObjects("artifact", "ws_direct_handoff")[0];
+    const settledHandoff = env.store.getObject(h.handoff.id);
     assert.equal(task?.payload.status, "completed");
     assert.equal(task?.payload.assignee_id, b.id);
-    assert.equal(task?.payload.owner_id, a.worker.id);
-    assert.equal(env.store.getObject(h.handoff.id)?.payload.status, "completed");
+    assert.equal(task?.payload.owner_id, "bot_leader");
+    assert.equal(settledHandoff?.payload.status, "completed");
+    assert.equal(settledHandoff?.payload.team_run_return_policy, "return_to_leader");
+    assert.equal(settledHandoff?.payload.return_owner_id, "bot_leader");
+    assert.equal(settledHandoff?.payload.ownership_returned, true);
+    assert.equal(env.store.getObject(a.worker.id)?.payload.status, "canceled");
     assert.equal(env.store.getObject(b.id)?.payload.status, "completed");
     assert.equal(artifact?.payload.created_by, b.id);
     assert.equal((artifact?.payload.provenance as any)?.origin, "worker_generated");
@@ -186,9 +191,13 @@ test("accepted Worker handoff survives reopen, executes under target Worker and 
     const env = fixture(new DeterministicRuntimeAdapter(), dbPath, false); env.supervisor.start();
     try {
       await env.supervisor.waitForIdle(); const artifact = env.store.listObjects("artifact", "ws_direct_handoff")[0];
+      const settledHandoff = env.store.getObject(handoffId);
       assert.equal(env.store.getObject(taskId)?.payload.status, "completed");
       assert.equal(env.store.getObject(taskId)?.payload.assignee_id, targetId);
-      assert.equal(env.store.getObject(handoffId)?.payload.status, "completed");
+      assert.equal(env.store.getObject(taskId)?.payload.owner_id, "bot_leader");
+      assert.equal(settledHandoff?.payload.status, "completed");
+      assert.equal(settledHandoff?.payload.team_run_return_policy, "return_to_leader");
+      assert.equal(settledHandoff?.payload.ownership_returned, true);
       assert.equal(env.store.getObject(targetId)?.payload.status, "completed");
       assert.equal(artifact?.payload.created_by, targetId);
       assert.equal(env.queue.getByItem(taskId)?.state, "completed");
