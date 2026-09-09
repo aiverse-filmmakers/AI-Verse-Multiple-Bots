@@ -189,6 +189,18 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
         return;
       }
 
+      const taskCancelMatch = url.pathname.match(/^\/v1\/tasks\/([^/]+)\/cancel$/);
+      if (method === "POST" && taskCancelMatch) {
+        const body = await readJson(req);
+        const result = await runner.cancelTask(
+          decodeURIComponent(taskCancelMatch[1] as string),
+          requiredString(body, "actorId"),
+          typeof body.reason === "string" ? body.reason : "Canceled by operator or owner"
+        );
+        json(res, 200, result);
+        return;
+      }
+
       if (method === "POST" && url.pathname === "/v1/delegations") {
         const body = await readJson(req);
         json(res, 201, gateway.delegate({
@@ -205,7 +217,8 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
           parentTaskId: typeof body.parentTaskId === "string" ? body.parentTaskId : undefined,
           hop: typeof body.hop === "number" ? body.hop : undefined,
           maxHops: typeof body.maxHops === "number" ? body.maxHops : undefined,
-          leaseExpiresAt: typeof body.leaseExpiresAt === "string" ? body.leaseExpiresAt : undefined
+          leaseExpiresAt: typeof body.leaseExpiresAt === "string" ? body.leaseExpiresAt : undefined,
+          deadlineAt: typeof body.deadlineAt === "string" ? body.deadlineAt : undefined
         }));
         return;
       }
