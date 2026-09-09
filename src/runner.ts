@@ -150,6 +150,7 @@ export class PrincipalRunner extends BasePrincipalRunner {
   }
 
   override async runNext(targetId: string): Promise<RunResult | null> {
+    this.prepareTeamRunHandoffSettlement(targetId);
     const result = await super.runNext(targetId);
     if (!result) return null;
 
@@ -181,6 +182,50 @@ export class PrincipalRunner extends BasePrincipalRunner {
       return settlement?.task ?? this.store.getObject(task.id) ?? task;
     });
     return { tasks, events };
+  }
+
+  /**
+   * TeamRun direct handoff reuses the Phase 1 Handoff object. The canonical
+   * `return_on_completion` default normally returns to `source_owner_id`, but a
+   * temporary TeamRun source may already be terminal after transfer. Before the
+   * Task is claimable we therefore translate that canonical policy to
+   * `stay_with_target` and record an additive TeamRun return-to-leader contract.
+   */
+  private prepareTeamRunHandoffSettlement(targetId: string): void {
+    const execution = this.queue.list(targetId, ["queued"])[0];
+    if (!execution || execution.itemKind !== "task") return;
+    const task = this.store.getObject(execution.itemId);
+    if (!task || task.kind !== "task" || typeof task.payload.run_id !== "string") return;
+    const handoffId = typeof task.payload.handoff_id === "string" ? task.payload.handoff_id : null;
+    if (!handoffId) return;
+    const handoff = this.store.getObject(handoffId);
+    if (!handoff || handoff.kind !== "handoff" || handoff.payload.status !== "accepted") return;
+    if (String(handoff.payload.run_id ?? "") !== String(task.payload.run_id)) return;
+    if (String(handoff.payload.return_policy ?? "") !== "return_on_completion") return;
+    if (handoff.payload.team_run_return_policy !== undefined) return;
+    if (String(task.payload.owner_id ?? "") !== targetId || String(task.payload.assignee_id ?? "") !== targetId) return;
+
+    const run = this.store.getObject(String(task.payload.run_id));
+    if (!run || run.kind !== "team_run") return;
+    const leaderId = String(run.payload.leader_id ?? "");
+    if (!leaderId) return;
+    const timestamp = new Date().toISOString();
+    const updatedHandoff = validateProtocolObject({
+      ...handoff.payload,
+      return_policy: "stay_with_target",
+      team_run_return_policy: "return_to_leader",
+      return_owner_id: leaderId,
+      team_run_return_normalized_at: timestamp
+    }, "handoff");
+    this.store.atomicMutation({
+      preconditions: [
+        { id: handoff.id, kind: "handoff", status: "accepted" },
+        { id: task.id, kind: "task", status: "assigned", ownerId: targetId },
+        { id: run.id, kind: "team_run", status: String(run.payload.status), updatedAt: run.updatedAt }
+      ],
+      objects: [{ kind: "handoff", payload: updatedHandoff }],
+      events: []
+    });
   }
 
   private normalizeTeamRunCompletionOwner(
