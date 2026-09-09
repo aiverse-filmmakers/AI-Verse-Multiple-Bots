@@ -114,6 +114,15 @@ export class ExecutionQueue {
     return rows.map((row) => this.row(row));
   }
 
+  listQueuedTargets(): string[] {
+    const rows = this.db.prepare(`
+      SELECT DISTINCT target_id FROM execution_queue
+      WHERE state = 'queued'
+      ORDER BY target_id
+    `).all() as Array<{ target_id: string }>;
+    return rows.map((row) => String(row.target_id));
+  }
+
   claimNext(targetId: string, runnerId: string): ExecutionRecord | null {
     this.db.exec("BEGIN IMMEDIATE;");
     try {
