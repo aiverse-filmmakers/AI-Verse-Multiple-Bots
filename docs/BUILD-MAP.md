@@ -15,13 +15,13 @@ The target is an installable persistent-teammate layer that can run standalone o
 ```text
 Phase 0  Research + Architecture        [COMPLETE]    100%
 Phase 1  Runnable Coordination Core     [COMPLETE]    100%
-Phase 2  Dynamic Multi-Agent Squads     [IN PROGRESS] ~65%
+Phase 2  Dynamic Multi-Agent Squads     [IN PROGRESS] ~72%
 Phase 3  AI-Verse Native Integration    [NOT STARTED]
 Phase 4  Runtime / A2A Interoperability [NOT STARTED]
 Phase 5  Product + Install + Dashboard  [NOT STARTED]
 ```
 
-**Directional overall first-release progress:** roughly 56% complete.
+**Directional overall first-release progress:** roughly 57% complete.
 
 That overall figure is intentionally approximate because later phases contain different amounts of work. Passed phase gates, not percentages, are authoritative.
 
@@ -165,9 +165,9 @@ None.
 
 **Status:** IN PROGRESS
 
-**Current phase progress:** approximately 65%.
+**Current phase progress:** approximately 72%.
 
-**Current verification:** GitHub Actions run 164 on 2026-09-09 passed **93/93 tests** at commit `045ffb7a3b88b60c6b4f41c3403eb17b13eb7435`.
+**Current verification:** GitHub Actions run 173 on 2026-09-09 passed **104/104 tests** at commit `57fd202688def83af84d455edee60ea9e9782ee8`.
 
 Goal: a durable Bot decides whether to work alone or create bounded temporary Workers, coordinates them through the topology justified by the work, and returns a bounded, auditable result without turning temporary helpers into durable identities.
 
@@ -179,12 +179,12 @@ Major slices:
 4. bounded parallel fan-out - **COMPLETE**
 5. direct handoff topology - **COMPLETE**
 6. bounded group/discussion topology where justified - **COMPLETE**
-7. disagreement detection - **NEXT**
-8. verifier/critic role - remaining
+7. disagreement detection - **COMPLETE**
+8. verifier/critic role - **NEXT**
 9. synthesis - remaining
 10. Worker cleanup - remaining beyond terminal expiry foundation already implemented
 11. adaptive `single Bot vs squad` decision policy - remaining
-12. squad budget/cancellation controls - remaining beyond current Worker, fan-out, aggregate usage, direct-handoff, discussion, cancellation, recovery and CAS foundations
+12. squad budget/cancellation controls - remaining beyond current Worker, fan-out, aggregate usage, direct-handoff, discussion, disagreement, cancellation, recovery and CAS foundations
 
 ### Phase 2 capabilities now implemented
 
@@ -268,6 +268,24 @@ Major slices:
 - stale setup reservations intentionally fail closed; timeout/reaping is not claimed yet
 - explicit cancellation closes the current discussion and temporary participant set
 
+#### Structured disagreement detection
+
+- host-neutral `TeamRunDisagreementDetector` compares declared structured claims rather than hidden model reasoning
+- accepted claim kinds: fact, constraint, recommendation, estimate, and opinion
+- detects fact/value conflicts, constraint contradictions, opposed stances, explicitly incompatible recommendations, estimate gaps beyond declared tolerance, and material confidence gaps
+- compatible alternatives remain compatible unless exclusivity is explicitly declared
+- non-comparable or unstructured inputs return `insufficient_evidence` instead of hallucinating conflict
+- every finding retains source Artifact and claim references
+- disagreement reports are immutable deterministic `disagreement_report` Artifacts with source provenance
+- deterministic report IDs/digests and idempotent analysis events make repeated identical analysis replay-safe
+- source Artifacts must remain in the same workspace and Team Run
+- Artifact/claim ceilings keep comparison bounded
+- Team Run disagreement state is persisted with `updatedAt` compare-and-swap retry
+- hard conflict creates persistent verification debt through `verification_required_report_refs`
+- later compatible subset analysis cannot clear unresolved Team Run verification debt; only the future verifier/critic stage may explicitly resolve it
+- report lookup/listing ignores cross-run or cross-workspace poisoned references
+- report history and latest report survive database reopen
+
 ### Phase 2.6 acceptance gate
 
 **PASSED.**
@@ -286,15 +304,33 @@ The eleven discussion acceptance/regression tests prove:
 10. cancellation closes active discussion work and temporary participants
 11. restart after completed-but-unreconciled work resumes without duplicating completed Tasks or Worker turn records
 
-The full package suite now passes **93/93 tests**.
+### Phase 2.7 acceptance gate
+
+**PASSED.**
+
+The eleven disagreement acceptance/regression tests prove:
+
+1. incompatible values for the same fact produce a high-severity evidence conflict and require verification
+2. different recommendations remain compatible unless candidates explicitly declare them mutually exclusive
+3. opposed stances on the same declared claim produce a contradiction
+4. material confidence gaps are surfaced without automatically forcing verifier work
+5. estimate differences conflict only when they exceed declared tolerance
+6. unstructured/non-comparable candidates return insufficient evidence rather than invented disagreement
+7. cross-run candidate inputs and bounded input ceilings fail closed before report creation
+8. identical analysis is deterministic and idempotent
+9. default candidate references and disagreement reports survive database reopen
+10. a later compatible subset cannot clear unresolved Team Run verification debt from an earlier conflict
+11. `latest`/`list` ignore disagreement-report references that belong to another Team Run
+
+The full package suite now passes **104/104 tests**.
 
 ### Next Phase 2 gate
 
-**2.7 - Disagreement detection**
+**2.8 - Verifier/critic role**
 
-Build a host-neutral structured disagreement layer over candidate Artifacts from manager, fan-out, handoff, and discussion topologies. It should distinguish meaningful conflicts from compatible alternatives, preserve source/provenance evidence, avoid unnecessary critic work when no conflict exists, remain bounded by Team Run/root/constraint policy, survive restart, and produce explicit records that the verifier/critic slice can consume.
+Consume structured disagreement reports only when verification is justified. The verifier must evaluate the explicit conflict evidence, preserve source/provenance lineage, produce a structured verdict Artifact, and explicitly resolve or retain entries in `verification_required_report_refs`. It must not clear verification debt merely because a later candidate subset looks compatible, and it must remain bounded by Team Run authority, budget, cancellation, and restart rules.
 
-After 2.7, continue through verifier/critic, synthesis, Worker cleanup hardening, adaptive collaboration choice, and final squad-wide budget/cancellation consolidation.
+After 2.8, continue through synthesis, Worker cleanup hardening, adaptive collaboration choice, and final squad-wide budget/cancellation consolidation.
 
 ## Phase 3 - AI-Verse Native Integration
 

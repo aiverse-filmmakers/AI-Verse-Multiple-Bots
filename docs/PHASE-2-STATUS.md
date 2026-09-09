@@ -6,7 +6,7 @@
 
 **Overall status:** IN PROGRESS
 
-**Directional phase progress:** approximately 65%
+**Directional phase progress:** approximately 72%
 
 This file is the implementation ledger for Phase 2. The canonical product roadmap remains `BUILD-MAP.md`.
 
@@ -18,9 +18,9 @@ The package must remain host-neutral. Phase 2 coordination primitives may be emb
 
 ## Current verification
 
-GitHub Actions run 164 on 2026-09-09 passed **93/93 tests**, with 0 failures, 0 canceled, and 0 skipped, at commit `045ffb7a3b88b60c6b4f41c3403eb17b13eb7435`.
+GitHub Actions run 173 on 2026-09-09 passed **104/104 tests**, with 0 failures, 0 canceled, and 0 skipped, at commit `57fd202688def83af84d455edee60ea9e9782ee8`.
 
-The eleven Phase 2.6 acceptance/regression tests pass alongside all previous Phase 1 and Phase 2 coverage.
+The eleven Phase 2.7 disagreement acceptance/regression tests pass alongside all previous Phase 1 and Phase 2 coverage.
 
 ## Slice 2.1 - Team Run object and lifecycle
 
@@ -339,14 +339,83 @@ The eleven discussion tests prove:
 10. cancellation closes the active discussion and every temporary participant
 11. database restart after a completed-but-unreconciled turn resumes at the next turn without duplicating completed work or Worker turn records
 
-**Verified suite:** 93 passed, 0 failed, 0 canceled, 0 skipped in GitHub Actions run 164.
+## Slice 2.7 - Structured disagreement detection
+
+**COMPLETE**
+
+Phase 2.7 introduces a deterministic comparison layer over explicit candidate Artifact claims. It does not inspect or request hidden model reasoning and does not make an additional model call mandatory merely to decide whether candidates disagree.
+
+Implemented:
+
+### Structured claim contract
+
+- host-neutral `TeamRunDisagreementDetector`
+- accepts declared claims under `inline_content.claims[]`
+- supported claim kinds: `fact`, `constraint`, `recommendation`, `estimate`, and `opinion`
+- normalizes subjects and canonicalizes values for deterministic comparison
+- optional stance, confidence, evidence refs, exclusivity group, relation, and numeric tolerance metadata
+- malformed/unsupported claim fields are recorded as invalid evidence rather than silently interpreted
+
+### Conflict classification
+
+- fact claims with incompatible values become high-severity evidence conflicts
+- constraint claims with incompatible values become high-severity contradictions
+- opposed support/oppose stances on the same declared claim become contradictions
+- differing recommendations remain compatible unless exclusivity is explicitly declared
+- estimates conflict only when their gap exceeds declared tolerance
+- same conclusions with a material confidence delta become a confidence-gap finding without automatically forcing verifier work
+- non-comparable/unstructured candidates resolve to `insufficient_evidence` instead of invented disagreement
+
+### Report and provenance model
+
+- every analysis creates or reuses an immutable `disagreement_report` Artifact
+- findings retain source Artifact refs and claim refs
+- report provenance references the analyzed source Artifacts
+- deterministic analysis digest/report ID makes repeated identical input idempotent regardless of Artifact-ref order
+- idempotent `disagreement.analyzed` event prevents duplicate replay noise
+- latest/report-history refs persist on the Team Run and survive database reopen
+
+### Scope, budget, and concurrency safety
+
+- all candidate Artifacts must belong to the same workspace and Team Run
+- disagreement reports themselves cannot be fed back as candidate inputs
+- Artifact and claim ceilings bound comparison work
+- Team Run state persistence uses `updatedAt` compare-and-swap with bounded retry
+- only the active durable Team Run leader or an operator may run analysis
+- `latest()` and `list()` ignore cross-run/cross-workspace report refs even if persisted state is poisoned
+
+### Verification-debt semantics
+
+- hard conflicts set Team Run `requires_verification: true`
+- hard-conflict report IDs are accumulated in `verification_required_report_refs`
+- verification debt is monotonic in this slice: a later compatible/confidence-only subset cannot clear an earlier unresolved hard conflict
+- a current compatible report can truthfully say that it does not itself require verification while the Team Run still records unresolved prior verification debt
+- Phase 2.8 owns explicit resolution/removal of verified report refs and eventual clearing of the Team Run verification flag
+
+## Phase 2.7 acceptance proof
+
+The eleven disagreement tests prove:
+
+1. same fact with incompatible values creates a high-severity evidence conflict and requires verification
+2. different recommendations remain compatible unless explicitly mutually exclusive
+3. opposed stances on the same declared claim are contradictions
+4. a material confidence gap is surfaced without automatically forcing verifier work
+5. estimate gaps conflict only beyond declared tolerance
+6. unstructured/non-comparable candidates return insufficient evidence rather than hallucinating disagreement
+7. candidate scope and bounded input ceilings fail closed before report creation
+8. identical analysis is deterministic and idempotent
+9. default candidate refs and disagreement report history survive database reopen
+10. later compatible subset analysis cannot clear unresolved Team Run verification debt
+11. report lookup/listing ignores disagreement reports belonging to another Team Run
+
+**Verified suite:** 104 passed, 0 failed, 0 canceled, 0 skipped in GitHub Actions run 173.
 
 ## Reusability boundary
 
 Phase 2 remains package-owned and host-neutral:
 
 ```text
-TeamRunManager / TeamRunFanout / TeamRunHandoff / TeamRunDiscussion / PrincipalRunner / ExecutionSupervisor
+TeamRunManager / TeamRunFanout / TeamRunHandoff / TeamRunDiscussion / TeamRunDisagreementDetector / PrincipalRunner / ExecutionSupervisor
   -> CoordinationStore + ExecutionQueue
   -> RuntimeAdapter contract
   -> canonical TeamRun / Worker / Task / Handoff / Room / Thread / Message / Artifact protocol objects
@@ -359,18 +428,20 @@ AI-Verse native integration remains Phase 3 and must arrive through adapters and
 
 ## Next slice
 
-### 2.7 - Disagreement detection
+### 2.8 - Verifier/critic role
 
 Required next work:
 
-1. define a host-neutral disagreement contract over candidate Artifacts rather than hidden model reasoning
-2. detect meaningful contradictions, incompatible recommendations, confidence gaps, and evidence conflicts without treating stylistic differences as disagreement
-3. preserve source Artifact/provenance references for every detected conflict
-4. keep disagreement analysis bounded by Team Run budgets and the original root objective/constraints
-5. support manager, fan-out, handoff, and discussion-produced candidate sets without coupling to one topology
-6. decide when no disagreement exists and skip unnecessary critic/verifier work
-7. expose structured disagreement records that Phase 2.8 verifier/critic can consume
-8. remain deterministic/testable where possible and avoid making another model call mandatory just to compare structured results
-9. add acceptance tests for true conflict, compatible alternatives, insufficient evidence, and restart persistence
+1. consume structured `disagreement_report` Artifacts rather than re-inventing conflict discovery
+2. run verifier/critic work only when a report or policy justifies it
+3. preserve source candidate, finding, root-objective, constraint, workspace, and Team Run lineage
+4. produce a structured verifier verdict Artifact with explicit outcome/evidence references
+5. distinguish resolved conflict, unresolved conflict, insufficient evidence, and verifier failure
+6. explicitly remove only resolved report IDs from `verification_required_report_refs`
+7. clear Team Run `requires_verification` only when no unresolved verification-required report refs remain
+8. prevent a verifier from expanding tool/connection/budget authority beyond the durable leader/Team Run
+9. support cancellation and restart without duplicating verifier work or verdicts
+10. keep verifier/critic optional when candidates are compatible and no policy requires review
+11. add acceptance tests for resolution, unresolved conflict, insufficient evidence, idempotency, cancellation, and restart persistence
 
-After disagreement detection, continue through verifier/critic, synthesis, Worker cleanup hardening, adaptive single-Bot-vs-squad policy, and final squad budget/cancellation consolidation.
+After verifier/critic, continue through synthesis, Worker cleanup hardening, adaptive single-Bot-vs-squad policy, and final squad budget/cancellation consolidation.
