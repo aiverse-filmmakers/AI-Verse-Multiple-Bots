@@ -1,4 +1,5 @@
 export * from "./budget.js";
+export * from "./constraints.js";
 export * from "./execution-queue.js";
 export * from "./gateway.js";
 export * from "./id.js";
