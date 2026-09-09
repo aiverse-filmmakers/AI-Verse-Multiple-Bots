@@ -1,5 +1,6 @@
 import { createServer } from "node:http";
 import { URL } from "node:url";
+import type { BudgetEnvelope } from "./budget.js";
 import type { BotManifest, JsonObject } from "./types.js";
 import { ExecutionQueue } from "./execution-queue.js";
 import { CoordinationGateway } from "./gateway.js";
@@ -218,7 +219,10 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
           hop: typeof body.hop === "number" ? body.hop : undefined,
           maxHops: typeof body.maxHops === "number" ? body.maxHops : undefined,
           leaseExpiresAt: typeof body.leaseExpiresAt === "string" ? body.leaseExpiresAt : undefined,
-          deadlineAt: typeof body.deadlineAt === "string" ? body.deadlineAt : undefined
+          deadlineAt: typeof body.deadlineAt === "string" ? body.deadlineAt : undefined,
+          budget: typeof body.budget === "object" && body.budget !== null && !Array.isArray(body.budget)
+            ? body.budget as BudgetEnvelope
+            : undefined
         }));
         return;
       }
