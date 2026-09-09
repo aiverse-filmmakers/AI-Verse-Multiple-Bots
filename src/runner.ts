@@ -223,6 +223,8 @@ export class BotRunner {
         summary: result.summary,
         attentionState: "unread_result"
       });
+      const completionSettlement = this.gateway.settleHandoffForTask(task.id, "completed", botId);
+      const finalCompletedTask = completionSettlement?.task ?? completedTask;
 
       const responseTarget = asObject(task.payload.response_target);
       if (responseTarget && typeof responseTarget.kind === "string" && typeof responseTarget.id === "string") {
@@ -272,7 +274,7 @@ export class BotRunner {
 
       return {
         execution: completedExecution,
-        task: completedTask,
+        task: finalCompletedTask,
         artifact,
         status: "completed"
       };
@@ -319,6 +321,8 @@ export class BotRunner {
             attentionState: "canceled"
           });
         }
+        const cancellationSettlement = this.gateway.settleHandoffForTask(task.id, "canceled", botId);
+        canceledTask = cancellationSettlement?.task ?? canceledTask;
         return {
           execution: canceledExecution,
           task: canceledTask,
@@ -336,7 +340,7 @@ export class BotRunner {
         failure_reason: message,
         failure_code: failureCode
       };
-      const failedTask = this.store.putObject("task", validateProtocolObject(failedTaskPayload, "task"));
+      let failedTask = this.store.putObject("task", validateProtocolObject(failedTaskPayload, "task"));
       const failedExecution = this.queue.updateState(claimed.id, "failed", message);
       if (error instanceof BudgetError) {
         this.gateway.emit({
@@ -369,6 +373,8 @@ export class BotRunner {
         summary: message,
         attentionState: "failed"
       });
+      const failureSettlement = this.gateway.settleHandoffForTask(task.id, "failed", botId);
+      failedTask = failureSettlement?.task ?? failedTask;
       return {
         execution: failedExecution,
         task: failedTask,
@@ -447,7 +453,7 @@ export class BotRunner {
     }
 
     this.queue.cancelByItem(task.id, reason);
-    const canceled = this.store.putObject("task", validateProtocolObject({
+    let canceled = this.store.putObject("task", validateProtocolObject({
       ...current.payload,
       status: "canceled",
       canceled_at: nowIso(),
@@ -464,7 +470,9 @@ export class BotRunner {
       summary: reason,
       attentionState: "canceled"
     });
+    const settlement = this.gateway.settleHandoffForTask(current.id, "canceled", actorId);
+    canceled = settlement?.task ?? canceled;
     tasks.push(canceled);
-    events.push(event);
+    events.push(event, ...(settlement?.events ?? []));
   }
 }
