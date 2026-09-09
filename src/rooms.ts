@@ -2,7 +2,7 @@ import { botRegistryAddresses, normalizeBotAddress } from "./bot-registry.js";
 import { createId } from "./id.js";
 import { CoordinationGateway } from "./gateway.js";
 import { CoordinationStore } from "./store.js";
-import type { JsonObject, StoredObject } from "./types.js";
+import type { AppendedEvent, JsonObject, StoredObject } from "./types.js";
 import { validateProtocolObject } from "./validator.js";
 
 function stringArray(value: unknown): string[] {
@@ -18,6 +18,21 @@ function positiveInteger(value: number | undefined, fallback: number, label: str
   if (!Number.isInteger(resolved) || resolved < 1) throw new Error(`${label} must be a positive integer`);
   return resolved;
 }
+
+export type RoomPassReasonCode =
+  | "NO_ADDITIONAL_VALUE"
+  | "OUT_OF_SCOPE"
+  | "AWAITING_OTHER_AGENT"
+  | "INSUFFICIENT_CONTEXT"
+  | "CONFLICT_OF_ROLE";
+
+const ROOM_PASS_REASON_CODES = new Set<RoomPassReasonCode>([
+  "NO_ADDITIONAL_VALUE",
+  "OUT_OF_SCOPE",
+  "AWAITING_OTHER_AGENT",
+  "INSUFFICIENT_CONTEXT",
+  "CONFLICT_OF_ROLE"
+]);
 
 export interface CreateRoomInput {
   id?: string;
@@ -136,6 +151,16 @@ export class RoomCoordinator {
     return this.store.listObjects("room", workspaceId);
   }
 
+  subscribe(roomId: string, listener: (event: AppendedEvent) => void, threadId?: string): () => void {
+    const room = this.requireRoom(roomId);
+    if (threadId) this.requireThread(room, threadId);
+    return this.gateway.subscribeEvents((event) => {
+      if (event.event.room_id !== roomId) return;
+      if (threadId && event.event.thread_id !== threadId) return;
+      listener(event);
+    });
+  }
+
   createThread(roomId: string, parentMessageId: string, createdBy: string): StoredObject {
     const room = this.requireRoom(roomId);
     const threads = asObject(room.payload.threads);
@@ -173,7 +198,10 @@ export class RoomCoordinator {
   sendMessage(input: SendRoomMessageInput): RoomSendResult {
     const room = this.requireRoom(input.roomId);
     this.assertSenderAllowed(room, input.senderId);
-    if (input.threadId) this.requireThread(room, input.threadId);
+    const thread = input.threadId ? this.requireThread(room, input.threadId) : null;
+    const reply = input.replyToMessageId
+      ? this.requireReplyMessage(room, thread, input.replyToMessageId)
+      : null;
 
     const mentionTokens = this.extractMentionTokens(input.text);
     const resolvedMentions: string[] = [];
@@ -207,7 +235,15 @@ export class RoomCoordinator {
       if (!resolvedMentions.includes(resolved)) resolvedMentions.push(resolved);
     }
 
-    const correlationId = input.correlationId ?? createId("corr");
+    const inheritedCorrelationId = reply && typeof reply.payload.correlation_id === "string" && reply.payload.correlation_id.length > 0
+      ? reply.payload.correlation_id
+      : null;
+    const correlationId = input.correlationId ?? inheritedCorrelationId ?? createId("corr");
+    const replyBotId = reply && typeof reply.payload.sender_id === "string"
+      && reply.payload.sender_id !== input.senderId
+      && this.isActiveRoomBot(room, reply.payload.sender_id)
+      ? reply.payload.sender_id
+      : null;
     const published = this.gateway.publishRoomMessage({
       senderId: input.senderId,
       roomId: room.id,
@@ -222,7 +258,7 @@ export class RoomCoordinator {
     const scheduledTaskIds: string[] = [];
     let budgetExhausted: "max_messages" | "max_rounds" | undefined;
     if (input.activateSpeakers !== false) {
-      const candidates = this.selectSpeakers(room, input.senderId, resolvedMentions);
+      const candidates = this.selectSpeakers(room, input.senderId, resolvedMentions, replyBotId);
       if (candidates.length > 0) {
         const orchestration = asObject(room.payload.orchestration);
         const budget = asObject(room.payload.budget);
@@ -301,10 +337,13 @@ export class RoomCoordinator {
     };
   }
 
-  pass(roomId: string, botId: string, reasonCode = "NO_ADDITIONAL_VALUE", threadId?: string): ReturnType<CoordinationGateway["emit"]> {
+  pass(roomId: string, botId: string, reasonCode: string = "NO_ADDITIONAL_VALUE", threadId?: string): ReturnType<CoordinationGateway["emit"]> {
     const room = this.requireRoom(roomId);
     this.assertSenderAllowed(room, botId);
     if (!botId.startsWith("bot_")) throw new Error("Only a Bot can emit room.pass");
+    if (!ROOM_PASS_REASON_CODES.has(reasonCode as RoomPassReasonCode)) {
+      throw new Error(`Invalid room.pass reason ${reasonCode}`);
+    }
     if (threadId) this.requireThread(room, threadId);
     return this.gateway.emit({
       type: "room.pass",
@@ -322,16 +361,38 @@ export class RoomCoordinator {
     const members = stringArray(room.payload.members);
     if (!members.includes(input.ownerId)) throw new Error(`Work owner ${input.ownerId} is not a Room member`);
     this.requireActiveBot(input.ownerId, `Work owner ${input.ownerId}`);
-    for (const collaboratorId of input.collaboratorIds ?? []) {
+
+    const task = this.store.getObject(input.workItemId);
+    if (!task || task.kind !== "task") {
+      throw new Error(`Room work item ${input.workItemId} must be a canonical Task`);
+    }
+    if (task.workspaceId !== room.workspaceId) {
+      throw new Error(`Task ${task.id} is outside Room workspace ${String(room.workspaceId)}`);
+    }
+    if (!this.taskTargetsRoom(task, room.id)) {
+      throw new Error(`Task ${task.id} is not Room work for ${room.id}`);
+    }
+
+    const canonicalOwnerId = String(task.payload.owner_id ?? "");
+    if (input.ownerId !== canonicalOwnerId) {
+      throw new Error(`Room cannot override canonical Task owner ${canonicalOwnerId}; use Handoff to transfer ownership`);
+    }
+
+    const collaboratorIds = [...new Set(input.collaboratorIds ?? [])];
+    if (collaboratorIds.includes(canonicalOwnerId)) {
+      throw new Error(`Task owner ${canonicalOwnerId} cannot also be listed as a collaborator`);
+    }
+    for (const collaboratorId of collaboratorIds) {
       if (!members.includes(collaboratorId)) throw new Error(`Collaborator ${collaboratorId} is not a Room member`);
       this.requireActiveBot(collaboratorId, `Collaborator ${collaboratorId}`);
     }
     const payload: JsonObject = {
       ...room.payload,
       active_work: {
-        work_item_id: input.workItemId,
-        owner_id: input.ownerId,
-        collaborator_ids: input.collaboratorIds ?? []
+        work_item_id: task.id,
+        owner_id: canonicalOwnerId,
+        collaborator_ids: collaboratorIds,
+        source_of_truth: "task"
       }
     };
     const updated = this.store.putObject("room", validateProtocolObject(payload, "room"));
@@ -405,8 +466,9 @@ export class RoomCoordinator {
     return tokens;
   }
 
-  private selectSpeakers(room: StoredObject, senderId: string, explicitMentions: string[]): string[] {
+  private selectSpeakers(room: StoredObject, senderId: string, explicitMentions: string[], replyBotId: string | null): string[] {
     if (explicitMentions.length > 0) return explicitMentions.filter((id) => id !== senderId && this.isActiveBot(id));
+    if (replyBotId) return [replyBotId];
     if (senderId.startsWith("bot_") || senderId.startsWith("worker_")) return [];
 
     const orchestration = asObject(room.payload.orchestration);
@@ -420,6 +482,35 @@ export class RoomCoordinator {
     if (policy === "mentions_only") return [];
     if (policy === "all_members") return members;
     return members.length > 0 ? [members[0] as string] : [];
+  }
+
+  private requireReplyMessage(room: StoredObject, thread: StoredObject | null, replyToMessageId: string): StoredObject {
+    const reply = this.store.getObject(replyToMessageId);
+    if (!reply || reply.kind !== "message") throw new Error(`Reply message ${replyToMessageId} not found`);
+    if (reply.workspaceId !== room.workspaceId) throw new Error(`Reply message ${replyToMessageId} is outside Room workspace`);
+    if (reply.payload.room_id !== room.id) throw new Error(`Reply message ${replyToMessageId} does not belong to Room ${room.id}`);
+
+    const replyThreadId = typeof reply.payload.thread_id === "string" && reply.payload.thread_id.length > 0
+      ? reply.payload.thread_id
+      : null;
+    if (!thread) {
+      if (replyThreadId) throw new Error(`Reply message ${replyToMessageId} belongs to Thread ${replyThreadId}`);
+      return reply;
+    }
+
+    if (replyThreadId === thread.id || reply.id === thread.payload.parent_message_id) return reply;
+    throw new Error(`Reply message ${replyToMessageId} does not belong to Thread ${thread.id}`);
+  }
+
+  private isActiveRoomBot(room: StoredObject, botId: string): boolean {
+    return stringArray(room.payload.members).includes(botId) && this.isActiveBot(botId);
+  }
+
+  private taskTargetsRoom(task: StoredObject, roomId: string): boolean {
+    const target = asObject(task.payload.response_target);
+    return target?.roomId === roomId
+      || target?.room_id === roomId
+      || (target?.kind === "room" && target?.id === roomId);
   }
 
   private assertSenderAllowed(room: StoredObject, senderId: string): void {

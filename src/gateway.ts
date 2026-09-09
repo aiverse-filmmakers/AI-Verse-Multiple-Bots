@@ -1048,12 +1048,35 @@ export class CoordinationGateway {
       if (!mentioned || mentioned.payload.status !== "active") throw new Error(`Mentioned Bot ${mentionId} is not active`);
     }
 
+    let thread: StoredObject | null = null;
     if (input.threadId) {
-      const thread = this.store.getObject(input.threadId);
+      thread = this.store.getObject(input.threadId);
       if (!thread || thread.kind !== "thread") throw new Error(`Thread ${input.threadId} not found`);
       if (thread.payload.room_id !== input.roomId) throw new Error(`Thread ${input.threadId} does not belong to Room ${input.roomId}`);
+      if (thread.payload.status !== "active") throw new Error(`Thread ${input.threadId} is not active`);
     }
 
+    let reply: StoredObject | null = null;
+    if (input.replyToMessageId) {
+      reply = this.store.getObject(input.replyToMessageId);
+      if (!reply || reply.kind !== "message") throw new Error(`Reply message ${input.replyToMessageId} not found`);
+      if (reply.workspaceId !== input.workspaceId) throw new Error(`Reply message ${input.replyToMessageId} is outside workspace ${input.workspaceId}`);
+      if (reply.payload.room_id !== input.roomId) throw new Error(`Reply message ${input.replyToMessageId} does not belong to Room ${input.roomId}`);
+      const replyThreadId = typeof reply.payload.thread_id === "string" && reply.payload.thread_id.length > 0
+        ? reply.payload.thread_id
+        : null;
+      if (!thread && replyThreadId) {
+        throw new Error(`Reply message ${input.replyToMessageId} belongs to Thread ${replyThreadId}`);
+      }
+      if (thread && replyThreadId !== thread.id && reply.id !== thread.payload.parent_message_id) {
+        throw new Error(`Reply message ${input.replyToMessageId} does not belong to Thread ${thread.id}`);
+      }
+    }
+
+    const inheritedCorrelationId = reply && typeof reply.payload.correlation_id === "string" && reply.payload.correlation_id.length > 0
+      ? reply.payload.correlation_id
+      : null;
+    const correlationId = input.correlationId ?? inheritedCorrelationId ?? createId("corr");
     const messageId = createId("msg");
     const message: JsonObject = {
       schema_version: "1.0",
@@ -1066,7 +1089,7 @@ export class CoordinationGateway {
       room_id: input.roomId,
       thread_id: input.threadId ?? null,
       reply_to_message_id: input.replyToMessageId ?? null,
-      correlation_id: input.correlationId ?? null,
+      correlation_id: correlationId,
       delivery_state: "delivered",
       content: [{ kind: "text", text: input.text }],
       mentions: input.mentions ?? [],
@@ -1083,7 +1106,7 @@ export class CoordinationGateway {
       workspaceId: input.workspaceId,
       roomId: input.roomId,
       threadId: input.threadId,
-      correlationId: input.correlationId,
+      correlationId,
       summary: input.text.length > 160 ? `${input.text.slice(0, 157)}...` : input.text
     });
     return { message: stored, event };

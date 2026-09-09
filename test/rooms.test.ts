@@ -406,3 +406,211 @@ test("Phase 1 release gate survives restart across messaging, Room/Thread, Hando
     else process.env.AI_VERSE_PHASE1_ACCEPTANCE_KEY = priorKey;
   }
 });
+
+
+test("Room reply inherits correlation and preferentially routes to the replied-to Bot", () => {
+  const store = new CoordinationStore(":memory:");
+  const queue = new ExecutionQueue(":memory:");
+  const gateway = new CoordinationGateway(store, queue);
+  const rooms = new RoomCoordinator(store, gateway);
+  try {
+    gateway.createBot(bot("bot_reply-lead", "Reply Lead"));
+    gateway.createBot(bot("bot_reply-specialist", "Reply Specialist"));
+    const room = rooms.createRoom({
+      id: "room_reply",
+      name: "Reply Room",
+      workspaceId: "ws_room",
+      memberIds: ["bot_reply-lead", "bot_reply-specialist"],
+      leaderId: "bot_reply-lead",
+      speakerPolicy: "selective"
+    });
+
+    const specialistMessage = rooms.sendMessage({
+      roomId: room.id,
+      senderId: "bot_reply-specialist",
+      text: "Specialist finding",
+      correlationId: "corr_reply_chain",
+      activateSpeakers: false
+    });
+    const reply = rooms.sendMessage({
+      roomId: room.id,
+      senderId: "operator_local",
+      text: "Please expand this point.",
+      replyToMessageId: specialistMessage.message.id
+    });
+
+    assert.equal(reply.correlationId, "corr_reply_chain");
+    assert.equal(reply.message.payload.reply_to_message_id, specialistMessage.message.id);
+    assert.equal(reply.message.payload.correlation_id, "corr_reply_chain");
+    assert.equal(reply.scheduledTaskIds.length, 1);
+    assert.equal(store.getObject(reply.scheduledTaskIds[0] as string)?.payload.assignee_id, "bot_reply-specialist");
+  } finally {
+    queue.close();
+    store.close();
+  }
+});
+
+test("Room and Thread reply references cannot escape their canonical conversation scope", () => {
+  const store = new CoordinationStore(":memory:");
+  const gateway = new CoordinationGateway(store);
+  const rooms = new RoomCoordinator(store, gateway);
+  try {
+    gateway.createBot(bot("bot_scope-a", "Scope A"));
+    gateway.createBot(bot("bot_scope-b", "Scope B"));
+    const roomA = rooms.createRoom({ id: "room_scope_a", name: "Room A", workspaceId: "ws_room", memberIds: ["bot_scope-a", "bot_scope-b"] });
+    const roomB = rooms.createRoom({ id: "room_scope_b", name: "Room B", workspaceId: "ws_room", memberIds: ["bot_scope-a", "bot_scope-b"] });
+    const rootA = rooms.sendMessage({ roomId: roomA.id, senderId: "operator_local", text: "Room A root", activateSpeakers: false });
+    const rootB = rooms.sendMessage({ roomId: roomB.id, senderId: "operator_local", text: "Room B root", activateSpeakers: false });
+    const threadA1 = rooms.createThread(roomA.id, rootA.message.id, "operator_local");
+    const threadA2 = rooms.createThread(roomA.id, rootA.message.id, "operator_local");
+    const threadMessage = rooms.sendMessage({ roomId: roomA.id, threadId: threadA1.id, senderId: "operator_local", text: "Thread A1 message", activateSpeakers: false });
+
+    assert.throws(() => rooms.sendMessage({
+      roomId: roomA.id,
+      senderId: "operator_local",
+      text: "Cross Room reply",
+      replyToMessageId: rootB.message.id,
+      activateSpeakers: false
+    }), /does not belong to Room/);
+
+    assert.throws(() => rooms.sendMessage({
+      roomId: roomA.id,
+      threadId: threadA2.id,
+      senderId: "operator_local",
+      text: "Cross Thread reply",
+      replyToMessageId: threadMessage.message.id,
+      activateSpeakers: false
+    }), /does not belong to Thread/);
+
+    const rootReplyInsideThread = rooms.sendMessage({
+      roomId: roomA.id,
+      threadId: threadA1.id,
+      senderId: "operator_local",
+      text: "Thread reply to its root",
+      replyToMessageId: rootA.message.id,
+      activateSpeakers: false
+    });
+    assert.equal(rootReplyInsideThread.message.payload.reply_to_message_id, rootA.message.id);
+  } finally {
+    store.close();
+  }
+});
+
+test("room.pass accepts only canonical protocol reason codes", () => {
+  const store = new CoordinationStore(":memory:");
+  const gateway = new CoordinationGateway(store);
+  const rooms = new RoomCoordinator(store, gateway);
+  try {
+    gateway.createBot(bot("bot_pass", "Pass Bot"));
+    const room = rooms.createRoom({ id: "room_pass", name: "Pass Room", workspaceId: "ws_room", memberIds: ["bot_pass"] });
+    for (const reason of ["NO_ADDITIONAL_VALUE", "OUT_OF_SCOPE", "AWAITING_OTHER_AGENT", "INSUFFICIENT_CONTEXT", "CONFLICT_OF_ROLE"]) {
+      assert.equal(rooms.pass(room.id, "bot_pass", reason).event.summary, reason);
+    }
+    assert.throws(() => rooms.pass(room.id, "bot_pass", "WHATEVER_I_WANT"), /Invalid room.pass reason/);
+  } finally {
+    store.close();
+  }
+});
+
+test("Room active work projects canonical Task ownership and cannot create a competing owner", () => {
+  const store = new CoordinationStore(":memory:");
+  const queue = new ExecutionQueue(":memory:");
+  const gateway = new CoordinationGateway(store, queue);
+  const rooms = new RoomCoordinator(store, gateway);
+  try {
+    gateway.createBot(bot("bot_owner-a", "Owner A"));
+    gateway.createBot(bot("bot_owner-b", "Owner B"));
+    const room = rooms.createRoom({
+      id: "room_owner",
+      name: "Ownership Room",
+      workspaceId: "ws_room",
+      memberIds: ["bot_owner-a", "bot_owner-b"],
+      leaderId: "bot_owner-a"
+    });
+    const sent = rooms.sendMessage({
+      roomId: room.id,
+      senderId: "operator_local",
+      text: "@owner-a own this bounded Room work."
+    });
+    const taskId = sent.scheduledTaskIds[0] as string;
+    assert.equal(store.getObject(taskId)?.payload.owner_id, "bot_owner-a");
+
+    assert.throws(() => rooms.setWorkOwner({
+      roomId: room.id,
+      actorId: "operator_local",
+      workItemId: taskId,
+      ownerId: "bot_owner-b"
+    }), /use Handoff to transfer ownership/);
+
+    const projected = rooms.setWorkOwner({
+      roomId: room.id,
+      actorId: "operator_local",
+      workItemId: taskId,
+      ownerId: "bot_owner-a",
+      collaboratorIds: ["bot_owner-b", "bot_owner-b"]
+    });
+    assert.equal((projected.payload.active_work as any).owner_id, "bot_owner-a");
+    assert.deepEqual((projected.payload.active_work as any).collaborator_ids, ["bot_owner-b"]);
+    assert.equal((projected.payload.active_work as any).source_of_truth, "task");
+
+    const unrelated = gateway.delegate({
+      createdBy: "operator_local",
+      assigneeId: "bot_owner-a",
+      workspaceId: "ws_room",
+      rootObjectiveId: "obj_unrelated",
+      objective: "Unrelated direct work",
+      reason: "Not Room work"
+    });
+    assert.throws(() => rooms.setWorkOwner({
+      roomId: room.id,
+      actorId: "operator_local",
+      workItemId: unrelated.task.id,
+      ownerId: "bot_owner-a"
+    }), /not Room work/);
+  } finally {
+    queue.close();
+    store.close();
+  }
+});
+
+test("Room subscriptions push canonical Room and Thread events without polling and respect filtering", () => {
+  const store = new CoordinationStore(":memory:");
+  const gateway = new CoordinationGateway(store);
+  const rooms = new RoomCoordinator(store, gateway);
+  try {
+    gateway.createBot(bot("bot_push-a", "Push A"));
+    gateway.createBot(bot("bot_push-b", "Push B"));
+    const roomA = rooms.createRoom({ id: "room_push_a", name: "Push A", workspaceId: "ws_room", memberIds: ["bot_push-a"] });
+    const roomB = rooms.createRoom({ id: "room_push_b", name: "Push B", workspaceId: "ws_room", memberIds: ["bot_push-b"] });
+
+    const seen: string[] = [];
+    const unsubscribe = rooms.subscribe(roomA.id, (event) => seen.push(event.event.id));
+    const first = rooms.sendMessage({ roomId: roomA.id, senderId: "operator_local", text: "Push me", activateSpeakers: false });
+    rooms.sendMessage({ roomId: roomB.id, senderId: "operator_local", text: "Do not push to A", activateSpeakers: false });
+    assert.deepEqual(seen, [first.event.event.id]);
+
+    const thread = rooms.createThread(roomA.id, first.message.id, "operator_local");
+    const threadSeen: string[] = [];
+    const unsubscribeThread = rooms.subscribe(roomA.id, (event) => threadSeen.push(event.event.id), thread.id);
+    const threadMessage = rooms.sendMessage({ roomId: roomA.id, threadId: thread.id, senderId: "operator_local", text: "Thread push", activateSpeakers: false });
+    rooms.sendMessage({ roomId: roomA.id, senderId: "operator_local", text: "Room-only push", activateSpeakers: false });
+    assert.deepEqual(threadSeen, [threadMessage.event.event.id]);
+
+    const replay = store.listRoomEvents(roomA.id, 0, 100);
+    const roomSequences = replay.map((event) => event.roomSequence).filter((value): value is number => typeof value === "number");
+    assert.equal(roomSequences.length, replay.length);
+    for (let index = 1; index < roomSequences.length; index += 1) {
+      assert.ok((roomSequences[index] as number) > (roomSequences[index - 1] as number));
+    }
+    assert.ok(replay.some((event) => event.event.id === first.event.event.id));
+    assert.ok(replay.some((event) => event.event.id === threadMessage.event.event.id));
+
+    unsubscribeThread();
+    unsubscribe();
+    const seenBefore = seen.length;
+    rooms.sendMessage({ roomId: roomA.id, senderId: "operator_local", text: "After unsubscribe", activateSpeakers: false });
+    assert.equal(seen.length, seenBefore);
+  } finally {
+    store.close();
+  }
+});
