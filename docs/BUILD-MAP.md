@@ -14,7 +14,7 @@ The target is an installable persistent-teammate layer that can run standalone o
 
 ```text
 Phase 0  Research + Architecture        [COMPLETE]  100%
-Phase 1  Runnable Coordination Core     [ACTIVE]     ~97%
+Phase 1  Runnable Coordination Core     [COMPLETE]  100%
 Phase 2  Dynamic Multi-Agent Squads     [NOT STARTED]
 Phase 3  AI-Verse Native Integration    [NOT STARTED]
 Phase 4  Runtime / A2A Interoperability [NOT STARTED]
@@ -42,7 +42,9 @@ That overall figure is intentionally approximate because later phases contain di
 
 ## Phase 1 - Runnable Coordination Core
 
-**Status:** ACTIVE, approximately 97%
+**Status:** COMPLETE
+
+**Completion evidence:** GitHub Actions run 102 on 2026-09-09 passed **54/54 tests** at commit `73706c40ddc6249a755655b889aff68240d016aa`.
 
 ### 1.1 Repository/runtime skeleton
 
@@ -60,7 +62,7 @@ That overall figure is intentionally approximate because later phases contain di
 
 - SQLite coordination state
 - protocol object store
-- Bots, Messages, Tasks, Handoffs, Artifacts, approvals and leases
+- Bots, Messages, Tasks, Handoffs, Artifacts, Approvals and leases
 - async mailboxes
 - execution queue
 - idempotency
@@ -106,25 +108,27 @@ That overall figure is intentionally approximate because later phases contain di
 - lifecycle transition blocked while a Bot owns or is assigned live work
 - archive blocked while active Rooms still reference the Bot
 - disabled Room members cannot speak, resolve as active mentions, receive speaker scheduling or own Room work
-- registry behavior and HTTP lifecycle proven in CI
 
 ### 1.5 Runtime adapter contract
 
-**CORE CONTRACT COMPLETE**
+**PHASE-1 COMPLETE**
 
 - runtime-neutral adapter interface
 - structured invocation/result
 - runtime registry
-- deterministic adapter
-- abort signal
-- adapter cancellation hook
+- deterministic reference adapter
+- zero-dependency OpenAI-compatible HTTP model adapter
+- provider-neutral endpoint and model configuration
+- environment-handle credentials instead of raw manifest secrets
+- raw credential rejection before network execution
+- normalized input/output token usage
+- provider request/model/finish receipts
+- secret-safe receipt URLs
+- abort signal and adapter cancellation hook
 - execution deadline integration
-- runtime usage receipts
-- runtime tool/action receipt surface
-
-Remaining before Phase 1 closes:
-- first real useful runtime adapter
-- provider/model receipt normalization
+- runtime usage and action receipt surfaces
+- installable Gateway registers both deterministic and OpenAI-compatible runtimes
+- real two-Bot HTTP model collaboration proven in CI without a paid-provider dependency
 
 ### 1.6 Persistent Task execution and recovery
 
@@ -152,7 +156,6 @@ Remaining before Phase 1 closes:
 - late runner cannot overwrite recovered work
 - startup and periodic stale execution sweep
 - conservative recovery policies: `manual` and `retry_safe`
-- persistent recovery policy and max-attempt metadata
 - replay-safe stale work can be requeued only while attempts remain
 - unknown/consequential work dead-letters instead of being blindly replayed
 - retry-safe work dead-letters after attempt exhaustion
@@ -165,7 +168,7 @@ Remaining before Phase 1 closes:
 
 ### 1.7 Delegation
 
-**CORE SEMANTICS COMPLETE**
+**PHASE-1 COMPLETE**
 
 - explicit owner
 - root objective
@@ -183,6 +186,9 @@ Remaining before Phase 1 closes:
 - child Tasks cannot expand parent limits
 - root Task-count ceiling
 - optional persistent execution recovery policy and max-attempt ceiling
+- validated same-workspace input Artifact references
+- Artifact A can become structured input to Bot B without bypassing the Task contract
+- input attachment is visible in the coordination event stream
 
 ### 1.8 Handoffs
 
@@ -193,7 +199,7 @@ Remaining before Phase 1 closes:
 - only one active Handoff per Task
 - target-only acceptance
 - explicit target/operator rejection path
-- atomic Handoff + Task ownership + lease + approval + queue + event mutation
+- atomic Handoff + Task ownership + lease + Approval + queue + event mutation
 - queued execution retargeting
 - claimed/running execution fails closed rather than moving underneath a runner
 - capability authority reissued to the target instead of reusing source authority
@@ -211,12 +217,12 @@ Remaining before Phase 1 closes:
 
 ### 1.9 Rooms + Threads
 
-**CORE PHASE-1 BEHAVIOR COMPLETE**
+**PHASE-1 COMPLETE**
 
 - Room creation and membership
 - same-workspace validation
 - leaders
-- registry-backed aliases and @mentions
+- registry-backed aliases and `@mentions`
 - visible unresolved/ambiguous mention errors
 - Threads
 - pass
@@ -227,14 +233,19 @@ Remaining before Phase 1 closes:
 - Room event ordering/replay storage
 - Room replay HTTP API
 - disabled Bots remain durable members but are unavailable for active Room work
+- durable correlation IDs for multi-call Room turns
+- aggregate `max_messages` enforcement across a complete correlation turn
+- aggregate `max_rounds` enforcement across a complete correlation turn
+- visible `room.round_scheduled` and `room.budget_exhausted` events
 
-Advanced group-turn/squad policies belong in later phases.
+Advanced squad/topology behavior belongs in Phase 2.
 
 ### 1.10 Safety substrate
 
-**CORE SAFETY II COMPLETE**
+**PHASE-1 COMPLETE**
 
 Implemented and enforced:
+
 - workspace enforcement
 - registered/active Bot checks
 - peer allowlists
@@ -252,6 +263,7 @@ Implemented and enforced:
 - cost budgets
 - action budgets
 - root Task-count budgets
+- Room message/round budgets
 - child budget inheritance without privilege expansion
 - delegation-loop detection
 - Bot ping-pong detection
@@ -261,24 +273,25 @@ Implemented and enforced:
 - operator-only approval decisions
 - approval-required Tasks remain outside the execution queue
 - denied approval cancels work and produces no Artifact
-- attention event for pending approval
-- machine-readable schema regression tests for Safety II and Handoff contracts
 - fail-safe crash recovery that never auto-replays work unless explicitly declared replay-safe
 - Bot identity/lifecycle rules that prevent silent retargeting or disabling a live owner
-
-Remaining integration item:
-- enforce Room `max_messages` / `max_rounds` budget envelopes across complete multi-turn runs. Core Room scheduling already has bounded per-turn speaker/message settings.
+- raw runtime secret rejection and secret non-persistence checks
 
 ### Phase 1 completion gate
 
-Phase 1 is complete only when all of the following pass together:
+**PASSED.**
+
+The required gate was:
 
 > Two persistent Bots independently exist, communicate asynchronously, delegate actual work, transfer responsibility safely, collaborate in a Room/Thread, execute through a real runtime adapter, respect enforced policy/limits/approvals, recover from Gateway restart, and cancel/fail without losing coordination integrity.
 
-### Phase 1 major slices still left
+The final release-level conformance scenario proves these behaviors together against one file-backed coordination database across a real Gateway close/reopen cycle. It also proves Handoff and Approval state survives that restart, runtime execution resumes only after approval, ownership return semantics settle correctly, Room/Thread work still executes, Room aggregate limits stop additional rounds, denied work produces no Artifact, and runtime secrets are not persisted.
 
-1. **First real runtime adapter + Phase-1 end-to-end acceptance test**
-2. **Final Phase-1 contract pass:** Room aggregate limits and release-level conformance/restart scenarios
+**Verified suite:** 54 tests passed, 0 failed, 0 canceled, 0 skipped.
+
+### Phase 1 remaining work
+
+None.
 
 ## Phase 2 - Dynamic Multi-Agent Squads
 
