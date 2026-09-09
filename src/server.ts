@@ -15,6 +15,7 @@ import { CoordinationStore } from "./store.js";
 import { ExecutionSupervisor } from "./supervisor.js";
 import { TeamRunFanout } from "./team-run-fanout.js";
 import { TeamRunHandoff } from "./team-run-handoff.js";
+import { TeamRunDiscussion } from "./team-run-discussion.js";
 import { TeamRunCoordinator, type TeamRunStatus, type TeamRunTopology, type WorkerStatus } from "./team-runs.js";
 
 export interface GatewayServerOptions {
@@ -92,7 +93,8 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
   const runner = new BotRunner(store, gateway, executionQueue, runtimes);
   const fanout = new TeamRunFanout(teamRuns, gateway, executionQueue, runner);
   const handoffs = new TeamRunHandoff(teamRuns, gateway, executionQueue, runner);
-  const supervisor = new ExecutionSupervisor(gateway, executionQueue, runner, 5000, managerTopology, fanout, handoffs);
+  const discussion = new TeamRunDiscussion(teamRuns, gateway, executionQueue, runner);
+  const supervisor = new ExecutionSupervisor(gateway, executionQueue, runner, 5000, managerTopology, fanout, handoffs, discussion);
   supervisor.start();
 
   const server = createServer(async (req: any, res: any) => {
@@ -334,6 +336,46 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
           environmentPolicy: typeof body.environmentPolicy === "string" ? body.environmentPolicy as any : undefined,
           environmentRef: typeof body.environmentRef === "string" ? body.environmentRef : undefined
         }));
+        return;
+      }
+
+      const discussionRunMatch = url.pathname.match(/^\/v1\/team-runs\/([^/]+)\/discussions$/);
+      if (method === "GET" && discussionRunMatch) {
+        json(res, 200, { discussions: discussion.list(decodeURIComponent(discussionRunMatch[1] as string)) });
+        return;
+      }
+      if (method === "POST" && discussionRunMatch) {
+        const body = await readJson(req);
+        if (!Array.isArray(body.speakers)) throw new Error("speakers must be an array");
+        json(res, 201, discussion.open({
+          runId: decodeURIComponent(discussionRunMatch[1] as string),
+          createdBy: requiredString(body, "createdBy"),
+          topic: requiredString(body, "topic"),
+          speakers: body.speakers.map((value) => {
+            const speaker = typeof value === "object" && value !== null && !Array.isArray(value) ? value as JsonObject : {};
+            return { key: requiredString(speaker, "key"), roleTitle: requiredString(speaker, "roleTitle"), objective: requiredString(speaker, "objective"), tools: Array.isArray(speaker.tools) ? speaker.tools.map(String) : [], connections: Array.isArray(speaker.connections) ? speaker.connections.map(String) : [], budget: typeof speaker.budget === "object" && speaker.budget !== null && !Array.isArray(speaker.budget) ? speaker.budget as BudgetEnvelope : undefined, runtimeAdapter: typeof speaker.runtimeAdapter === "string" ? speaker.runtimeAdapter : undefined, runtimeProfileRef: speaker.runtimeProfileRef === null || typeof speaker.runtimeProfileRef === "string" ? speaker.runtimeProfileRef as string | null : undefined, environmentPolicy: typeof speaker.environmentPolicy === "string" ? speaker.environmentPolicy as any : undefined, environmentRef: typeof speaker.environmentRef === "string" ? speaker.environmentRef : undefined };
+          }),
+          rounds: typeof body.rounds === "number" ? body.rounds : undefined,
+          maxMessages: typeof body.maxMessages === "number" ? body.maxMessages : undefined,
+          requiredConstraints: Array.isArray(body.requiredConstraints) ? body.requiredConstraints.map(String) : [],
+          recoveryPolicy: optionalRecoveryPolicy(body.recoveryPolicy),
+          maxAttempts: optionalMaxAttempts(body.maxAttempts)
+        }));
+        return;
+      }
+
+      const discussionGetMatch = url.pathname.match(/^\/v1\/discussions\/([^/]+)$/);
+      if (method === "GET" && discussionGetMatch) {
+        const found = discussion.get(decodeURIComponent(discussionGetMatch[1] as string));
+        if (!found) { json(res, 404, { error: "NOT_FOUND" }); return; }
+        json(res, 200, { discussion: found, candidateArtifacts: discussion.candidateArtifacts(found.id) });
+        return;
+      }
+
+      const discussionCancelMatch = url.pathname.match(/^\/v1\/discussions\/([^/]+)\/cancel$/);
+      if (method === "POST" && discussionCancelMatch) {
+        const body = await readJson(req);
+        json(res, 200, await discussion.cancel(decodeURIComponent(discussionCancelMatch[1] as string), requiredString(body, "actorId"), typeof body.reason === "string" ? body.reason : undefined));
         return;
       }
 
@@ -667,6 +709,7 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
     managerTopology,
     fanout,
     handoffs,
+    discussion,
     runtimes,
     runner,
     supervisor,

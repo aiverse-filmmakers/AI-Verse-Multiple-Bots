@@ -21,7 +21,7 @@ Phase 4  Runtime / A2A Interoperability [NOT STARTED]
 Phase 5  Product + Install + Dashboard  [NOT STARTED]
 ```
 
-**Directional overall first-release progress:** roughly 47% complete.
+**Directional overall first-release progress:** roughly 49% complete.
 
 That overall figure is intentionally approximate because later phases contain different amounts of work. Passed phase gates, not percentages, are authoritative.
 
@@ -352,9 +352,20 @@ Goal: a durable Bot decides whether to work alone or create bounded temporary Wo
    - rejection, run cancellation, restart reconciliation and HTTP controls are explicit
    - temporary Workers remain temporary and never enter the durable Bot registry
 
+6. **Group/discussion topology - COMPLETE**
+   - bounded turn-based deliberation for `group_room`, `dynamic_squad`, and `hybrid` Team Runs
+   - temporary Room + Thread transcript with only the durable leader as a durable Room member
+   - temporary Workers remain run-scoped and never enter the Bot registry
+   - explicit deterministic turn plan prevents uncontrolled agent chatter
+   - each speaker gets at least one turn; Team Run `max_messages`, `max_rounds`, `max_tasks`, and Worker capacity constrain setup
+   - first turns reuse each Worker's canonical placeholder Task/leases; later turns receive fresh Task-scoped capability/environment authority
+   - prior candidate Artifacts become structured inputs for later turns while transcript text remains candidate context
+   - Worker Room publication is allowed only for same-run, same-workspace Artifacts created by that Worker
+   - cancellation, retry-safe restart recovery, deterministic message/thread recovery, and HTTP controls are explicit
+   - candidate Artifacts remain unsynthesized inputs for the later disagreement/verifier/synthesis slices
+
 ### Remaining major slices
 
-6. group/discussion topology where justified
 7. disagreement detection
 8. verifier/critic role
 9. synthesis
