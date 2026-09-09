@@ -362,6 +362,14 @@ export class TeamRunCoordinator {
     if (targetStatus === "completed" && activeWorkers.length > 0) {
       throw new Error(`Team Run ${runId} cannot complete while ${activeWorkers.length} Worker(s) are still active`);
     }
+    if (["failed", "canceled", "budget_exhausted"].includes(targetStatus)) {
+      const liveWorkerTasks = activeWorkers
+        .map((worker) => typeof worker.payload.task_id === "string" ? this.store.getObject(worker.payload.task_id) : null)
+        .filter((task): task is StoredObject => Boolean(task && task.kind === "task" && ACTIVE_TASK_STATES.has(String(task.payload.status))));
+      if (liveWorkerTasks.length > 0) {
+        throw new Error(`Team Run ${runId} cannot become ${targetStatus} while ${liveWorkerTasks.length} Worker Task(s) remain live; cancel them through the execution manager first`);
+      }
+    }
 
     const timestamp = nowIso();
     const updatedRun: JsonObject = {

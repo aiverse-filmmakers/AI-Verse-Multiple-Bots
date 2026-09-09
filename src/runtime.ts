@@ -1,8 +1,16 @@
 import type { RuntimeUsage } from "./budget.js";
 import type { BotManifest, JsonObject, StoredObject } from "./types.js";
 
+export type ExecutionPrincipalKind = "bot" | "worker";
+
 export interface RuntimeExecutionContext {
-  bot: StoredObject<BotManifest>;
+  /** Canonical execution identity. Durable Bots and temporary Workers both use this field. */
+  principal: StoredObject;
+  principalKind: ExecutionPrincipalKind;
+  /** Present only for durable Bot execution. Kept as an additive compatibility surface for adapters that need Bot-only metadata. */
+  bot?: StoredObject<BotManifest>;
+  /** Effective runtime configuration resolved by trusted coordination code. */
+  runtime: JsonObject;
   task: StoredObject;
   capabilityLease: StoredObject;
   environmentLease: StoredObject | null;
@@ -60,7 +68,8 @@ export class DeterministicRuntimeAdapter implements RuntimeAdapter {
       output: {
         objective,
         required_constraints: constraints,
-        executed_by: context.bot.id,
+        executed_by: context.principal.id,
+        execution_principal_kind: context.principalKind,
         runtime_adapter: this.id,
         lease_id: context.capabilityLease.id,
         result: `Completed: ${objective}`
@@ -71,7 +80,7 @@ export class DeterministicRuntimeAdapter implements RuntimeAdapter {
         cost: 0,
         actions: 1
       },
-      receipts: [{ kind: "deterministic_execution", adapter: this.id }]
+      receipts: [{ kind: "deterministic_execution", adapter: this.id, principal_kind: context.principalKind }]
     };
   }
 }
