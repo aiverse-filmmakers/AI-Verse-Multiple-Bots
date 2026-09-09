@@ -6,7 +6,7 @@
 
 **Overall status:** IN PROGRESS
 
-**Directional phase progress:** approximately 72%
+**Directional phase progress:** approximately 80%
 
 This file is the implementation ledger for Phase 2. The canonical product roadmap remains `BUILD-MAP.md`.
 
@@ -18,9 +18,9 @@ The package must remain host-neutral. Phase 2 coordination primitives may be emb
 
 ## Current verification
 
-GitHub Actions run 173 on 2026-09-09 passed **104/104 tests**, with 0 failures, 0 canceled, and 0 skipped, at commit `57fd202688def83af84d455edee60ea9e9782ee8`.
+GitHub Actions run 180 on 2026-09-09 passed **118/118 tests**, with 0 failures, 0 canceled, and 0 skipped, at commit `ac785919a549c36ff882788cc6f362a9e4085120`.
 
-The eleven Phase 2.7 disagreement acceptance/regression tests pass alongside all previous Phase 1 and Phase 2 coverage.
+The fourteen Phase 2.8 verifier/critic acceptance and hardening tests pass alongside all previous Phase 1 and Phase 2 coverage.
 
 ## Slice 2.1 - Team Run object and lifecycle
 
@@ -410,12 +410,95 @@ The eleven disagreement tests prove:
 
 **Verified suite:** 104 passed, 0 failed, 0 canceled, 0 skipped in GitHub Actions run 173.
 
+## Slice 2.8 - Bounded verifier/critic role
+
+**COMPLETE**
+
+Phase 2.8 consumes the explicit verification debt produced by structured disagreement detection. It does not trust a model/runtime result to mutate Team Run verification state directly: runtime output is candidate evidence until the package validates report, finding, scope, and evidence lineage and creates a canonical verdict Artifact.
+
+Implemented:
+
+### Verification scheduling and bounded identity
+
+- host-neutral `TeamRunVerifier`
+- verifier work is scheduled only for report IDs present in `verification_required_report_refs`
+- scheduling with no unresolved verification debt returns a no-op instead of creating unnecessary work
+- one temporary `worker_*` verifier can evaluate a selected set of pending reports in one bounded Task
+- verifier Worker remains outside the durable Bot registry and durable Room membership
+- verifier creation obeys Team Run `max_workers`; verification is not exempt from the configured Worker budget
+- only the active durable Team Run leader may schedule verifier work
+- one active verifier Task per Team Run prevents duplicate live verification work
+
+### Authority and execution inheritance
+
+- verifier tool/connection grants cannot exceed durable leader authority
+- verifier budget cannot expand the Team Run budget
+- verifier execution policy inherits the durable leader execution contract by default
+- execution overrides cannot switch the leader `environment_policy`
+- capability lease remains Task-, Worker-, workspace-, and TeamRun-scoped
+- verifier inputs are restricted to the disagreement reports and same-TeamRun source Artifacts
+
+### Structured verdict contract
+
+- runtime output must use `verifier-verdict-v1`
+- every requested report must receive exactly one report verdict
+- every hard disagreement finding must receive exactly one finding verdict
+- supported report/finding outcomes are `resolved`, `unresolved`, and `insufficient_evidence`
+- resolved findings must cite scoped Artifact evidence
+- unknown/duplicate/omitted report or finding refs fail closed
+- cross-workspace or cross-TeamRun resolution evidence fails closed
+- malformed or contradictory runtime output becomes `verifier_failed` and cannot clear verification debt
+
+### Canonical debt settlement
+
+- validated runtime output is converted into an immutable canonical `verification_verdict` Artifact
+- verdict Artifact retains disagreement-report, candidate/evidence, runtime-output, Task, Worker, workspace, and Team Run provenance
+- only report IDs whose validated report outcome is `resolved` are removed from `verification_required_report_refs`
+- unrelated unresolved report debt is preserved during partial verification
+- `requires_verification` clears only when no unresolved verification-required report refs remain
+- a fully resolved verifier cycle moves the Team Run to `synthesizing`
+- unresolved, insufficient-evidence, verifier-failed, and canceled cycles keep the Team Run in `verifying`
+- resolution bookkeeping persists `resolved_verification_report_refs`, verdict history, latest verdict, and last outcome
+
+### Cancellation, idempotency, and recovery
+
+- leader/operator cancellation uses the common runner cancellation path
+- cancellation creates a canonical canceled verdict and preserves unresolved debt
+- failed verifier execution preserves unresolved debt
+- verdict IDs are deterministic from canonical settlement material, making repeated reconciliation idempotent
+- an already settled verifier Task returns its existing canonical verdict rather than creating a duplicate
+- `ExecutionSupervisor` reconciles verifier Tasks after execution and recovery
+- startup recovery re-enqueues assigned verifier work idempotently and settles completed-but-unreconciled Tasks
+- completed verifier work survives database reopen and settles without duplicate verdict Artifacts
+- Team Run settlement uses `updatedAt` compare-and-swap with bounded retry
+
+## Phase 2.8 acceptance proof
+
+The fourteen verifier/critic acceptance and hardening tests prove:
+
+1. resolved verifier work clears exactly its resolved debt, creates a canonical verdict, and moves a debt-free run to `synthesizing`
+2. unresolved verifier work preserves debt and keeps the Team Run `verifying`
+3. insufficient evidence preserves debt
+4. scheduling is skipped when no disagreement report requires verification
+5. malformed completed verifier output becomes `verifier_failed` and cannot clear debt
+6. one verifier Task can resolve one report while preserving unrelated unresolved report debt
+7. verifier capability grants cannot expand durable leader tool authority
+8. canceling active verifier work preserves debt and records a canonical canceled verdict
+9. reconciling the same completed verifier Task is idempotent
+10. completed-but-unreconciled verifier work settles after database reopen without duplicate verdicts
+11. cross-TeamRun resolution evidence fails closed and cannot clear verification debt
+12. exhausted Team Run Worker capacity blocks verifier scheduling before verifier records are created
+13. verifier Worker execution policy inherits the durable leader execution policy by default
+14. verifier execution override cannot change the durable leader environment policy
+
+**Verified suite:** 118 passed, 0 failed, 0 canceled, 0 skipped in GitHub Actions run 180.
+
 ## Reusability boundary
 
 Phase 2 remains package-owned and host-neutral:
 
 ```text
-TeamRunManager / TeamRunFanout / TeamRunHandoff / TeamRunDiscussion / TeamRunDisagreementDetector / PrincipalRunner / ExecutionSupervisor
+TeamRunManager / TeamRunFanout / TeamRunHandoff / TeamRunDiscussion / TeamRunDisagreementDetector / TeamRunVerifier / PrincipalRunner / ExecutionSupervisor
   -> CoordinationStore + ExecutionQueue
   -> RuntimeAdapter contract
   -> canonical TeamRun / Worker / Task / Handoff / Room / Thread / Message / Artifact protocol objects
@@ -428,20 +511,20 @@ AI-Verse native integration remains Phase 3 and must arrive through adapters and
 
 ## Next slice
 
-### 2.8 - Verifier/critic role
+### 2.9 - Synthesis
 
 Required next work:
 
-1. consume structured `disagreement_report` Artifacts rather than re-inventing conflict discovery
-2. run verifier/critic work only when a report or policy justifies it
-3. preserve source candidate, finding, root-objective, constraint, workspace, and Team Run lineage
-4. produce a structured verifier verdict Artifact with explicit outcome/evidence references
-5. distinguish resolved conflict, unresolved conflict, insufficient evidence, and verifier failure
-6. explicitly remove only resolved report IDs from `verification_required_report_refs`
-7. clear Team Run `requires_verification` only when no unresolved verification-required report refs remain
-8. prevent a verifier from expanding tool/connection/budget authority beyond the durable leader/Team Run
-9. support cancellation and restart without duplicating verifier work or verdicts
-10. keep verifier/critic optional when candidates are compatible and no policy requires review
-11. add acceptance tests for resolution, unresolved conflict, insufficient evidence, idempotency, cancellation, and restart persistence
+1. collect bounded candidate Artifacts from manager, fan-out, handoff, and discussion topologies without inventing a second result store
+2. consume canonical `verification_verdict` Artifacts when verification debt existed and refuse final synthesis while unresolved required verification debt remains
+3. preserve root-objective, workspace, Team Run, source Artifact, disagreement-report, verifier-verdict, constraint, and producing-principal provenance
+4. let the durable Team Run leader produce one canonical synthesized result Artifact from explicit bounded inputs
+5. keep candidate disagreement visible rather than silently averaging or erasing unresolved differences
+6. define deterministic synthesis input ordering and bounded input ceilings
+7. prevent synthesis from expanding leader/TeamRun tool, connection, execution, budget, or workspace authority
+8. make synthesis idempotent and restart-safe so completed-but-unreconciled leader work does not duplicate final Artifacts
+9. support cancellation/failure without corrupting successful candidate or verifier Artifacts
+10. define Team Run transition from `synthesizing` to `completed` only after the canonical synthesis Artifact is durably persisted and no required verification debt remains
+11. add acceptance coverage for verified synthesis, no-verifier-needed synthesis, unresolved-debt refusal, partial candidate failure, idempotency, cancellation, and database-reopen recovery
 
-After verifier/critic, continue through synthesis, Worker cleanup hardening, adaptive single-Bot-vs-squad policy, and final squad budget/cancellation consolidation.
+After synthesis, continue through Worker cleanup hardening, adaptive single-Bot-vs-squad policy, and final squad budget/cancellation consolidation.

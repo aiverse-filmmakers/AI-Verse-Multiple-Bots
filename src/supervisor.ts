@@ -6,6 +6,7 @@ import { BotRunner } from "./runner.js";
 import { TeamRunDiscussion } from "./team-run-discussion.js";
 import { TeamRunFanout } from "./team-run-fanout.js";
 import { TeamRunCoordinator } from "./team-runs.js";
+import { TeamRunVerifier } from "./team-run-verifier.js";
 import { validateProtocolObject } from "./validator.js";
 
 const TERMINAL_WORKER_STATES = new Set(["completed", "failed", "canceled", "expired"]);
@@ -22,6 +23,7 @@ export class ExecutionSupervisor {
   readonly recovery: RecoveryCoordinator;
   readonly fanout: TeamRunFanout;
   readonly discussion: TeamRunDiscussion;
+  readonly verifier: TeamRunVerifier;
 
   constructor(
     readonly gateway: CoordinationGateway,
@@ -33,6 +35,7 @@ export class ExecutionSupervisor {
     const teams = new TeamRunCoordinator(gateway.store);
     this.fanout = new TeamRunFanout(teams, gateway, queue, runner);
     this.discussion = new TeamRunDiscussion(teams, gateway, queue, runner);
+    this.verifier = new TeamRunVerifier(teams, gateway, queue, runner);
   }
 
   start(): void {
@@ -45,6 +48,7 @@ export class ExecutionSupervisor {
       if (this.startupFanoutReconcile === startup) this.startupFanoutReconcile = null;
     });
     this.discussion.recoverOpenDiscussions();
+    this.verifier.recoverPendingVerifications();
     this.sweepRecovery();
     for (const targetId of this.queue.listQueuedTargets()) this.trigger(targetId);
     if (this.recoverySweepMs > 0) this.recoveryTimer = setInterval(() => this.sweepRecovery(), this.recoverySweepMs);
@@ -100,6 +104,7 @@ export class ExecutionSupervisor {
       if (decision.action === "reconciled" && decision.task) {
         void this.fanout.reconcileTask(decision.task.id);
         this.discussion.reconcileTask(decision.task.id);
+        this.verifier.reconcileTask(decision.task.id);
       }
     }
     return decisions;
@@ -176,6 +181,7 @@ export class ExecutionSupervisor {
         if (!result) return;
         await this.fanout.reconcileTask(result.task.id);
         this.discussion.reconcileTask(result.task.id);
+        this.verifier.reconcileTask(result.task.id);
         if (this.queue.list(targetId, ["queued"]).length === 0) return;
       } catch (error) {
         if (error instanceof ExecutionOwnershipError) return;
