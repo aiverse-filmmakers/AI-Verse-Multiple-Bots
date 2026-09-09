@@ -35,11 +35,23 @@ export interface AtomicQueueRetarget {
   required?: boolean;
 }
 
+export interface AtomicQueueTransition {
+  itemId: string;
+  fromStates: string[];
+  toState: string;
+  expectedClaimedBy?: string | null;
+  expectedLeaseExpiresAt?: string | null;
+  clearClaim?: boolean;
+  lastError?: string | null;
+  required?: boolean;
+}
+
 export interface AtomicMutationInput {
   preconditions?: AtomicMutationPrecondition[];
   objects: AtomicMutationObject[];
   events: CoordinationEvent[];
   queueRetarget?: AtomicQueueRetarget;
+  queueTransition?: AtomicQueueTransition;
 }
 
 export interface AtomicMutationResult {
@@ -218,6 +230,7 @@ export class CoordinationStore {
       }
 
       if (input.queueRetarget) this.retargetQueueInTransaction(input.queueRetarget);
+      if (input.queueTransition) this.transitionQueueInTransaction(input.queueTransition);
 
       const timestamp = nowIso();
       for (const object of input.objects) this.writeObject(object.kind, object.payload, timestamp);
@@ -349,9 +362,13 @@ export class CoordinationStore {
     };
   }
 
-  private retargetQueueInTransaction(input: AtomicQueueRetarget): void {
+  private queueTableAvailable(): boolean {
     const table = this.db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'execution_queue'").get() as { name: string } | undefined;
-    if (!table) {
+    return Boolean(table);
+  }
+
+  private retargetQueueInTransaction(input: AtomicQueueRetarget): void {
+    if (!this.queueTableAvailable()) {
       if (input.required) throw new Error("Atomic queue retarget required but execution_queue table is not available in this database connection");
       return;
     }
@@ -368,10 +385,65 @@ export class CoordinationStore {
     }
     const result = this.db.prepare(`
       UPDATE execution_queue
-      SET target_id = ?, claimed_by = NULL, claimed_at = NULL, updated_at = ?
+      SET target_id = ?, claimed_by = NULL, claimed_at = NULL, heartbeat_at = NULL,
+          lease_expires_at = NULL, updated_at = ?
       WHERE item_id = ? AND target_id = ? AND state = 'queued'
     `).run(input.toTargetId, nowIso(), input.itemId, input.fromTargetId) as { changes: number | bigint };
     if (Number(result.changes) !== 1) throw new Error(`Atomic queue retarget lost for ${input.itemId}`);
+  }
+
+  private transitionQueueInTransaction(input: AtomicQueueTransition): void {
+    if (!this.queueTableAvailable()) {
+      if (input.required) throw new Error("Atomic queue transition required but execution_queue table is not available in this database connection");
+      return;
+    }
+    if (input.fromStates.length === 0) throw new Error("Atomic queue transition requires at least one source state");
+
+    const row = this.db.prepare(`
+      SELECT state, claimed_by, lease_expires_at FROM execution_queue WHERE item_id = ?
+    `).get(input.itemId) as any;
+    if (!row) {
+      if (input.required) throw new Error(`Execution queue item for ${input.itemId} not found`);
+      return;
+    }
+
+    const currentState = String(row.state);
+    if (!input.fromStates.includes(currentState)) {
+      throw new Error(`Execution queue state for ${input.itemId} is ${currentState}, expected one of ${input.fromStates.join(", ")}`);
+    }
+    const claimedBy = row.claimed_by === null ? null : String(row.claimed_by);
+    const leaseExpiresAt = row.lease_expires_at === null ? null : String(row.lease_expires_at);
+    if (input.expectedClaimedBy !== undefined && claimedBy !== input.expectedClaimedBy) {
+      throw new Error(`Execution queue owner for ${input.itemId} is ${String(claimedBy)}, expected ${String(input.expectedClaimedBy)}`);
+    }
+    if (input.expectedLeaseExpiresAt !== undefined && leaseExpiresAt !== input.expectedLeaseExpiresAt) {
+      throw new Error(`Execution queue lease for ${input.itemId} changed before atomic transition`);
+    }
+
+    const timestamp = nowIso();
+    const clearClaim = input.clearClaim === true;
+    const result = this.db.prepare(`
+      UPDATE execution_queue
+      SET state = ?,
+          claimed_by = CASE WHEN ? THEN NULL ELSE claimed_by END,
+          claimed_at = CASE WHEN ? THEN NULL ELSE claimed_at END,
+          heartbeat_at = CASE WHEN ? THEN NULL ELSE heartbeat_at END,
+          lease_expires_at = CASE WHEN ? THEN NULL ELSE lease_expires_at END,
+          last_error = ?,
+          updated_at = ?
+      WHERE item_id = ? AND state = ?
+    `).run(
+      input.toState,
+      clearClaim ? 1 : 0,
+      clearClaim ? 1 : 0,
+      clearClaim ? 1 : 0,
+      clearClaim ? 1 : 0,
+      input.lastError ?? null,
+      timestamp,
+      input.itemId,
+      currentState
+    ) as { changes: number | bigint };
+    if (Number(result.changes) !== 1) throw new Error(`Atomic queue transition lost for ${input.itemId}`);
   }
 
   private extractWorkspaceId(payload: JsonObject): string | null {
