@@ -190,7 +190,7 @@ test("high cost sensitivity serializes otherwise parallel work unless latency is
   store.close();
 });
 
-test("bounded discussion and mixed collaboration select group_room and hybrid only when their budgets support them", () => {
+test("bounded discussion and mixed collaboration select group_room and hybrid only when their cumulative budgets support them", () => {
   const store = new CoordinationStore(":memory:");
   const gateway = new CoordinationGateway(store);
   gateway.createBot(bot());
@@ -216,7 +216,7 @@ test("bounded discussion and mixed collaboration select group_room and hybrid on
       discussionParticipants: 2,
       discussionRounds: 1
     },
-    budget: { max_workers: 2, max_tasks: 5, max_messages: 4, max_rounds: 1 }
+    budget: { max_workers: 4, max_tasks: 5, max_messages: 4, max_rounds: 1 }
   });
   const constrained = policy.decide({
     leaderId: "bot_leader",
@@ -230,7 +230,7 @@ test("bounded discussion and mixed collaboration select group_room and hybrid on
   assert.equal(discussion.topology, "group_room");
   assert.equal(discussion.suggestedWorkerCount, 2);
   assert.equal(hybrid.topology, "hybrid");
-  assert.equal(hybrid.suggestedWorkerCount, 2);
+  assert.equal(hybrid.suggestedWorkerCount, 4);
   assert.equal(constrained.topology, "manager");
   assert.ok(reasonCodes(constrained).includes("DISCUSSION_BUDGET_INSUFFICIENT"));
   store.close();
@@ -296,7 +296,7 @@ test("required capability outside leader authority blocks orchestration instead 
   store.close();
 });
 
-test("an existing Team Run for the same root objective is reused even when later signals would choose another topology", () => {
+test("an existing compatible Team Run for the same root objective is reused even when later signals would choose another topology", () => {
   const store = new CoordinationStore(":memory:");
   const gateway = new CoordinationGateway(store);
   gateway.createBot(bot());
@@ -316,7 +316,7 @@ test("an existing Team Run for the same root objective is reused even when later
     rootObjectiveId: "obj_one_run",
     objective: "Compare two independent candidates.",
     work: { discussionNeeded: true, discussionParticipants: 2, discussionRounds: 1 },
-    budget: { max_workers: 2, max_tasks: 3, max_messages: 4, max_rounds: 1 }
+    budget: { max_workers: 2, max_tasks: 3 }
   });
 
   assert.ok(first.run);
