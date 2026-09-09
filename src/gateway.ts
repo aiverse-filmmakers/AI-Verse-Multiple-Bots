@@ -29,6 +29,12 @@ export interface ResponseTarget {
   threadId?: string;
 }
 
+export interface ApprovalRequirement {
+  required: boolean;
+  action?: JsonObject;
+  reason?: string;
+}
+
 export interface DelegateInput {
   createdBy: string;
   assigneeId: string;
@@ -46,6 +52,7 @@ export interface DelegateInput {
   leaseExpiresAt?: string;
   deadlineAt?: string;
   budget?: BudgetEnvelope;
+  approval?: ApprovalRequirement;
   responseTarget?: ResponseTarget;
 }
 
@@ -108,11 +115,16 @@ export class CoordinationGateway {
     return object?.kind === "bot" ? object as StoredObject<BotManifest> : null;
   }
 
+  listApprovals(workspaceId?: string, status?: string): StoredObject[] {
+    return this.store.listObjects("approval", workspaceId)
+      .filter((approval) => !status || approval.payload.status === status);
+  }
+
   record(kind: Parameters<CoordinationStore["putObject"]>[0], payload: JsonObject): StoredObject {
     return this.store.putObject(kind, validateProtocolObject(payload, kind));
   }
 
-  delegate(input: DelegateInput): { task: StoredObject; lease: StoredObject; event: AppendedEvent } {
+  delegate(input: DelegateInput): { task: StoredObject; lease: StoredObject; approval: StoredObject | null; event: AppendedEvent } {
     const prepared = this.policy?.prepareDelegation({
       createdBy: input.createdBy,
       assigneeId: input.assigneeId,
@@ -138,6 +150,8 @@ export class CoordinationGateway {
 
     const leaseId = createId("lease");
     const taskId = createId("task");
+    const approvalRequired = input.approval?.required === true;
+    const approvalId = approvalRequired ? createId("approval") : null;
     const lease: JsonObject = {
       schema_version: "1.0",
       id: leaseId,
@@ -148,7 +162,7 @@ export class CoordinationGateway {
       task_id: taskId,
       tools: input.tools ?? [],
       connections: input.connections ?? [],
-      destructive_actions: "deny",
+      destructive_actions: approvalRequired ? "approval_required" : "deny",
       expires_at: input.leaseExpiresAt ?? new Date(Date.now() + 60 * 60 * 1000).toISOString()
     };
     const storedLease = this.store.putObject("capability_lease", validateProtocolObject(lease, "capability_lease"));
@@ -172,11 +186,43 @@ export class CoordinationGateway {
       response_target: input.responseTarget ?? null,
       deadline_at: prepared.deadlineAt,
       budget: prepared.budget,
+      approval_id: approvalId,
       hop: prepared.hop,
       max_hops: prepared.maxHops,
-      status: "assigned"
+      status: approvalRequired ? "waiting_approval" : "assigned"
     };
     const storedTask = this.store.putObject("task", validateProtocolObject(task, "task"));
+
+    let approval: StoredObject | null = null;
+    if (approvalRequired && approvalId) {
+      const approvalPayload: JsonObject = {
+        schema_version: "1.0",
+        id: approvalId,
+        type: "approval",
+        workspace_id: input.workspaceId,
+        actor_id: input.assigneeId,
+        task_id: taskId,
+        requested_by: input.createdBy,
+        requested_at: nowIso(),
+        status: "pending",
+        reason: input.approval?.reason ?? input.reason,
+        action: input.approval?.action ?? { kind: "task.execute", task_id: taskId }
+      };
+      approval = this.store.putObject("approval", validateProtocolObject(approvalPayload, "approval"));
+      const event = this.emit({
+        type: "approval.requested",
+        actorId: input.createdBy,
+        workspaceId: input.workspaceId,
+        taskId,
+        roomId: input.responseTarget?.roomId ?? (input.responseTarget?.kind === "room" ? input.responseTarget.id : null),
+        threadId: input.responseTarget?.threadId ?? (input.responseTarget?.kind === "thread" ? input.responseTarget.id : null),
+        correlationId: input.rootObjectiveId,
+        summary: `Approval required before ${input.assigneeId} can execute ${taskId}`,
+        attentionState: "needs_approval"
+      });
+      return { task: storedTask, lease: storedLease, approval, event };
+    }
+
     this.executionQueue?.enqueueTask(taskId, input.assigneeId, input.workspaceId);
     const event = this.emit({
       type: "task.assigned",
@@ -188,7 +234,97 @@ export class CoordinationGateway {
       correlationId: input.rootObjectiveId,
       summary: `Delegated task ${taskId} to ${input.assigneeId}`
     });
-    return { task: storedTask, lease: storedLease, event };
+    return { task: storedTask, lease: storedLease, approval: null, event };
+  }
+
+  approve(approvalId: string, actorId: string): { approval: StoredObject; task: StoredObject; events: AppendedEvent[] } {
+    this.assertOperatorDecision(actorId);
+    const storedApproval = this.requireApproval(approvalId);
+    if (storedApproval.payload.status !== "pending") throw new Error(`Approval ${approvalId} is not pending`);
+    const taskId = String(storedApproval.payload.task_id ?? "");
+    const task = this.store.getObject(taskId);
+    if (!task || task.kind !== "task") throw new Error(`Approval Task ${taskId} not found`);
+    if (task.payload.status !== "waiting_approval") throw new Error(`Task ${taskId} is not waiting for approval`);
+
+    const approved = this.store.putObject("approval", validateProtocolObject({
+      ...storedApproval.payload,
+      status: "approved",
+      decided_by: actorId,
+      decided_at: nowIso()
+    }, "approval"));
+    const assignedTask = this.store.putObject("task", validateProtocolObject({
+      ...task.payload,
+      status: "assigned",
+      approved_by: actorId,
+      approved_at: nowIso()
+    }, "task"));
+    this.executionQueue?.enqueueTask(taskId, String(task.payload.assignee_id), String(task.payload.workspace_id));
+    const events = [
+      this.emit({
+        type: "approval.approved",
+        actorId,
+        workspaceId: String(task.payload.workspace_id),
+        taskId,
+        correlationId: String(task.payload.root_objective_id),
+        summary: `Approved ${approvalId}`
+      }),
+      this.emit({
+        type: "task.assigned",
+        actorId,
+        workspaceId: String(task.payload.workspace_id),
+        taskId,
+        correlationId: String(task.payload.root_objective_id),
+        summary: `Approved Task ${taskId} assigned to ${String(task.payload.assignee_id)}`
+      })
+    ];
+    return { approval: approved, task: assignedTask, events };
+  }
+
+  rejectApproval(approvalId: string, actorId: string, reason = "Rejected by operator"): { approval: StoredObject; task: StoredObject; events: AppendedEvent[] } {
+    this.assertOperatorDecision(actorId);
+    const storedApproval = this.requireApproval(approvalId);
+    if (storedApproval.payload.status !== "pending") throw new Error(`Approval ${approvalId} is not pending`);
+    const taskId = String(storedApproval.payload.task_id ?? "");
+    const task = this.store.getObject(taskId);
+    if (!task || task.kind !== "task") throw new Error(`Approval Task ${taskId} not found`);
+
+    const rejected = this.store.putObject("approval", validateProtocolObject({
+      ...storedApproval.payload,
+      status: "rejected",
+      decided_by: actorId,
+      decided_at: nowIso(),
+      decision_reason: reason
+    }, "approval"));
+    const canceledTask = this.store.putObject("task", validateProtocolObject({
+      ...task.payload,
+      status: "canceled",
+      canceled_at: nowIso(),
+      canceled_by: actorId,
+      cancellation_code: "APPROVAL_REJECTED",
+      cancellation_reason: reason
+    }, "task"));
+    this.executionQueue?.cancelByItem(taskId, reason);
+    const events = [
+      this.emit({
+        type: "approval.rejected",
+        actorId,
+        workspaceId: String(task.payload.workspace_id),
+        taskId,
+        correlationId: String(task.payload.root_objective_id),
+        summary: reason,
+        attentionState: "failed"
+      }),
+      this.emit({
+        type: "task.canceled",
+        actorId,
+        workspaceId: String(task.payload.workspace_id),
+        taskId,
+        correlationId: String(task.payload.root_objective_id),
+        summary: `Task canceled because approval was rejected: ${reason}`,
+        attentionState: "failed"
+      })
+    ];
+    return { approval: rejected, task: canceledTask, events };
   }
 
   requestHandoff(input: HandoffInput): { handoff: StoredObject; event: AppendedEvent } {
@@ -382,5 +518,15 @@ export class CoordinationGateway {
     const appended = this.store.appendEvent(event, input.idempotencyKey);
     for (const listener of this.subscribers) listener(appended);
     return appended;
+  }
+
+  private requireApproval(approvalId: string): StoredObject {
+    const approval = this.store.getObject(approvalId);
+    if (!approval || approval.kind !== "approval") throw new Error(`Approval ${approvalId} not found`);
+    return approval;
+  }
+
+  private assertOperatorDecision(actorId: string): void {
+    if (!actorId.startsWith("operator_")) throw new Error(`Only an operator can decide approvals; received ${actorId}`);
   }
 }
