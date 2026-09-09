@@ -24,9 +24,7 @@ export class ExecutionSupervisor {
     this.unsubscribe = this.gateway.subscribeEvents((event) => this.onEvent(event));
     this.sweepRecovery();
     for (const targetId of this.queue.listQueuedTargets()) this.trigger(targetId);
-    if (this.recoverySweepMs > 0) {
-      this.recoveryTimer = setInterval(() => this.sweepRecovery(), this.recoverySweepMs);
-    }
+    if (this.recoverySweepMs > 0) this.recoveryTimer = setInterval(() => this.sweepRecovery(), this.recoverySweepMs);
   }
 
   async stop(): Promise<void> {
@@ -48,7 +46,7 @@ export class ExecutionSupervisor {
     const adapterId = String(bot.payload.runtime.adapter);
     if (!this.runner.runtimes.has(adapterId)) return;
 
-    const work = this.drain(botId).finally(() => {
+    const work = Promise.resolve().then(() => this.drain(botId)).finally(() => {
       this.inFlight.delete(botId);
       if (this.queue.list(botId, ["queued"]).length > 0) this.trigger(botId);
     });
@@ -69,9 +67,7 @@ export class ExecutionSupervisor {
       });
       return decisions;
     }
-    for (const decision of decisions) {
-      if (decision.action === "requeued") this.trigger(decision.execution.targetId);
-    }
+    for (const decision of decisions) if (decision.action === "requeued") this.trigger(decision.execution.targetId);
     return decisions;
   }
 
