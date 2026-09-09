@@ -116,6 +116,14 @@ function taskPayload(input: {
   };
 }
 
+function discussionLifecycle(openingId: string, reservedAt: string): JsonObject {
+  return {
+    origin: "discussion_setup",
+    discussion_opening_id: openingId,
+    discussion_opening_reserved_at: reservedAt
+  };
+}
+
 function completeWorkerTask(env: ReturnType<typeof fixture>, run: StoredObject, workerId: string, taskId: string, leaseId: string) {
   const worker = env.teams.createWorker({
     runId: run.id,
@@ -292,7 +300,7 @@ test("terminal cleanup is idempotent and emits one canonical completion event", 
     const second = env.cleanup.cleanupRun(run.id, "bot_leader");
     assert.equal(first.status, "completed");
     assert.equal(second.status, "already_clean");
-    const events = env.store.listEvents(0, 1000).filter((event) => event.event.type === "team_run.cleanup_completed" && event.event.run_id === run.id);
+    const events = env.store.listEventsAfter(0, 1000).filter((event) => event.event.type === "team_run.cleanup_completed" && event.event.run_id === run.id);
     assert.equal(events.length, 1);
   } finally {
     env.queue.close();
@@ -329,28 +337,51 @@ test("inconsistent terminal state with live Worker remains blocked and operator-
     assert.equal(result.status, "blocked");
     assert.deepEqual(result.blocker_ids, [worker.id]);
     assert.equal(env.teams.getWorker(worker.id)!.payload.status, "created");
-    assert.equal(env.store.listEvents(0, 1000).filter((event) => event.event.type === "team_run.cleanup_blocked").length, 1);
+    assert.equal(env.store.listEventsAfter(0, 1000).filter((event) => event.event.type === "team_run.cleanup_blocked").length, 1);
   } finally {
     env.queue.close();
     env.store.close();
   }
 });
 
-test("stale tagged discussion setup is reaped exactly and frees Team Run Worker capacity", () => {
+test("stale tagged discussion setup is reaped exactly, unrelated Workers survive, and capacity is freed", () => {
   const env = fixture();
   try {
-    let run = createRunningRun(env.teams, 2);
+    let run = createRunningRun(env.teams, 3);
     const staleAt = Date.now() - 10 * 60 * 1000;
+    const reservedAt = new Date(staleAt).toISOString();
     run = env.store.putObject("team_run", {
       ...run.payload,
       discussion_opening_id: "room_stale_setup",
-      discussion_opening_reserved_at: new Date(staleAt).toISOString(),
-      updated_at: new Date(staleAt).toISOString()
+      discussion_opening_reserved_at: reservedAt,
+      updated_at: reservedAt
     });
-    const one = env.teams.createWorker({ runId: run.id, createdBy: "bot_leader", workerId: "worker_stale_one", roleTitle: "Speaker One", objective: "Never activated." }).worker;
-    const two = env.teams.createWorker({ runId: run.id, createdBy: "bot_leader", workerId: "worker_stale_two", roleTitle: "Speaker Two", objective: "Never activated." }).worker;
+    const one = env.teams.createWorker({
+      runId: run.id,
+      createdBy: "bot_leader",
+      workerId: "worker_stale_one",
+      roleTitle: "Speaker One",
+      objective: "Never activated.",
+      lifecycle: discussionLifecycle("room_stale_setup", reservedAt)
+    }).worker;
+    const two = env.teams.createWorker({
+      runId: run.id,
+      createdBy: "bot_leader",
+      workerId: "worker_stale_two",
+      roleTitle: "Speaker Two",
+      objective: "Never activated.",
+      lifecycle: discussionLifecycle("room_stale_setup", reservedAt)
+    }).worker;
+    const unrelated = env.teams.createWorker({
+      runId: run.id,
+      createdBy: "bot_leader",
+      workerId: "worker_unrelated_during_reservation",
+      roleTitle: "Independent Worker",
+      objective: "Remain outside abandoned discussion setup."
+    }).worker;
     assert.equal((one.payload.lifecycle as JsonObject).discussion_opening_id, "room_stale_setup");
     assert.equal((two.payload.lifecycle as JsonObject).discussion_opening_id, "room_stale_setup");
+    assert.equal(unrelated.payload.lifecycle, undefined);
 
     const reaped = env.cleanup.reapStaleDiscussionOpenings({ now: Date.now(), olderThanMs: 60_000, actorId: "operator_cleanup" });
     assert.equal(reaped.length, 1);
@@ -358,6 +389,7 @@ test("stale tagged discussion setup is reaped exactly and frees Team Run Worker 
     assert.deepEqual(new Set(reaped[0]!.expiredWorkerIds), new Set([one.id, two.id]));
     assert.equal(env.teams.getWorker(one.id)!.payload.status, "expired");
     assert.equal(env.teams.getWorker(two.id)!.payload.status, "expired");
+    assert.equal(env.teams.getWorker(unrelated.id)!.payload.status, "created");
     assert.equal(env.teams.getRun(run.id)!.payload.discussion_opening_id, null);
 
     const replacement = env.teams.createWorker({ runId: run.id, createdBy: "bot_leader", workerId: "worker_after_reap", roleTitle: "Replacement", objective: "Use released Worker capacity." }).worker;
@@ -373,13 +405,21 @@ test("fresh discussion setup reservation is not reaped", () => {
   try {
     let run = createRunningRun(env.teams, 2);
     const reservedAt = Date.now();
+    const reservedAtIso = new Date(reservedAt).toISOString();
     run = env.store.putObject("team_run", {
       ...run.payload,
       discussion_opening_id: "room_fresh_setup",
-      discussion_opening_reserved_at: new Date(reservedAt).toISOString(),
-      updated_at: new Date(reservedAt).toISOString()
+      discussion_opening_reserved_at: reservedAtIso,
+      updated_at: reservedAtIso
     });
-    const worker = env.teams.createWorker({ runId: run.id, createdBy: "bot_leader", workerId: "worker_fresh_setup", roleTitle: "Fresh Speaker", objective: "Still being prepared." }).worker;
+    const worker = env.teams.createWorker({
+      runId: run.id,
+      createdBy: "bot_leader",
+      workerId: "worker_fresh_setup",
+      roleTitle: "Fresh Speaker",
+      objective: "Still being prepared.",
+      lifecycle: discussionLifecycle("room_fresh_setup", reservedAtIso)
+    }).worker;
     const reaped = env.cleanup.reapStaleDiscussionOpenings({ now: reservedAt + 30_000, olderThanMs: 60_000, actorId: "operator_cleanup" });
     assert.equal(reaped.length, 0);
     assert.equal(env.teams.getWorker(worker.id)!.payload.status, "created");
@@ -395,13 +435,21 @@ test("stale discussion reservation with task-bound participant fails closed inst
   try {
     let run = createRunningRun(env.teams, 2);
     const staleAt = Date.now() - 10 * 60 * 1000;
+    const reservedAt = new Date(staleAt).toISOString();
     run = env.store.putObject("team_run", {
       ...run.payload,
       discussion_opening_id: "room_stale_bound",
-      discussion_opening_reserved_at: new Date(staleAt).toISOString(),
-      updated_at: new Date(staleAt).toISOString()
+      discussion_opening_reserved_at: reservedAt,
+      updated_at: reservedAt
     });
-    const worker = env.teams.createWorker({ runId: run.id, createdBy: "bot_leader", workerId: "worker_stale_bound", roleTitle: "Bound Speaker", objective: "Has real work now." }).worker;
+    const worker = env.teams.createWorker({
+      runId: run.id,
+      createdBy: "bot_leader",
+      workerId: "worker_stale_bound",
+      roleTitle: "Bound Speaker",
+      objective: "Has real work now.",
+      lifecycle: discussionLifecycle("room_stale_bound", reservedAt)
+    }).worker;
     env.gateway.record("capability_lease", capabilityLease("lease_stale_bound", "task_stale_bound", worker.id));
     env.gateway.record("task", taskPayload({ id: "task_stale_bound", runId: run.id, assigneeId: worker.id, leaseId: "lease_stale_bound" }));
     env.teams.attachWorkerTask(worker.id, "task_stale_bound", "bot_leader");
@@ -430,13 +478,21 @@ test("supervisor startup recovers terminal cleanup and stale discussion setup af
 
     let activeRun = createRunningRun(first.teams, 2);
     const staleAt = Date.now() - 10 * 60 * 1000;
+    const reservedAt = new Date(staleAt).toISOString();
     activeRun = first.store.putObject("team_run", {
       ...activeRun.payload,
       discussion_opening_id: "room_restart_stale",
-      discussion_opening_reserved_at: new Date(staleAt).toISOString(),
-      updated_at: new Date(staleAt).toISOString()
+      discussion_opening_reserved_at: reservedAt,
+      updated_at: reservedAt
     });
-    const staleWorker = first.teams.createWorker({ runId: activeRun.id, createdBy: "bot_leader", workerId: "worker_restart_stale", roleTitle: "Stale Speaker", objective: "Never activated before crash." }).worker;
+    const staleWorker = first.teams.createWorker({
+      runId: activeRun.id,
+      createdBy: "bot_leader",
+      workerId: "worker_restart_stale",
+      roleTitle: "Stale Speaker",
+      objective: "Never activated before crash.",
+      lifecycle: discussionLifecycle("room_restart_stale", reservedAt)
+    }).worker;
     first.queue.close();
     first.store.close();
     first = null;
