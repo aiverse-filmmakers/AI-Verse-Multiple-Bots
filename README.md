@@ -14,25 +14,30 @@ The target experience is inspired most strongly by xAI's Grok Bot persistent-tea
 
 ## Current implementation status
 
-**Phase 0: Research + Architecture — complete**
+**Phase 0: Research + Architecture: COMPLETE**
 
-**Phase 1: Runnable Coordination Core — started**
+**Phase 1: Runnable Coordination Core: COMPLETE**
 
-The repository now contains the first tested runtime substrate:
+**Phase 2: Dynamic Multi-Agent Squads: NEXT**
 
-- TypeScript / Node.js project skeleton
-- SQLite coordination store
-- append-only coordination event log
-- per-Room event ordering
-- idempotent event writes
-- persistent protocol-object storage
-- persistent asynchronous delivery/mailbox queue
-- Bot registry creation/listing substrate
-- protocol-aligned runtime validation
-- CLI commands for init, doctor, Bot creation/listing and event inspection
-- automated restart/persistence and event-ordering tests
+Phase 1 closed on 2026-09-09 with **54/54 GitHub Actions tests passing**. The runnable core now includes:
 
-The implementation sequence is recorded in [`docs/IMPLEMENTATION-ROADMAP.md`](docs/IMPLEMENTATION-ROADMAP.md).
+- durable Bot registry with collision-safe identity and lifecycle rules
+- persistent Bot-to-Bot messaging and asynchronous mailboxes
+- Room and Thread collaboration with bounded scheduling
+- aggregate Room `max_messages` and `max_rounds` enforcement
+- Task delegation with ownership, constraints, budgets and capability leases
+- Artifact-to-Bot collaboration, including Artifact A as structured input to Bot B
+- safe Handoffs with authority reissue, Approval retargeting and ownership-return policies
+- first-class Approval gates for consequential work
+- persistent execution queue with cancellation, deadlines, heartbeats and fail-safe recovery
+- strict workspace, peer, tool and connection policy enforcement
+- deterministic reference runtime
+- zero-dependency OpenAI-compatible HTTP model runtime with secret-safe configuration and normalized receipts
+- real two-Bot model collaboration through the installable Gateway
+- restart-level conformance across messaging, Rooms/Threads, Handoffs, Approvals, model execution and cancellation integrity
+
+See [`docs/BUILD-MAP.md`](docs/BUILD-MAP.md) for the canonical project progress map and [`docs/PHASE-1-STATUS.md`](docs/PHASE-1-STATUS.md) for the complete Phase 1 evidence ledger.
 
 ## Canonical architecture
 
@@ -521,6 +526,8 @@ Therefore the system selects the **smallest sufficient topology** and records wh
 - [`docs/PERSISTENT-TEAMMATE-ARCHITECTURE.md`](docs/PERSISTENT-TEAMMATE-ARCHITECTURE.md) - canonical architecture
 - [`docs/COORDINATION-PROTOCOL-V1.1.md`](docs/COORDINATION-PROTOCOL-V1.1.md) - current protocol
 - [`docs/IMPLEMENTATION-ROADMAP.md`](docs/IMPLEMENTATION-ROADMAP.md) - canonical build sequence and phase history
+- [`docs/BUILD-MAP.md`](docs/BUILD-MAP.md) - canonical project completion map
+- [`docs/PHASE-1-STATUS.md`](docs/PHASE-1-STATUS.md) - verified Phase 1 implementation ledger
 - [`docs/RESEARCH-2026-09.md`](docs/RESEARCH-2026-09.md) - multi-agent/open-source ecosystem benchmark
 - [`docs/REFERENCE-ADOPTION-MAP.md`](docs/REFERENCE-ADOPTION-MAP.md) - what to adopt, adapt, integrate, study or avoid
 - [`docs/AI-VERSE-INTEGRATION.md`](docs/AI-VERSE-INTEGRATION.md) - contracts with OS, Memory, Brain, Skills, Automations and Dashboard
@@ -533,30 +540,18 @@ Therefore the system selects the **smallest sufficient topology** and records wh
 
 These are architecture-stage contracts and will be tightened through implementation/evaluation rather than treated as frozen API forever.
 
-## First production slice
+## Implementation progress
 
-The first implementation should deliver one end-to-end vertical slice:
+Phase 1 delivered the durable coordination substrate and passed its combined release-level gate.
 
-1. Bot registry and durable Bot conversation.
-2. Room + Thread event stream.
-3. asynchronous Bot-to-Bot delivery.
-4. explicit active work owner.
-5. Task/Artifact/Event protocol.
-6. Coordination Gateway.
-7. local runtime adapter.
-8. execution-environment references/leases.
-9. `@mention` routing and pass semantics.
-10. manager, handoff, parallel panel and Room orchestration.
-11. temporary Worker squad execution.
-12. approval/policy hook.
-13. central budgets, loop controls and cancellation.
-14. presence + attention events.
-15. WebSocket/SSE subscriptions.
-16. AI-Verse OS native installer.
-17. A2A adapter.
-18. deterministic coordination evaluation suite.
+The remaining first-release program is:
 
-The visual Bot roster belongs in AI-Verse Dashboard after this backend contract is stable.
+1. **Phase 2: Dynamic Multi-Agent Squads** - Team Runs, temporary Workers, adaptive collaboration gate, parallel/supervised topologies, verifier/synthesis and squad budgets.
+2. **Phase 3: AI-Verse Native Integration** - OS, Brain, Memory, Skills and Automations contracts without duplicated canonical state.
+3. **Phase 4: Runtime and Agent Interoperability** - A2A, Hermes, OpenClaw and other managed agent/runtime adapters.
+4. **Phase 5: Product, Installer, Omnichannel and Dashboard** - clean installation, onboarding, secure remote access, Dashboard control surfaces, channel bridges and full release acceptance.
+
+The visual Bot roster belongs in AI-Verse Dashboard. Multiple Bots remains the backend coordination authority for Bot identity, routing, Tasks, Handoffs, Rooms, Team Runs and runtime orchestration.
 
 ## North-star rule
 
