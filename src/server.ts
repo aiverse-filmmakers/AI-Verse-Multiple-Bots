@@ -54,6 +54,55 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
         return;
       }
 
+      if (method === "POST" && url.pathname === "/v1/delegations") {
+        const body = await readJson(req);
+        const required = ["createdBy", "assigneeId", "workspaceId", "rootObjectiveId", "objective", "reason"];
+        for (const key of required) {
+          if (typeof body[key] !== "string" || String(body[key]).length === 0) throw new Error(`${key} is required`);
+        }
+        json(res, 201, gateway.delegate({
+          createdBy: String(body.createdBy),
+          assigneeId: String(body.assigneeId),
+          workspaceId: String(body.workspaceId),
+          rootObjectiveId: String(body.rootObjectiveId),
+          objective: String(body.objective),
+          reason: String(body.reason),
+          requiredConstraints: Array.isArray(body.requiredConstraints) ? body.requiredConstraints.map(String) : [],
+          expectedOutput: typeof body.expectedOutput === "object" && body.expectedOutput !== null ? body.expectedOutput as JsonObject : undefined,
+          tools: Array.isArray(body.tools) ? body.tools.map(String) : [],
+          connections: Array.isArray(body.connections) ? body.connections.map(String) : []
+        }));
+        return;
+      }
+
+      if (method === "POST" && url.pathname === "/v1/handoffs") {
+        const body = await readJson(req);
+        const required = ["sourceOwnerId", "targetOwnerId", "workspaceId", "workItemId", "rootObjectiveId", "reason"];
+        for (const key of required) {
+          if (typeof body[key] !== "string" || String(body[key]).length === 0) throw new Error(`${key} is required`);
+        }
+        json(res, 201, gateway.requestHandoff({
+          sourceOwnerId: String(body.sourceOwnerId),
+          targetOwnerId: String(body.targetOwnerId),
+          workspaceId: String(body.workspaceId),
+          workItemId: String(body.workItemId),
+          rootObjectiveId: String(body.rootObjectiveId),
+          reason: String(body.reason),
+          requiredConstraints: Array.isArray(body.requiredConstraints) ? body.requiredConstraints.map(String) : [],
+          artifactRefs: Array.isArray(body.artifactRefs) ? body.artifactRefs.map(String) : [],
+          returnPolicy: typeof body.returnPolicy === "string" ? body.returnPolicy : undefined
+        }));
+        return;
+      }
+
+      const handoffAcceptMatch = url.pathname.match(/^\/v1\/handoffs\/([^/]+)\/accept$/);
+      if (method === "POST" && handoffAcceptMatch) {
+        const body = await readJson(req);
+        if (typeof body.actorId !== "string" || body.actorId.length === 0) throw new Error("actorId is required");
+        json(res, 200, gateway.acceptHandoff(decodeURIComponent(handoffAcceptMatch[1] as string), body.actorId));
+        return;
+      }
+
       if (method === "POST" && url.pathname === "/v1/messages") {
         const body = await readJson(req);
         const required = ["senderId", "targetKind", "targetId", "workspaceId", "text"];

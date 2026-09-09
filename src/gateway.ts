@@ -19,6 +19,34 @@ export interface SendMessageInput {
   idempotencyKey?: string;
 }
 
+export interface DelegateInput {
+  createdBy: string;
+  assigneeId: string;
+  workspaceId: string;
+  rootObjectiveId: string;
+  objective: string;
+  reason: string;
+  requiredConstraints?: string[];
+  expectedOutput?: JsonObject;
+  tools?: string[];
+  connections?: string[];
+  maxHops?: number;
+  hop?: number;
+  leaseExpiresAt?: string;
+}
+
+export interface HandoffInput {
+  sourceOwnerId: string;
+  targetOwnerId: string;
+  workspaceId: string;
+  workItemId: string;
+  rootObjectiveId: string;
+  reason: string;
+  requiredConstraints?: string[];
+  artifactRefs?: string[];
+  returnPolicy?: string;
+}
+
 export class CoordinationGateway {
   private readonly subscribers = new Set<(event: AppendedEvent) => void>();
 
@@ -52,6 +80,108 @@ export class CoordinationGateway {
 
   record(kind: Parameters<CoordinationStore["putObject"]>[0], payload: JsonObject): StoredObject {
     return this.store.putObject(kind, validateProtocolObject(payload, kind));
+  }
+
+  delegate(input: DelegateInput): { task: StoredObject; lease: StoredObject; event: AppendedEvent } {
+    const leaseId = createId("lease");
+    const taskId = createId("task");
+    const lease: JsonObject = {
+      schema_version: "1.0",
+      id: leaseId,
+      type: "capability_lease",
+      principal: input.createdBy,
+      issued_to: input.assigneeId,
+      workspace_id: input.workspaceId,
+      task_id: taskId,
+      tools: input.tools ?? [],
+      connections: input.connections ?? [],
+      destructive_actions: "deny",
+      expires_at: input.leaseExpiresAt ?? new Date(Date.now() + 60 * 60 * 1000).toISOString()
+    };
+    const storedLease = this.store.putObject("capability_lease", validateProtocolObject(lease, "capability_lease"));
+    const task: JsonObject = {
+      schema_version: "1.0",
+      id: taskId,
+      type: "task.delegate",
+      created_by: input.createdBy,
+      assignee_id: input.assigneeId,
+      owner_id: input.assigneeId,
+      workspace_id: input.workspaceId,
+      root_objective_id: input.rootObjectiveId,
+      reason: input.reason,
+      objective: input.objective,
+      required_constraints: input.requiredConstraints ?? [],
+      expected_output: input.expectedOutput ?? { contract: "artifact-or-structured-result" },
+      input_artifact_refs: [],
+      lease_id: leaseId,
+      environment_lease_id: null,
+      hop: input.hop ?? 0,
+      max_hops: input.maxHops ?? 6,
+      status: "assigned"
+    };
+    const storedTask = this.store.putObject("task", validateProtocolObject(task, "task"));
+    const event = this.emit({
+      type: "task.assigned",
+      actorId: input.createdBy,
+      workspaceId: input.workspaceId,
+      taskId,
+      summary: `Delegated task ${taskId} to ${input.assigneeId}`
+    });
+    return { task: storedTask, lease: storedLease, event };
+  }
+
+  requestHandoff(input: HandoffInput): { handoff: StoredObject; event: AppendedEvent } {
+    const handoffId = createId("handoff");
+    const handoff: JsonObject = {
+      schema_version: "1.0",
+      id: handoffId,
+      type: "handoff",
+      source_owner_id: input.sourceOwnerId,
+      target_owner_id: input.targetOwnerId,
+      workspace_id: input.workspaceId,
+      work_item_id: input.workItemId,
+      root_objective_id: input.rootObjectiveId,
+      reason: input.reason,
+      required_constraints: input.requiredConstraints ?? [],
+      artifact_refs: input.artifactRefs ?? [],
+      return_policy: input.returnPolicy ?? "return_on_completion",
+      status: "requested"
+    };
+    const stored = this.store.putObject("handoff", validateProtocolObject(handoff, "handoff"));
+    const event = this.emit({
+      type: "handoff.requested",
+      actorId: input.sourceOwnerId,
+      workspaceId: input.workspaceId,
+      taskId: input.workItemId.startsWith("task_") ? input.workItemId : null,
+      summary: `Handoff requested from ${input.sourceOwnerId} to ${input.targetOwnerId}`
+    });
+    return { handoff: stored, event };
+  }
+
+  acceptHandoff(handoffId: string, actorId: string): { handoff: StoredObject; workItem: StoredObject | null; events: AppendedEvent[] } {
+    const stored = this.store.getObject(handoffId);
+    if (!stored || stored.kind !== "handoff") throw new Error(`Handoff ${handoffId} not found`);
+    const handoff = { ...stored.payload };
+    if (handoff.status !== "requested") throw new Error(`Handoff ${handoffId} is not requested`);
+    if (handoff.target_owner_id !== actorId) throw new Error(`Only target owner ${String(handoff.target_owner_id)} can accept this handoff`);
+    handoff.status = "accepted";
+    handoff.accepted_at = nowIso();
+    const accepted = this.store.putObject("handoff", handoff);
+
+    const workItemId = String(handoff.work_item_id);
+    const workItem = this.store.getObject(workItemId);
+    let updatedWorkItem: StoredObject | null = null;
+    if (workItem && (workItem.kind === "task" || workItem.kind === "team_run")) {
+      const payload = { ...workItem.payload, owner_id: actorId };
+      updatedWorkItem = this.store.putObject(workItem.kind, payload);
+    }
+
+    const workspaceId = String(handoff.workspace_id);
+    const events = [
+      this.emit({ type: "handoff.accepted", actorId, workspaceId, summary: `Accepted handoff ${handoffId}` }),
+      this.emit({ type: "ownership.changed", actorId, workspaceId, taskId: workItem?.kind === "task" ? workItemId : null, summary: `${actorId} now owns ${workItemId}` })
+    ];
+    return { handoff: accepted, workItem: updatedWorkItem, events };
   }
 
   sendMessage(input: SendMessageInput): { message: StoredObject; delivery: DeliveryRecord; event: AppendedEvent } {
