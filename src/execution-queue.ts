@@ -4,6 +4,13 @@ import { DatabaseSync } from "node:sqlite";
 export type ExecutionState = "queued" | "claimed" | "running" | "completed" | "failed" | "canceled" | "dead_letter";
 export type RecoveryPolicy = "manual" | "retry_safe";
 
+export class ExecutionOwnershipError extends Error {
+  constructor(readonly executionId: string, message: string) {
+    super(message);
+    this.name = "ExecutionOwnershipError";
+  }
+}
+
 export interface EnqueueExecutionOptions {
   recoveryPolicy?: RecoveryPolicy;
   maxAttempts?: number;
@@ -222,7 +229,9 @@ export class ExecutionQueue {
       SET heartbeat_at = ?, lease_expires_at = ?, updated_at = ?
       WHERE id = ? AND claimed_by = ? AND state IN ('claimed', 'running')
     `).run(timestamp, expiresAt, timestamp, id, runnerId) as { changes: number | bigint };
-    if (Number(result.changes) !== 1) throw new Error(`Execution ownership lost for ${id}`);
+    if (Number(result.changes) !== 1) {
+      throw new ExecutionOwnershipError(id, `Execution ownership lost for ${id}`);
+    }
     return this.requireById(id);
   }
 
@@ -240,7 +249,7 @@ export class ExecutionQueue {
           lease_expires_at = NULL, last_error = ?, updated_at = ?
       WHERE id = ? AND state = ? AND claimed_by = ? AND lease_expires_at = ?
     `).run(reason, timestamp, record.id, record.state, record.claimedBy, record.leaseExpiresAt) as { changes: number | bigint };
-    if (Number(result.changes) !== 1) throw new Error(`Stale recovery race for ${record.id}`);
+    if (Number(result.changes) !== 1) throw new ExecutionOwnershipError(record.id, `Stale recovery race for ${record.id}`);
     return this.requireById(record.id);
   }
 
@@ -252,7 +261,7 @@ export class ExecutionQueue {
           last_error = ?, updated_at = ?
       WHERE id = ? AND state = ? AND claimed_by = ? AND lease_expires_at = ?
     `).run(reason, timestamp, record.id, record.state, record.claimedBy, record.leaseExpiresAt) as { changes: number | bigint };
-    if (Number(result.changes) !== 1) throw new Error(`Dead-letter recovery race for ${record.id}`);
+    if (Number(result.changes) !== 1) throw new ExecutionOwnershipError(record.id, `Dead-letter recovery race for ${record.id}`);
     return this.requireById(record.id);
   }
 
@@ -303,7 +312,9 @@ export class ExecutionQueue {
       SET state = ?, last_error = ?, heartbeat_at = ?, lease_expires_at = ?, updated_at = ?
       WHERE id = ? AND claimed_by = ? AND state IN (${placeholders})
     `).run(state, lastError, leaseSeconds === null ? null : timestamp, expiresAt, timestamp, id, runnerId, ...fromStates) as { changes: number | bigint };
-    if (Number(result.changes) !== 1) throw new Error(`Execution ownership/state transition lost for ${id}`);
+    if (Number(result.changes) !== 1) {
+      throw new ExecutionOwnershipError(id, `Execution ownership/state transition lost for ${id}`);
+    }
     return this.requireById(id);
   }
 
