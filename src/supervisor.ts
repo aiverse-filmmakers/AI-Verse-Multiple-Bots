@@ -136,6 +136,7 @@ export class ExecutionSupervisor {
       try {
         const result = await this.runner.runNext(targetId);
         if (!result) return;
+        if (this.queue.list(targetId, ["queued"]).length === 0) return;
       } catch (error) {
         if (error instanceof ExecutionOwnershipError) return;
         throw error;
