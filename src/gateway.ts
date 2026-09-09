@@ -10,6 +10,10 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
+function objectValue(value: unknown): JsonObject {
+  return typeof value === "object" && value !== null && !Array.isArray(value) ? value as JsonObject : {};
+}
+
 export interface SendMessageInput {
   senderId: string;
   targetKind: "bot" | "worker" | "room" | "thread" | "task" | "operator";
@@ -193,8 +197,16 @@ export class CoordinationGateway {
     };
     const storedTask = this.store.putObject("task", validateProtocolObject(task, "task"));
 
-    let approval: StoredObject | null = null;
     if (approvalRequired && approvalId) {
+      const requestedAction = objectValue(input.approval?.action);
+      const approvalAction: JsonObject = {
+        ...requestedAction,
+        kind: typeof requestedAction.kind === "string" && requestedAction.kind.length > 0 ? requestedAction.kind : "task.execute",
+        summary: typeof requestedAction.summary === "string" && requestedAction.summary.length > 0
+          ? requestedAction.summary
+          : `Execute Task ${taskId}: ${input.objective}`,
+        task_id: taskId
+      };
       const approvalPayload: JsonObject = {
         schema_version: "1.0",
         id: approvalId,
@@ -206,9 +218,9 @@ export class CoordinationGateway {
         requested_at: nowIso(),
         status: "pending",
         reason: input.approval?.reason ?? input.reason,
-        action: input.approval?.action ?? { kind: "task.execute", task_id: taskId }
+        action: approvalAction
       };
-      approval = this.store.putObject("approval", validateProtocolObject(approvalPayload, "approval"));
+      const approval = this.store.putObject("approval", validateProtocolObject(approvalPayload, "approval"));
       const event = this.emit({
         type: "approval.requested",
         actorId: input.createdBy,
@@ -280,7 +292,7 @@ export class CoordinationGateway {
     return { approval: approved, task: assignedTask, events };
   }
 
-  rejectApproval(approvalId: string, actorId: string, reason = "Rejected by operator"): { approval: StoredObject; task: StoredObject; events: AppendedEvent[] } {
+  rejectApproval(approvalId: string, actorId: string, reason = "Denied by operator"): { approval: StoredObject; task: StoredObject; events: AppendedEvent[] } {
     this.assertOperatorDecision(actorId);
     const storedApproval = this.requireApproval(approvalId);
     if (storedApproval.payload.status !== "pending") throw new Error(`Approval ${approvalId} is not pending`);
@@ -288,9 +300,9 @@ export class CoordinationGateway {
     const task = this.store.getObject(taskId);
     if (!task || task.kind !== "task") throw new Error(`Approval Task ${taskId} not found`);
 
-    const rejected = this.store.putObject("approval", validateProtocolObject({
+    const denied = this.store.putObject("approval", validateProtocolObject({
       ...storedApproval.payload,
-      status: "rejected",
+      status: "denied",
       decided_by: actorId,
       decided_at: nowIso(),
       decision_reason: reason
@@ -300,13 +312,13 @@ export class CoordinationGateway {
       status: "canceled",
       canceled_at: nowIso(),
       canceled_by: actorId,
-      cancellation_code: "APPROVAL_REJECTED",
+      cancellation_code: "APPROVAL_DENIED",
       cancellation_reason: reason
     }, "task"));
     this.executionQueue?.cancelByItem(taskId, reason);
     const events = [
       this.emit({
-        type: "approval.rejected",
+        type: "approval.denied",
         actorId,
         workspaceId: String(task.payload.workspace_id),
         taskId,
@@ -320,11 +332,11 @@ export class CoordinationGateway {
         workspaceId: String(task.payload.workspace_id),
         taskId,
         correlationId: String(task.payload.root_objective_id),
-        summary: `Task canceled because approval was rejected: ${reason}`,
+        summary: `Task canceled because approval was denied: ${reason}`,
         attentionState: "failed"
       })
     ];
-    return { approval: rejected, task: canceledTask, events };
+    return { approval: denied, task: canceledTask, events };
   }
 
   requestHandoff(input: HandoffInput): { handoff: StoredObject; event: AppendedEvent } {
