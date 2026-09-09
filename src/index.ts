@@ -15,6 +15,7 @@ export * from "./runtime.js";
 export * from "./store.js";
 export * from "./supervisor.js";
 export * from "./team-run-cleanup.js";
+export * from "./team-run-decision.js";
 export * from "./team-run-discussion.js";
 export * from "./team-run-disagreement.js";
 export * from "./team-run-fanout.js";
