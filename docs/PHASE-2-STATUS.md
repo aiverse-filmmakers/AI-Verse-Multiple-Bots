@@ -18,7 +18,7 @@ The package must remain host-neutral. Phase 2 coordination primitives may be emb
 
 ## Current verification
 
-GitHub Actions run 139 on 2026-09-09 passed **82/82 tests**, with 0 failures, 0 canceled, and 0 skipped, at commit `308d8737a4bc4c1c0c96bf0064f8dc47d0fcd4a5`.
+GitHub Actions run 146 on 2026-09-09 passed **82/82 tests**, with 0 failures, 0 canceled, and 0 skipped, at commit `3cc9dcea454fc3441543e17bba57407aa93380bc`.
 
 The eight Phase 2.5 acceptance tests pass alongside the previous 74-test suite.
 
@@ -209,12 +209,18 @@ Implemented:
 ### TeamRun-aware runner hardening
 
 - public `PrincipalRunner` validates active Team Run scope for durable Bot-owned run Tasks immediately before runtime execution
+- run-scoped execution requires an active same-workspace durable Team Run leader
 - run-scoped durable Bots cannot execute after the Team Run leaves an executable state
 - run-scoped durable Bot results count toward the same aggregate Team Run token/cost/action budget as Worker results
-- aggregate usage is persisted with compare-and-swap protection
+- aggregate usage is persisted with bounded compare-and-swap retry
 - over-budget durable Bot output is rejected before successful Artifact acceptance
-- Handoff settlement now applies when the execution target is a Worker as well as when it is a Bot
-- Artifact provenance continues to record the actual producing principal
+- Handoff settlement applies when the execution target is a Worker as well as when it is a Bot
+- canonical `return_on_completion` is normalized before claim so execution stays with the accepted target and final ownership returns to the active durable Team Run leader
+- that pre-execution return-policy normalization uses bounded compare-and-swap retry, so benign concurrent Team Run updates do not strand queued work
+- explicit `stay_with_target` continues to retain final target ownership
+- a terminated source Worker is never revived or made final owner during completion settlement
+- if the durable leader becomes unavailable at final settlement, ownership safely remains with the completed target and a visible return-skipped event is recorded
+- Artifact provenance continues to record the actual producing principal even when final ownership returns to the leader
 
 ### Chain controls and cancellation
 
@@ -229,22 +235,24 @@ Implemented:
 - accepted Worker-to-Worker ownership survives a file-backed SQLite close/reopen cycle
 - reopened execution queue still targets the accepted Worker
 - transferred lease remains scoped to the accepted Worker and Task
-- target Worker executes after restart and the accepted Handoff settles correctly
+- target Worker executes after restart and produces the Artifact under its own temporary identity
+- default final Task ownership returns to the active durable Team Run leader after restart settlement
+- the terminated source Worker remains terminal throughout settlement
 
 ## Phase 2.5 acceptance proof
 
 The eight new tests prove:
 
-1. Worker -> Worker moves queued ownership, preserves temporary identity, executes, and settles
-2. Worker -> durable Bot keeps the Bot durable, enforces TeamRun scope, and persists aggregate usage
+1. Worker -> Worker moves queued ownership, preserves temporary identity, executes, settles, and returns final ownership to the durable leader without reviving the source Worker
+2. Worker -> durable Bot keeps the Bot durable, enforces TeamRun scope, and persists aggregate usage; explicit `stay_with_target` retains the durable specialist as final owner
 3. a run-scoped durable Bot cannot bypass aggregate Team Run budget
 4. claimed execution fails closed without changing Worker, queue, or lease ownership
 5. a target Worker must belong to the same Team Run
 6. combined delegation/Handoff hop ceilings and recorded ownership-loop history stop runaway chains
 7. canceling a handoff Team Run cancels durable-Bot-owned queued work and settles the Handoff
-8. accepted Worker handoff survives database reopen, executes under the target Worker, and settles
+8. accepted Worker handoff survives database reopen, executes under the target Worker, settles, and returns final ownership to the durable leader
 
-**Verified suite:** 82 passed, 0 failed, 0 canceled, 0 skipped in GitHub Actions run 139.
+**Verified suite:** 82 passed, 0 failed, 0 canceled, 0 skipped in GitHub Actions run 146.
 
 ## Reusability boundary
 
