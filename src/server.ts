@@ -6,6 +6,7 @@ import { CoordinationGateway } from "./gateway.js";
 import { BotRunner } from "./runner.js";
 import { DeterministicRuntimeAdapter, RuntimeRegistry } from "./runtime.js";
 import { CoordinationStore } from "./store.js";
+import { ExecutionSupervisor } from "./supervisor.js";
 
 export interface GatewayServerOptions {
   host?: string;
@@ -39,6 +40,9 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
   const gateway = new CoordinationGateway(store, executionQueue);
   const runtimes = new RuntimeRegistry().register(new DeterministicRuntimeAdapter());
   const runner = new BotRunner(store, gateway, executionQueue, runtimes);
+  const supervisor = new ExecutionSupervisor(gateway, executionQueue, runner);
+  supervisor.start();
+
   const server = createServer(async (req: any, res: any) => {
     const url = new URL(req.url ?? "/", `http://${req.headers?.host ?? "127.0.0.1"}`);
     const method = String(req.method ?? "GET").toUpperCase();
@@ -187,6 +191,7 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
     gateway,
     runtimes,
     runner,
+    supervisor,
     server,
     listen(): Promise<{ host: string; port: number }> {
       const host = options.host ?? "127.0.0.1";
@@ -199,15 +204,16 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
         });
       });
     },
-    close(): Promise<void> {
-      return new Promise((resolve, reject) => {
+    async close(): Promise<void> {
+      await supervisor.stop();
+      await new Promise<void>((resolve, reject) => {
         server.close((error: Error | undefined) => {
-          executionQueue.close();
-          store.close();
           if (error) reject(error);
           else resolve();
         });
       });
+      executionQueue.close();
+      store.close();
     }
   };
 }
