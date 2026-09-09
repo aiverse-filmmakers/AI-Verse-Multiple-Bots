@@ -2,13 +2,15 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/aiverse-filmmakers/AI-Verse-Multiple-Bots/schemas/coordination-v1.schema.json",
   "title": "AI-Verse Multiple Bots Coordination Protocol v1",
-  "description": "Draft normalized contracts for persistent Bots, Rooms, Threads, Messages, Tasks, Artifacts, Team Runs, leases, approvals and coordination Events.",
+  "description": "Architecture-stage normalized contracts aligned with Coordination Protocol v1.1 for persistent Bots, temporary Workers, Rooms, Threads, Messages, Tasks, Handoffs, Artifacts, Team Runs, leases, approvals and coordination Events.",
   "oneOf": [
     { "$ref": "#/$defs/Bot" },
+    { "$ref": "#/$defs/Worker" },
     { "$ref": "#/$defs/Room" },
     { "$ref": "#/$defs/Thread" },
     { "$ref": "#/$defs/Message" },
     { "$ref": "#/$defs/Task" },
+    { "$ref": "#/$defs/Handoff" },
     { "$ref": "#/$defs/Artifact" },
     { "$ref": "#/$defs/TeamRun" },
     { "$ref": "#/$defs/CapabilityLease" },
@@ -235,6 +237,40 @@
         }
       }
     },
+    "Worker": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["schema_version", "id", "type", "run_id", "created_by", "workspace_id", "role", "status"],
+      "properties": {
+        "schema_version": { "const": "1.0" },
+        "id": { "$ref": "#/$defs/Id" },
+        "type": { "const": "worker" },
+        "run_id": { "$ref": "#/$defs/Id" },
+        "task_id": { "type": ["string", "null"] },
+        "created_by": { "$ref": "#/$defs/Id" },
+        "workspace_id": { "$ref": "#/$defs/Id" },
+        "role": {
+          "type": "object",
+          "additionalProperties": true,
+          "required": ["title", "objective"],
+          "properties": {
+            "title": { "type": "string", "minLength": 1 },
+            "objective": { "type": "string", "minLength": 1 }
+          }
+        },
+        "runtime": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "execution": { "$ref": "#/$defs/Execution" },
+        "capability_lease_id": { "type": ["string", "null"] },
+        "environment_lease_id": { "type": ["string", "null"] },
+        "status": {
+          "type": "string",
+          "enum": ["created", "ready", "running", "waiting", "completed", "failed", "canceled", "expired"]
+        }
+      }
+    },
     "Room": {
       "type": "object",
       "additionalProperties": true,
@@ -336,7 +372,7 @@
         "correlation_id": { "type": ["string", "null"] },
         "delivery_state": {
           "type": "string",
-          "enum": ["queued", "accepted", "delivered", "processing", "replied", "expired", "failed"]
+          "enum": ["queued", "accepted", "delivered", "processing", "replied", "expired", "failed", "canceled"]
         },
         "content": {
           "type": "array",
@@ -365,6 +401,7 @@
         "type",
         "created_by",
         "assignee_id",
+        "owner_id",
         "workspace_id",
         "root_objective_id",
         "reason",
@@ -382,6 +419,7 @@
         "type": { "const": "task.delegate" },
         "created_by": { "$ref": "#/$defs/Id" },
         "assignee_id": { "$ref": "#/$defs/Id" },
+        "owner_id": { "$ref": "#/$defs/Id" },
         "workspace_id": { "$ref": "#/$defs/Id" },
         "run_id": { "type": ["string", "null"] },
         "root_objective_id": { "$ref": "#/$defs/Id" },
@@ -428,6 +466,59 @@
         }
       }
     },
+    "Handoff": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "schema_version",
+        "id",
+        "type",
+        "source_owner_id",
+        "target_bot_id",
+        "workspace_id",
+        "root_objective_id",
+        "reason",
+        "required_constraints",
+        "return_policy",
+        "status"
+      ],
+      "properties": {
+        "schema_version": { "const": "1.0" },
+        "id": { "$ref": "#/$defs/Id" },
+        "type": { "const": "handoff" },
+        "source_owner_id": { "$ref": "#/$defs/Id" },
+        "target_bot_id": { "$ref": "#/$defs/Id" },
+        "workspace_id": { "$ref": "#/$defs/Id" },
+        "task_id": { "type": ["string", "null"] },
+        "run_id": { "type": ["string", "null"] },
+        "root_objective_id": { "$ref": "#/$defs/Id" },
+        "reason": { "type": "string", "minLength": 1 },
+        "required_constraints": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "context_refs": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/Id" },
+          "uniqueItems": true
+        },
+        "artifact_refs": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/Id" },
+          "uniqueItems": true
+        },
+        "capability_lease_id": { "type": ["string", "null"] },
+        "environment_lease_id": { "type": ["string", "null"] },
+        "return_policy": {
+          "type": "string",
+          "enum": ["stay_with_target", "return_on_completion", "return_on_block", "explicit_only"]
+        },
+        "status": {
+          "type": "string",
+          "enum": ["requested", "accepted", "rejected", "ownership_changed", "completed", "canceled", "failed"]
+        }
+      }
+    },
     "Artifact": {
       "type": "object",
       "additionalProperties": true,
@@ -459,6 +550,11 @@
         "workspace_id": { "$ref": "#/$defs/Id" },
         "root_objective_id": { "$ref": "#/$defs/Id" },
         "leader_id": { "type": ["string", "null"] },
+        "participant_ids": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/Id" },
+          "uniqueItems": true
+        },
         "topology": {
           "type": "string",
           "enum": [
@@ -567,6 +663,7 @@
         "task_id": { "type": ["string", "null"] },
         "room_id": { "type": ["string", "null"] },
         "thread_id": { "type": ["string", "null"] },
+        "room_sequence": { "type": ["integer", "null"], "minimum": 0 },
         "correlation_id": { "type": ["string", "null"] },
         "causation_id": { "type": ["string", "null"] },
         "trace_id": { "type": ["string", "null"] },
