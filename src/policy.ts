@@ -1,3 +1,5 @@
+import { BudgetError, inheritBudget, type BudgetEnvelope } from "./budget.js";
+import { CoordinationLoopGuard } from "./loop-guard.js";
 import { CoordinationStore } from "./store.js";
 import type { JsonObject, StoredObject } from "./types.js";
 
@@ -32,6 +34,8 @@ export interface CoordinationPolicyOptions {
   absoluteMaxHops?: number;
   maxToolsPerTask?: number;
   maxConnectionsPerTask?: number;
+  maxPairTransitions?: number;
+  maxRepeatedResults?: number;
 }
 
 export interface DelegationSafetyInput {
@@ -47,6 +51,7 @@ export interface DelegationSafetyInput {
   hop?: number;
   maxHops?: number;
   deadlineAt?: string;
+  budget?: BudgetEnvelope;
 }
 
 export interface PreparedDelegationSafety {
@@ -54,6 +59,8 @@ export interface PreparedDelegationSafety {
   requiredConstraints: string[];
   hop: number;
   maxHops: number;
+  deadlineAt: string | null;
+  budget: BudgetEnvelope;
 }
 
 export class CoordinationPolicy {
@@ -62,6 +69,7 @@ export class CoordinationPolicy {
   readonly absoluteMaxHops: number;
   readonly maxToolsPerTask: number;
   readonly maxConnectionsPerTask: number;
+  readonly loopGuard: CoordinationLoopGuard;
 
   constructor(readonly store: CoordinationStore, options: CoordinationPolicyOptions = {}) {
     this.requireRegisteredBots = options.requireRegisteredBots ?? false;
@@ -69,6 +77,10 @@ export class CoordinationPolicy {
     this.absoluteMaxHops = options.absoluteMaxHops ?? 12;
     this.maxToolsPerTask = options.maxToolsPerTask ?? 64;
     this.maxConnectionsPerTask = options.maxConnectionsPerTask ?? 64;
+    this.loopGuard = new CoordinationLoopGuard(store, {
+      maxPairTransitions: options.maxPairTransitions,
+      maxRepeatedResults: options.maxRepeatedResults
+    });
   }
 
   prepareDelegation(input: DelegationSafetyInput): PreparedDelegationSafety {
@@ -77,12 +89,6 @@ export class CoordinationPolicy {
     this.assertPrincipalWorkspace(input.assigneeId, input.workspaceId, "assignee");
     this.assertPeerAllowed(input.createdBy, input.assigneeId);
     this.assertRequestedAuthority(input.assigneeId, input.tools ?? [], input.connections ?? []);
-
-    if (input.deadlineAt !== undefined) {
-      const deadline = Date.parse(input.deadlineAt);
-      if (!Number.isFinite(deadline)) throw new PolicyError("INVALID_DEADLINE", "deadlineAt must be a valid timestamp");
-      if (deadline <= Date.now()) throw new PolicyError("DEADLINE_EXPIRED", "deadlineAt must be in the future");
-    }
 
     if ((input.tools?.length ?? 0) > this.maxToolsPerTask) {
       throw new PolicyError("TOOL_LIMIT_EXCEEDED", `Task requests more than ${this.maxToolsPerTask} tools`);
@@ -95,6 +101,8 @@ export class CoordinationPolicy {
     let inheritedConstraints: string[] = [];
     let hop = Math.max(0, input.hop ?? 0);
     let maxHops = Math.min(input.maxHops ?? this.defaultMaxHops, this.absoluteMaxHops);
+    let parentBudget: unknown = null;
+    let parentDeadlineAt: string | null = null;
 
     if (input.parentTaskId) {
       const parent = this.requireTask(input.parentTaskId);
@@ -109,23 +117,61 @@ export class CoordinationPolicy {
       hop = Number(parent.payload.hop ?? 0) + 1;
       const parentMax = Number(parent.payload.max_hops ?? this.defaultMaxHops);
       maxHops = Math.min(maxHops, parentMax, this.absoluteMaxHops);
+      parentBudget = parent.payload.budget;
+      parentDeadlineAt = typeof parent.payload.deadline_at === "string" ? parent.payload.deadline_at : null;
     }
+
+    const budget = inheritBudget(parentBudget, input.budget);
+    if (typeof budget.max_hops === "number") maxHops = Math.min(maxHops, budget.max_hops);
 
     if (!Number.isFinite(maxHops) || maxHops < 0) throw new PolicyError("INVALID_HOP_LIMIT", "maxHops must be a non-negative number");
     if (hop > maxHops) {
       throw new PolicyError("HOP_LIMIT_EXCEEDED", `Delegation hop ${hop} exceeds max_hops ${maxHops}`);
     }
 
+    const deadlineAt = this.effectiveDelegationDeadline(input.deadlineAt ?? null, parentDeadlineAt);
     const requiredConstraints = [...new Set([...inheritedConstraints, ...(input.requiredConstraints ?? [])])];
+
+    if (typeof budget.max_tasks === "number") {
+      const existingTasks = this.store.listObjects("task", input.workspaceId)
+        .filter((task) => String(task.payload.root_objective_id) === input.rootObjectiveId).length;
+      if (existingTasks >= budget.max_tasks) {
+        throw new BudgetError("TASK_BUDGET_EXCEEDED", `Root objective ${input.rootObjectiveId} already has ${existingTasks} Tasks with a limit of ${budget.max_tasks}`);
+      }
+    }
+
+    this.loopGuard.assertDelegation({
+      parentTaskId,
+      createdBy: input.createdBy,
+      assigneeId: input.assigneeId,
+      rootObjectiveId: input.rootObjectiveId,
+      objective: input.objective
+    });
     this.assertNoActiveDuplicate({ ...input, hop, maxHops });
 
-    return { parentTaskId, requiredConstraints, hop, maxHops };
+    return { parentTaskId, requiredConstraints, hop, maxHops, deadlineAt, budget };
   }
 
   assertMessage(senderId: string, targetId: string, workspaceId: string): void {
     this.assertPrincipalWorkspace(senderId, workspaceId, "sender");
     this.assertPrincipalWorkspace(targetId, workspaceId, "target");
     this.assertPeerAllowed(senderId, targetId);
+  }
+
+  private effectiveDelegationDeadline(requested: string | null, parent: string | null): string | null {
+    const requestedMs = requested ? Date.parse(requested) : null;
+    const parentMs = parent ? Date.parse(parent) : null;
+    if (requestedMs !== null) {
+      if (!Number.isFinite(requestedMs)) throw new PolicyError("INVALID_DEADLINE", "deadlineAt must be a valid timestamp");
+      if (requestedMs <= Date.now()) throw new PolicyError("DEADLINE_EXPIRED", "deadlineAt must be in the future");
+    }
+    if (parentMs !== null && (!Number.isFinite(parentMs) || parentMs <= Date.now())) {
+      throw new PolicyError("DEADLINE_EXPIRED", "Parent Task deadline has expired");
+    }
+    if (requestedMs !== null && parentMs !== null) return new Date(Math.min(requestedMs, parentMs)).toISOString();
+    if (requestedMs !== null) return new Date(requestedMs).toISOString();
+    if (parentMs !== null) return new Date(parentMs).toISOString();
+    return null;
   }
 
   private assertPrincipalWorkspace(principalId: string, workspaceId: string, role: string): void {
