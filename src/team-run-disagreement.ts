@@ -1,7 +1,6 @@
 import { createHash } from "node:crypto";
 import { BudgetError, normalizeBudget } from "./budget.js";
 import { CoordinationGateway } from "./gateway.js";
-import { createId } from "./id.js";
 import { TeamRunCoordinator } from "./team-runs.js";
 import type { JsonObject, JsonValue, StoredObject } from "./types.js";
 import { validateProtocolObject } from "./validator.js";
@@ -238,12 +237,16 @@ export class TeamRunDisagreementDetector {
           source_refs: refs
         }
       }, "artifact");
+      const verificationRequiredRefs = analysis.requiresVerification
+        ? uniqueSorted([...stringArray(run.payload.verification_required_report_refs), reportId])
+        : uniqueSorted(stringArray(run.payload.verification_required_report_refs));
       const updatedRunPayload = validateProtocolObject({
         ...run.payload,
         disagreement_report_refs: [...new Set([...stringArray(run.payload.disagreement_report_refs), reportId])],
         latest_disagreement_report_ref: reportId,
         disagreement_status: analysis.status,
-        requires_verification: analysis.requiresVerification,
+        requires_verification: run.payload.requires_verification === true || analysis.requiresVerification,
+        verification_required_report_refs: verificationRequiredRefs,
         disagreement_analyzed_at: timestamp,
         updated_at: timestamp
       }, "team_run");
@@ -275,14 +278,14 @@ export class TeamRunDisagreementDetector {
     const ref = typeof run.payload.latest_disagreement_report_ref === "string" ? run.payload.latest_disagreement_report_ref : null;
     if (!ref) return null;
     const report = this.gateway.store.getObject(ref);
-    return report?.kind === "artifact" && report.payload.kind === "disagreement_report" ? report : null;
+    return this.isReportForRun(report, run) ? report : null;
   }
 
   list(runId: string): StoredObject[] {
     const run = this.requireRun(runId);
     return stringArray(run.payload.disagreement_report_refs)
       .map((ref) => this.gateway.store.getObject(ref))
-      .filter((artifact): artifact is StoredObject => Boolean(artifact?.kind === "artifact" && artifact.payload.kind === "disagreement_report"));
+      .filter((artifact): artifact is StoredObject => this.isReportForRun(artifact, run));
   }
 
   private extractClaims(artifacts: StoredObject[]): ExtractionResult {
@@ -526,6 +529,15 @@ export class TeamRunDisagreementDetector {
     if (artifact.workspaceId !== run.workspaceId) throw new Error(`Candidate Artifact ${ref} is outside Team Run workspace ${String(run.workspaceId)}`);
     if (String(artifact.payload.run_id ?? "") !== run.id) throw new Error(`Candidate Artifact ${ref} is outside Team Run ${run.id}`);
     return artifact;
+  }
+
+  private isReportForRun(report: StoredObject | null, run: StoredObject): report is StoredObject {
+    return Boolean(
+      report?.kind === "artifact"
+      && report.payload.kind === "disagreement_report"
+      && report.workspaceId === run.workspaceId
+      && String(report.payload.run_id ?? "") === run.id
+    );
   }
 
   private assertActor(run: StoredObject, actorId: string): void {
