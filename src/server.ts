@@ -16,6 +16,7 @@ import { ExecutionSupervisor } from "./supervisor.js";
 import { TeamRunFanout } from "./team-run-fanout.js";
 import { TeamRunHandoff } from "./team-run-handoff.js";
 import { TeamRunDiscussion } from "./team-run-discussion.js";
+import { TeamRunDisagreementDetector } from "./team-run-disagreement.js";
 import { TeamRunCoordinator, type TeamRunStatus, type TeamRunTopology, type WorkerStatus } from "./team-runs.js";
 
 export interface GatewayServerOptions {
@@ -94,6 +95,7 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
   const fanout = new TeamRunFanout(teamRuns, gateway, executionQueue, runner);
   const handoffs = new TeamRunHandoff(teamRuns, gateway, executionQueue, runner);
   const discussion = new TeamRunDiscussion(teamRuns, gateway, executionQueue, runner);
+  const disagreement = new TeamRunDisagreementDetector(teamRuns, gateway);
   const supervisor = new ExecutionSupervisor(gateway, executionQueue, runner, 5000, managerTopology, fanout, handoffs, discussion);
   supervisor.start();
 
@@ -376,6 +378,28 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
       if (method === "POST" && discussionCancelMatch) {
         const body = await readJson(req);
         json(res, 200, await discussion.cancel(decodeURIComponent(discussionCancelMatch[1] as string), requiredString(body, "actorId"), typeof body.reason === "string" ? body.reason : undefined));
+        return;
+      }
+
+      const disagreementRunMatch = url.pathname.match(/^\/v1\/team-runs\/([^/]+)\/disagreement$/);
+      if (method === "GET" && disagreementRunMatch) {
+        const runId = decodeURIComponent(disagreementRunMatch[1] as string);
+        json(res, 200, {
+          latest: disagreement.latest(runId),
+          reports: disagreement.list(runId),
+          verificationDebt: disagreement.verificationDebt(runId)
+        });
+        return;
+      }
+      if (method === "POST" && disagreementRunMatch) {
+        const body = await readJson(req);
+        json(res, 201, disagreement.analyze({
+          runId: decodeURIComponent(disagreementRunMatch[1] as string),
+          actorId: requiredString(body, "actorId"),
+          artifactRefs: Array.isArray(body.artifactRefs) ? body.artifactRefs.map(String) : undefined,
+          confidenceGapThreshold: typeof body.confidenceGapThreshold === "number" ? body.confidenceGapThreshold : undefined,
+          maxArtifacts: typeof body.maxArtifacts === "number" ? body.maxArtifacts : undefined
+        }));
         return;
       }
 
@@ -710,6 +734,7 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
     fanout,
     handoffs,
     discussion,
+    disagreement,
     runtimes,
     runner,
     supervisor,

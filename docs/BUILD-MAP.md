@@ -364,9 +364,22 @@ Goal: a durable Bot decides whether to work alone or create bounded temporary Wo
    - cancellation, retry-safe restart recovery, deterministic message/thread recovery, and HTTP controls are explicit
    - candidate Artifacts remain unsynthesized inputs for the later disagreement/verifier/synthesis slices
 
+7. **Disagreement detection - COMPLETE**
+   - deterministic comparison over explicit `inline_content.claims[]` only; no hidden chain-of-thought inference
+   - normalizes subjects and canonical values before cross-Artifact comparison
+   - distinguishes contradictions, evidence conflicts, mutually exclusive recommendations, material confidence gaps, compatibility, and insufficient evidence
+   - numeric estimate conflict requires explicitly declared tolerance rather than an invented threshold
+   - malformed/unstructured claims remain visible as invalid evidence instead of being silently guessed
+   - comparison inputs and claim counts are hard bounded and same-Run/same-workspace scoped
+   - deterministic report IDs make repeated identical analysis idempotent
+   - disagreement reports are durable Artifacts with provenance, source refs, rationale codes, severities, and stable finding IDs
+   - hard conflicts create persistent verification debt without launching the later verifier/critic role
+   - later compatible reports cannot silently clear unresolved verification debt
+   - report/latest/debt inspection and explicit analysis are exposed through the localhost Gateway
+   - reports survive restart and canonical disagreement events are replayable
+
 ### Remaining major slices
 
-7. disagreement detection
 8. verifier/critic role
 9. synthesis
 10. Worker cleanup
