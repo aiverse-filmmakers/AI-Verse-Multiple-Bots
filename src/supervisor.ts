@@ -6,6 +6,7 @@ import { BotRunner } from "./runner.js";
 import { TeamRunDiscussion } from "./team-run-discussion.js";
 import { TeamRunFanout } from "./team-run-fanout.js";
 import { TeamRunCoordinator } from "./team-runs.js";
+import { TeamRunSynthesis } from "./team-run-synthesis.js";
 import { TeamRunVerifier } from "./team-run-verifier.js";
 import { validateProtocolObject } from "./validator.js";
 
@@ -24,6 +25,7 @@ export class ExecutionSupervisor {
   readonly fanout: TeamRunFanout;
   readonly discussion: TeamRunDiscussion;
   readonly verifier: TeamRunVerifier;
+  readonly synthesis: TeamRunSynthesis;
 
   constructor(
     readonly gateway: CoordinationGateway,
@@ -36,6 +38,7 @@ export class ExecutionSupervisor {
     this.fanout = new TeamRunFanout(teams, gateway, queue, runner);
     this.discussion = new TeamRunDiscussion(teams, gateway, queue, runner);
     this.verifier = new TeamRunVerifier(teams, gateway, queue, runner);
+    this.synthesis = new TeamRunSynthesis(teams, gateway, queue, runner);
   }
 
   start(): void {
@@ -49,6 +52,7 @@ export class ExecutionSupervisor {
     });
     this.discussion.recoverOpenDiscussions();
     this.verifier.recoverPendingVerifications();
+    this.synthesis.recoverPendingSyntheses();
     this.sweepRecovery();
     for (const targetId of this.queue.listQueuedTargets()) this.trigger(targetId);
     if (this.recoverySweepMs > 0) this.recoveryTimer = setInterval(() => this.sweepRecovery(), this.recoverySweepMs);
@@ -105,6 +109,7 @@ export class ExecutionSupervisor {
         void this.fanout.reconcileTask(decision.task.id);
         this.discussion.reconcileTask(decision.task.id);
         this.verifier.reconcileTask(decision.task.id);
+        this.synthesis.reconcileTask(decision.task.id);
       }
     }
     return decisions;
@@ -182,6 +187,7 @@ export class ExecutionSupervisor {
         await this.fanout.reconcileTask(result.task.id);
         this.discussion.reconcileTask(result.task.id);
         this.verifier.reconcileTask(result.task.id);
+        this.synthesis.reconcileTask(result.task.id);
         if (this.queue.list(targetId, ["queued"]).length === 0) return;
       } catch (error) {
         if (error instanceof ExecutionOwnershipError) return;
