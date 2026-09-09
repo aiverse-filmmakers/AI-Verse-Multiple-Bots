@@ -10,6 +10,10 @@ import { validateProtocolObject } from "./validator.js";
 
 const TERMINAL_WORKER_STATES = new Set(["completed", "failed", "canceled", "expired"]);
 
+function asObject(value: unknown): JsonObject {
+  return typeof value === "object" && value !== null && !Array.isArray(value) ? value as JsonObject : {};
+}
+
 export class ExecutionSupervisor {
   private unsubscribe: (() => void) | null = null;
   private recoveryTimer: ReturnType<typeof setInterval> | null = null;
@@ -130,8 +134,16 @@ export class ExecutionSupervisor {
     if (decision.action === "dead_letter") this.setWorkerStatus(worker.id, "waiting", `Task ${decision.execution.itemId} requires recovery review`);
     if (decision.action === "reconciled" && decision.task) {
       const taskStatus = String(decision.task.payload.status);
-      const workerStatus = taskStatus === "completed" ? "completed" : taskStatus === "canceled" ? "canceled" : "failed";
-      this.setWorkerStatus(worker.id, workerStatus, `Recovered execution reconciled to Task ${taskStatus}`);
+      const expectedOutput = asObject(decision.task.payload.expected_output);
+      const reusableDiscussionWorker = taskStatus === "completed"
+        && expectedOutput.contract === "discussion-turn-v1"
+        && typeof decision.task.payload.discussion_room_id === "string"
+        && Number.isInteger(Number(decision.task.payload.discussion_turn_index));
+      const workerStatus = reusableDiscussionWorker ? "waiting" : taskStatus === "completed" ? "completed" : taskStatus === "canceled" ? "canceled" : "failed";
+      const reason = reusableDiscussionWorker
+        ? `Recovered completed discussion turn ${String(decision.task.payload.discussion_turn_index)}; awaiting explicit next turn`
+        : `Recovered execution reconciled to Task ${taskStatus}`;
+      this.setWorkerStatus(worker.id, workerStatus, reason);
     }
   }
 
@@ -143,7 +155,7 @@ export class ExecutionSupervisor {
       status,
       status_reason: reason,
       updated_at: new Date().toISOString(),
-      ...(TERMINAL_WORKER_STATES.has(status) ? { terminal_at: new Date().toISOString() } : {})
+      ...(TERMINAL_WORKER_STATES.has(status) ? { terminal_at: new Date().toISOString() } : { terminal_at: null })
     }, "worker");
     this.gateway.store.putObject("worker", payload);
     this.gateway.emit({
