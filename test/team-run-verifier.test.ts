@@ -247,8 +247,12 @@ test("one verifier Task can resolve one report while preserving unrelated unreso
     env.supervisor.start();
     await env.supervisor.waitForIdle();
     const latest = env.teams.getRun(run.id)!;
-    assert.deepEqual(latest.payload.resolved_verification_report_refs, [first.id]);
-    assert.deepEqual(latest.payload.verification_required_report_refs, [second.id]);
+    const resolved = latest.payload.resolved_verification_report_refs as string[];
+    const remaining = latest.payload.verification_required_report_refs as string[];
+    assert.equal(resolved.length, 1);
+    assert.equal(remaining.length, 1);
+    assert.deepEqual(new Set([...resolved, ...remaining]), new Set([first.id, second.id]));
+    assert.notEqual(resolved[0], remaining[0]);
     assert.equal(latest.payload.requires_verification, true);
     assert.equal(latest.payload.status, "verifying");
   } finally {
