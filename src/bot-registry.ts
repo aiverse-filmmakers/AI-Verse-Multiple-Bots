@@ -114,7 +114,7 @@ export class BotRegistryRules {
   }
 
   assertRelationships(manifest: BotManifest): void {
-    const workspaceId = this.workspaceId(manifest);
+    const scopeKey = this.scopeKey(manifest);
     const coordination = asObject(manifest.coordination);
     const managerId = typeof coordination?.manager_id === "string" && coordination.manager_id.length > 0
       ? coordination.manager_id
@@ -122,8 +122,8 @@ export class BotRegistryRules {
     if (managerId) {
       if (managerId === manifest.id) throw new BotRegistryError("SELF_MANAGER", `Bot ${manifest.id} cannot manage itself`);
       const manager = this.requireBot(managerId);
-      if (manager.workspaceId !== workspaceId) {
-        throw new BotRegistryError("MANAGER_WORKSPACE_MISMATCH", `Manager ${managerId} is outside workspace ${workspaceId}`);
+      if (this.scopeKey(manager.payload) !== scopeKey) {
+        throw new BotRegistryError("MANAGER_SCOPE_MISMATCH", `Manager ${managerId} is outside registry scope ${scopeKey}`);
       }
       if (manager.payload.status !== "active") {
         throw new BotRegistryError("MANAGER_UNAVAILABLE", `Manager ${managerId} is not active`);
@@ -141,8 +141,8 @@ export class BotRegistryRules {
           throw new BotRegistryError("INVALID_PEER", `Explicit peer ${peerId} must be a durable Bot ID or *`);
         }
         const peer = this.requireBot(peerId);
-        if (peer.workspaceId !== workspaceId) {
-          throw new BotRegistryError("PEER_WORKSPACE_MISMATCH", `Peer ${peerId} is outside workspace ${workspaceId}`);
+        if (this.scopeKey(peer.payload) !== scopeKey) {
+          throw new BotRegistryError("PEER_SCOPE_MISMATCH", `Peer ${peerId} is outside registry scope ${scopeKey}`);
         }
         if (peer.payload.status === "archived") {
           throw new BotRegistryError("PEER_ARCHIVED", `Peer ${peerId} is archived`);
@@ -165,16 +165,30 @@ export class BotRegistryRules {
     return matches[0] ?? null;
   }
 
+  resolveOperatorAddress(address: string, includeDisabled = true): StoredObject<BotManifest> | null {
+    const wanted = normalizeBotAddress(address);
+    if (!wanted) return null;
+    const matches = (this.store.listObjects("bot") as StoredObject<BotManifest>[])
+      .filter((bot) => bot.payload.scope.type === "operator")
+      .filter((bot) => bot.payload.status !== "archived")
+      .filter((bot) => includeDisabled || bot.payload.status === "active")
+      .filter((bot) => botRegistryAddresses(bot.payload).includes(wanted));
+    if (matches.length > 1) {
+      throw new BotRegistryError("AMBIGUOUS_ADDRESS", `Operator Bot address @${wanted} is ambiguous: ${matches.map((bot) => bot.id).join(", ")}`);
+    }
+    return matches[0] ?? null;
+  }
+
   private assertAddressAvailability(manifest: BotManifest, ignoreBotId?: string): void {
-    const workspaceId = this.workspaceId(manifest);
+    const scopeKey = this.scopeKey(manifest);
     const wanted = new Set(botRegistryAddresses(manifest));
-    for (const stored of this.store.listObjects("bot", workspaceId) as StoredObject<BotManifest>[]) {
-      if (stored.id === ignoreBotId) continue;
+    for (const stored of this.store.listObjects("bot") as StoredObject<BotManifest>[]) {
+      if (stored.id === ignoreBotId || this.scopeKey(stored.payload) !== scopeKey) continue;
       const overlap = botRegistryAddresses(stored.payload).filter((address) => wanted.has(address));
       if (overlap.length > 0) {
         throw new BotRegistryError(
           "BOT_ADDRESS_COLLISION",
-          `Bot ${manifest.id} conflicts with ${stored.id} in workspace ${workspaceId} on address ${overlap.map((address) => `@${address}`).join(", ")}`
+          `Bot ${manifest.id} conflicts with ${stored.id} in ${scopeKey} on address ${overlap.map((address) => `@${address}`).join(", ")}`
         );
       }
     }
@@ -197,7 +211,10 @@ export class BotRegistryRules {
   }
 
   private assertNoLiveOwnedWork(bot: StoredObject<BotManifest>): void {
-    const live = this.store.listObjects("task", bot.workspaceId ?? undefined)
+    const candidates = bot.workspaceId
+      ? this.store.listObjects("task", bot.workspaceId)
+      : this.store.listObjects("task");
+    const live = candidates
       .filter((task) => LIVE_TASK_STATES.has(String(task.payload.status)))
       .filter((task) => task.payload.owner_id === bot.id || task.payload.assignee_id === bot.id);
     if (live.length > 0) {
@@ -209,8 +226,10 @@ export class BotRegistryRules {
   }
 
   private assertNoActiveManagerDependents(bot: StoredObject<BotManifest>): void {
-    const dependents = (this.store.listObjects("bot", bot.workspaceId ?? undefined) as StoredObject<BotManifest>[])
+    const scopeKey = this.scopeKey(bot.payload);
+    const dependents = (this.store.listObjects("bot") as StoredObject<BotManifest>[])
       .filter((candidate) => candidate.id !== bot.id && candidate.payload.status !== "archived")
+      .filter((candidate) => this.scopeKey(candidate.payload) === scopeKey)
       .filter((candidate) => asObject(candidate.payload.coordination)?.manager_id === bot.id);
     if (dependents.length > 0) {
       throw new BotRegistryError(
@@ -221,7 +240,7 @@ export class BotRegistryRules {
   }
 
   private assertNoActiveRoomReferences(bot: StoredObject<BotManifest>): void {
-    const rooms = this.store.listObjects("room", bot.workspaceId ?? undefined)
+    const rooms = this.store.listObjects("room")
       .filter((room) => room.payload.status === "active")
       .filter((room) => {
         const members = stringArray(room.payload.members);
@@ -242,10 +261,11 @@ export class BotRegistryRules {
     return object as StoredObject<BotManifest>;
   }
 
-  private workspaceId(manifest: BotManifest): string {
-    if (manifest.scope.type !== "workspace" || typeof manifest.scope.workspace_id !== "string" || manifest.scope.workspace_id.length === 0) {
-      throw new BotRegistryError("WORKSPACE_REQUIRED", `Durable Bot ${manifest.id} requires an explicit workspace_id for registry addressing`);
+  private scopeKey(manifest: BotManifest): string {
+    if (manifest.scope.type === "operator") return "operator";
+    if (manifest.scope.type === "workspace" && typeof manifest.scope.workspace_id === "string" && manifest.scope.workspace_id.length > 0) {
+      return `workspace:${manifest.scope.workspace_id}`;
     }
-    return manifest.scope.workspace_id;
+    throw new BotRegistryError("INVALID_SCOPE", `Durable Bot ${manifest.id} has an invalid registry scope`);
   }
 }
