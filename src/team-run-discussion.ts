@@ -12,6 +12,7 @@ const DISCUSSION_TOPOLOGIES = new Set(["group_room", "dynamic_squad", "hybrid"])
 const EXECUTABLE_RUN_STATES = new Set<TeamRunStatus>(["running", "synthesizing", "verifying"]);
 const TERMINAL_TASK_STATES = new Set(["completed", "failed", "canceled"]);
 const TERMINAL_WORKER_STATES = new Set<WorkerStatus>(["completed", "failed", "canceled", "expired"]);
+const OPTIMISTIC_RETRY_LIMIT = 4;
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -40,6 +41,12 @@ function positiveInteger(value: number | undefined, fallback: number, label: str
 function boundedText(value: unknown, max = 900): string {
   const text = typeof value === "string" ? value : JSON.stringify(value ?? null);
   return text.length > max ? `${text.slice(0, max - 3)}...` : text;
+}
+
+function relatedId(prefix: "msg" | "thread", sourceId: string): string {
+  const separator = sourceId.indexOf("_");
+  const suffix = separator >= 0 ? sourceId.slice(separator + 1) : sourceId;
+  return `${prefix}_${suffix}`;
 }
 
 export interface DiscussionSpeakerInput {
@@ -121,6 +128,9 @@ export class TeamRunDiscussion {
       return room.payload.temporary === true && discussion.run_id === run.id && discussion.status === "open";
     });
     if (existingOpen) throw new Error(`Team Run ${run.id} already has open discussion ${existingOpen.id}`);
+    if (typeof run.payload.discussion_opening_id === "string" && run.payload.discussion_opening_id.length > 0) {
+      throw new Error(`Team Run ${run.id} already has discussion setup ${run.payload.discussion_opening_id} in progress`);
+    }
 
     run = this.ensureRunning(run, leaderId);
     const runBudget = normalizeBudget(run.payload.budget);
@@ -144,7 +154,25 @@ export class TeamRunDiscussion {
       throw new BudgetError("DISCUSSION_BUDGET_TOO_SMALL", `Team Run ${run.id} does not have budget for at least two bounded discussion turns`);
     }
 
+    const roomId = createId("room");
+    const reservationTimestamp = nowIso();
+    const reservation = this.gateway.store.atomicMutation({
+      preconditions: [{ id: run.id, kind: "team_run", status: String(run.payload.status), updatedAt: run.updatedAt }],
+      objects: [{
+        kind: "team_run",
+        payload: validateProtocolObject({
+          ...run.payload,
+          discussion_opening_id: roomId,
+          discussion_opening_reserved_at: reservationTimestamp,
+          updated_at: reservationTimestamp
+        }, "team_run")
+      }],
+      events: []
+    });
+    run = reservation.objects[0] ?? this.requireRun(run.id);
+
     const createdWorkers: StoredObject[] = [];
+    let room: StoredObject;
     try {
       for (let index = 0; index < input.speakers.length; index += 1) {
         const speaker = input.speakers[index]!;
@@ -160,93 +188,111 @@ export class TeamRunDiscussion {
         }).worker;
         createdWorkers.push(worker);
       }
+
+      run = this.requireRun(run.id);
+      if (run.payload.discussion_opening_id !== roomId) {
+        throw new Error(`Team Run ${run.id} lost discussion setup reservation ${roomId}`);
+      }
+      const turnPlan: JsonObject[] = [];
+      let turnIndex = 0;
+      for (let round = 1; round <= maxRounds && turnIndex < maxMessages; round += 1) {
+        for (let speakerIndex = 0; speakerIndex < input.speakers.length && turnIndex < maxMessages; speakerIndex += 1) {
+          const speaker = input.speakers[speakerIndex]!;
+          const worker = createdWorkers[speakerIndex]!;
+          turnPlan.push({ turn_index: turnIndex, round, speaker_key: speaker.key.trim(), speaker_id: worker.id, speaker_index: speakerIndex });
+          turnIndex += 1;
+        }
+      }
+
+      const roomPayload = validateProtocolObject({
+        schema_version: "1.0",
+        id: roomId,
+        name: `Team Run Discussion: ${input.topic.trim()}`,
+        status: "active",
+        temporary: true,
+        run_id: run.id,
+        scope: { type: "workspace", workspace_id: String(run.payload.workspace_id) },
+        members: [leaderId],
+        temporary_participant_ids: createdWorkers.map((worker) => worker.id),
+        orchestration: {
+          mode: "review",
+          speaker_policy: "explicit_turn_plan",
+          leader: leaderId,
+          work_owner_policy: "leader_owned",
+          max_rounds_per_user_turn: maxRounds,
+          max_bot_messages_per_user_turn: maxMessages,
+          allow_member_mentions: false,
+          allow_user_escalation: true
+        },
+        threads: { enabled: true, inherit_room_scope: true },
+        context: { history_policy: "discussion_transcript", max_recent_messages: 30 },
+        attention: { notify_on_unresolved_mention: false },
+        active_work: null,
+        budget: { ...runBudget, max_messages: maxMessages, max_rounds: maxRounds },
+        discussion: {
+          status: "open",
+          run_id: run.id,
+          root_objective_id: String(run.payload.root_objective_id),
+          topic: input.topic.trim(),
+          leader_id: leaderId,
+          thread_id: null,
+          kickoff_message_id: null,
+          participant_ids: createdWorkers.map((worker) => worker.id),
+          speaker_keys: speakerKeys,
+          speaker_grants: input.speakers.map((speaker) => ({
+            tools: [...new Set(speaker.tools ?? [])],
+            connections: [...new Set(speaker.connections ?? [])]
+          })),
+          turn_plan: turnPlan,
+          next_turn_index: 0,
+          current_task_id: null,
+          scheduled_task_ids: [],
+          completed_turn_indexes: [],
+          candidate_artifact_refs: [],
+          max_messages: maxMessages,
+          max_rounds: maxRounds,
+          required_constraints: normalizeConstraints(input.requiredConstraints),
+          recovery_policy: input.recoveryPolicy ?? "retry_safe",
+          max_attempts: Math.max(1, Math.floor(input.maxAttempts ?? 2)),
+          created_at: nowIso()
+        }
+      }, "room");
+      const updatedRunPayload = validateProtocolObject({
+        ...run.payload,
+        discussion_opening_id: null,
+        discussion_opening_reserved_at: null,
+        discussion_room_ids: [...new Set([...stringArray(run.payload.discussion_room_ids), roomId])],
+        updated_at: nowIso()
+      }, "team_run");
+      const created = this.gateway.store.atomicMutation({
+        preconditions: [{ id: run.id, kind: "team_run", status: String(run.payload.status), updatedAt: run.updatedAt }],
+        objects: [
+          { kind: "team_run", payload: updatedRunPayload },
+          { kind: "room", payload: roomPayload }
+        ],
+        events: []
+      });
+      const createdRoom = created.objects.find((object) => object.id === roomId);
+      if (!createdRoom) throw new Error(`Discussion Room ${roomId} was not persisted`);
+      room = createdRoom;
     } catch (error) {
       for (const worker of createdWorkers) {
-        const latest = this.teams.getWorker(worker.id);
-        if (latest?.payload.status === "created") {
-          this.teams.transitionWorker(worker.id, "canceled", leaderId, "Discussion setup failed before activation");
+        try {
+          const latest = this.teams.getWorker(worker.id);
+          if (latest?.payload.status === "created") {
+            this.teams.transitionWorker(worker.id, "canceled", leaderId, "Discussion setup failed before activation");
+          }
+        } catch {
+          // Preserve the original setup failure; audit state remains fail-closed.
         }
+      }
+      try {
+        this.releaseOpeningReservation(run.id, roomId);
+      } catch {
+        // Preserve the original setup failure; a stale reservation fails closed.
       }
       throw error;
     }
-
-    run = this.requireRun(run.id);
-    const turnPlan: JsonObject[] = [];
-    let turnIndex = 0;
-    for (let round = 1; round <= maxRounds && turnIndex < maxMessages; round += 1) {
-      for (let speakerIndex = 0; speakerIndex < input.speakers.length && turnIndex < maxMessages; speakerIndex += 1) {
-        const speaker = input.speakers[speakerIndex]!;
-        const worker = createdWorkers[speakerIndex]!;
-        turnPlan.push({ turn_index: turnIndex, round, speaker_key: speaker.key.trim(), speaker_id: worker.id, speaker_index: speakerIndex });
-        turnIndex += 1;
-      }
-    }
-
-    const roomId = createId("room");
-    const roomPayload = validateProtocolObject({
-      schema_version: "1.0",
-      id: roomId,
-      name: `Team Run Discussion: ${input.topic.trim()}`,
-      status: "active",
-      temporary: true,
-      run_id: run.id,
-      scope: { type: "workspace", workspace_id: String(run.payload.workspace_id) },
-      members: [leaderId],
-      temporary_participant_ids: createdWorkers.map((worker) => worker.id),
-      orchestration: {
-        mode: "review",
-        speaker_policy: "explicit_turn_plan",
-        leader: leaderId,
-        work_owner_policy: "leader_owned",
-        max_rounds_per_user_turn: maxRounds,
-        max_bot_messages_per_user_turn: maxMessages,
-        allow_member_mentions: false,
-        allow_user_escalation: true
-      },
-      threads: { enabled: true, inherit_room_scope: true },
-      context: { history_policy: "discussion_transcript", max_recent_messages: 30 },
-      attention: { notify_on_unresolved_mention: false },
-      active_work: null,
-      budget: { ...runBudget, max_messages: maxMessages, max_rounds: maxRounds },
-      discussion: {
-        status: "open",
-        run_id: run.id,
-        root_objective_id: String(run.payload.root_objective_id),
-        topic: input.topic.trim(),
-        leader_id: leaderId,
-        thread_id: null,
-        kickoff_message_id: null,
-        participant_ids: createdWorkers.map((worker) => worker.id),
-        speaker_keys: speakerKeys,
-        turn_plan: turnPlan,
-        next_turn_index: 0,
-        current_task_id: null,
-        scheduled_task_ids: [],
-        completed_turn_indexes: [],
-        candidate_artifact_refs: [],
-        max_messages: maxMessages,
-        max_rounds: maxRounds,
-        required_constraints: normalizeConstraints(input.requiredConstraints),
-        recovery_policy: input.recoveryPolicy ?? "retry_safe",
-        max_attempts: Math.max(1, Math.floor(input.maxAttempts ?? 2)),
-        created_at: nowIso()
-      }
-    }, "room");
-    const updatedRunPayload = validateProtocolObject({
-      ...run.payload,
-      discussion_room_ids: [...new Set([...stringArray(run.payload.discussion_room_ids), roomId])],
-      updated_at: nowIso()
-    }, "team_run");
-    const created = this.gateway.store.atomicMutation({
-      preconditions: [{ id: run.id, kind: "team_run", status: String(run.payload.status), updatedAt: run.updatedAt }],
-      objects: [
-        { kind: "team_run", payload: updatedRunPayload },
-        { kind: "room", payload: roomPayload }
-      ],
-      events: []
-    });
-    const room = created.objects.find((object) => object.id === roomId);
-    if (!room) throw new Error(`Discussion Room ${roomId} was not persisted`);
 
     this.gateway.emit({
       type: "discussion.opened",
@@ -255,14 +301,17 @@ export class TeamRunDiscussion {
       roomId,
       runId: run.id,
       correlationId: String(run.payload.root_objective_id),
-      summary: `Opened bounded Team Run discussion with ${createdWorkers.length} temporary participants`
+      summary: `Opened bounded Team Run discussion with ${createdWorkers.length} temporary participants`,
+      idempotencyKey: `discussion:${roomId}:opened`
     });
     const kickoff = this.gateway.publishRoomMessage({
       senderId: leaderId,
       roomId,
       workspaceId: String(run.payload.workspace_id),
       text: `Discussion topic: ${input.topic.trim()}`,
-      correlationId: String(run.payload.root_objective_id)
+      correlationId: String(run.payload.root_objective_id),
+      messageId: relatedId("msg", room.id),
+      idempotencyKey: `discussion:${room.id}:kickoff`
     });
     const thread = this.createDiscussionThread(room, kickoff.message.id, leaderId);
     const roomWithThread = this.updateDiscussion(room.id, (discussion) => ({
@@ -326,7 +375,7 @@ export class TeamRunDiscussion {
     const speakerIndex = Number(turn.speaker_index ?? 0);
     const speakerRole = asObject(worker.payload.role);
     const transcript = this.transcript(room);
-    const candidates = this.validCandidateArtifacts(stringArray(discussion.candidate_artifact_refs), String(run.payload.workspace_id));
+    const candidates = this.validCandidateArtifacts(stringArray(discussion.candidate_artifact_refs), String(run.payload.workspace_id), run.id);
     const constraints = normalizeConstraints([
       ...stringArray(discussion.required_constraints),
       "Contribute only when it is your explicitly scheduled discussion turn",
@@ -421,7 +470,7 @@ export class TeamRunDiscussion {
     const mutation = this.gateway.store.atomicMutation({
       preconditions: [
         { id: room.id, kind: "room", status: "active", updatedAt: room.updatedAt },
-        { id: run.id, kind: "team_run", status: String(run.payload.status) },
+        { id: run.id, kind: "team_run", status: String(run.payload.status), updatedAt: run.updatedAt },
         { id: worker.id, kind: "worker", status: workerStatus }
       ],
       objects: [
@@ -482,7 +531,7 @@ export class TeamRunDiscussion {
   }
 
   reconcileTask(taskId: string): DiscussionReconcileResult | null {
-    for (let attempt = 0; attempt < 4; attempt += 1) {
+    for (let attempt = 0; attempt < OPTIMISTIC_RETRY_LIMIT; attempt += 1) {
       const task = this.gateway.store.getObject(taskId);
       if (!task || task.kind !== "task") return null;
       const roomId = typeof task.payload.discussion_room_id === "string" ? task.payload.discussion_room_id : null;
@@ -510,21 +559,21 @@ export class TeamRunDiscussion {
         return { room: closed, task, artifact: null, nextTask: null };
       }
 
-      if (!this.hasDiscussionArtifactMessage(room.id, artifact.id)) {
-        this.gateway.publishRoomMessage({
-          senderId: String(task.payload.assignee_id),
-          roomId: room.id,
-          threadId: typeof discussion.thread_id === "string" ? discussion.thread_id : undefined,
-          workspaceId: String(room.workspaceId),
-          text: `Turn ${String(task.payload.discussion_turn_index)} (${String(task.payload.discussion_speaker_key)}): ${boundedText(artifact.payload.inline_content)}`,
-          artifactRefs: [artifact.id],
-          correlationId: String(discussion.root_objective_id)
-        });
-      }
-
       const worker = this.requireWorker(String(task.payload.assignee_id));
       const run = this.requireExecutableRun(String(discussion.run_id));
       const turnIndex = Number(task.payload.discussion_turn_index ?? -1);
+      this.gateway.publishRoomMessage({
+        senderId: worker.id,
+        roomId: room.id,
+        threadId: typeof discussion.thread_id === "string" ? discussion.thread_id : undefined,
+        workspaceId: String(room.workspaceId),
+        text: `Turn ${String(task.payload.discussion_turn_index)} (${String(task.payload.discussion_speaker_key)}): ${boundedText(artifact.payload.inline_content)}`,
+        artifactRefs: [artifact.id],
+        correlationId: String(discussion.root_objective_id),
+        messageId: relatedId("msg", task.id),
+        idempotencyKey: `discussion:${room.id}:turn:${turnIndex}`
+      });
+
       const updatedWorkerPayload = validateProtocolObject({
         ...worker.payload,
         status: "waiting",
@@ -566,7 +615,7 @@ export class TeamRunDiscussion {
           events: []
         });
       } catch (error) {
-        if (error instanceof Error && error.message.includes("changed since it was read") && attempt < 3) continue;
+        if (error instanceof Error && error.message.includes("changed since it was read") && attempt < OPTIMISTIC_RETRY_LIMIT - 1) continue;
         throw error;
       }
 
@@ -579,7 +628,8 @@ export class TeamRunDiscussion {
         runId: String(discussion.run_id),
         taskId: task.id,
         correlationId: String(discussion.root_objective_id),
-        summary: `Settled discussion turn ${turnIndex} with candidate Artifact ${artifact.id}`
+        summary: `Settled discussion turn ${turnIndex} with candidate Artifact ${artifact.id}`,
+        idempotencyKey: `discussion:${room.id}:settled:${turnIndex}`
       });
 
       const latestRoom = this.requireOpenDiscussion(room.id);
@@ -648,108 +698,121 @@ export class TeamRunDiscussion {
   }
 
   close(roomId: string, outcome: "completed" | "failed" | "canceled", reason: string): StoredObject {
-    const room = this.requireRoom(roomId);
-    const discussion = asObject(room.payload.discussion);
-    if (discussion.status !== "open") return room;
-    const run = this.requireRun(String(discussion.run_id));
-    const leaderId = String(run.payload.leader_id ?? "");
-    const candidateRefs = this.validCandidateArtifacts(stringArray(discussion.candidate_artifact_refs), String(room.workspaceId));
+    for (let attempt = 0; attempt < OPTIMISTIC_RETRY_LIMIT; attempt += 1) {
+      const room = this.requireRoom(roomId);
+      const discussion = asObject(room.payload.discussion);
+      if (discussion.status !== "open") return room;
+      const run = this.requireRun(String(discussion.run_id));
+      const leaderId = String(run.payload.leader_id ?? "");
+      const candidateRefs = this.validCandidateArtifacts(stringArray(discussion.candidate_artifact_refs), String(room.workspaceId), run.id);
 
-    if (outcome === "completed") {
-      this.gateway.publishRoomMessage({
-        senderId: leaderId,
-        roomId: room.id,
-        threadId: typeof discussion.thread_id === "string" ? discussion.thread_id : undefined,
-        workspaceId: String(room.workspaceId),
-        text: `Bounded discussion completed with ${candidateRefs.length} candidate Artifact${candidateRefs.length === 1 ? "" : "s"}.`,
-        artifactRefs: candidateRefs,
-        correlationId: String(discussion.root_objective_id)
-      });
-    }
-
-    const timestamp = nowIso();
-    const workerObjects: Array<{ kind: "worker"; payload: JsonObject }> = [];
-    const workerPreconditions: Array<{ id: string; kind: "worker"; status: string }> = [];
-    for (const workerId of stringArray(discussion.participant_ids)) {
-      const worker = this.gateway.store.getObject(workerId);
-      if (!worker || worker.kind !== "worker") continue;
-      const status = String(worker.payload.status) as WorkerStatus;
-      if (TERMINAL_WORKER_STATES.has(status)) continue;
-      if (status === "ready" || status === "running") {
-        throw new Error(`Cannot close discussion ${room.id} while participant ${worker.id} is ${status}`);
+      if (outcome === "completed") {
+        const closeSource = candidateRefs[candidateRefs.length - 1];
+        this.gateway.publishRoomMessage({
+          senderId: leaderId,
+          roomId: room.id,
+          threadId: typeof discussion.thread_id === "string" ? discussion.thread_id : undefined,
+          workspaceId: String(room.workspaceId),
+          text: `Bounded discussion completed with ${candidateRefs.length} candidate Artifact${candidateRefs.length === 1 ? "" : "s"}.`,
+          artifactRefs: candidateRefs,
+          correlationId: String(discussion.root_objective_id),
+          ...(closeSource ? { messageId: relatedId("msg", closeSource) } : {}),
+          idempotencyKey: `discussion:${room.id}:completed-message`
+        });
       }
-      const targetStatus: WorkerStatus = outcome === "completed" && status === "waiting" ? "completed" : "canceled";
-      workerObjects.push({
-        kind: "worker",
-        payload: validateProtocolObject({
-          ...worker.payload,
-          status: targetStatus,
-          terminal_at: timestamp,
-          status_reason: reason,
-          updated_at: timestamp
-        }, "worker")
-      });
-      workerPreconditions.push({ id: worker.id, kind: "worker", status });
-    }
 
-    const threadId = typeof discussion.thread_id === "string" ? discussion.thread_id : null;
-    const thread = threadId ? this.gateway.store.getObject(threadId) : null;
-    const objects: Array<{ kind: "room" | "thread" | "worker" | "team_run"; payload: JsonObject }> = [
-      {
-        kind: "room",
-        payload: validateProtocolObject({
-          ...room.payload,
-          status: "closed",
-          discussion: {
-            ...discussion,
-            status: outcome,
-            current_task_id: null,
-            closed_at: timestamp,
-            close_reason: reason
-          }
-        }, "room")
-      },
-      {
-        kind: "team_run",
-        payload: validateProtocolObject({
-          ...run.payload,
-          candidate_artifact_refs: [...new Set([...stringArray(run.payload.candidate_artifact_refs), ...candidateRefs])],
-          updated_at: timestamp
-        }, "team_run")
-      },
-      ...workerObjects
-    ];
-    if (thread?.kind === "thread") {
-      objects.push({ kind: "thread", payload: validateProtocolObject({ ...thread.payload, status: "closed", closed_at: timestamp }, "thread") });
+      const timestamp = nowIso();
+      const workerObjects: Array<{ kind: "worker"; payload: JsonObject }> = [];
+      const workerPreconditions: Array<{ id: string; kind: "worker"; status: string }> = [];
+      for (const workerId of stringArray(discussion.participant_ids)) {
+        const worker = this.gateway.store.getObject(workerId);
+        if (!worker || worker.kind !== "worker") continue;
+        const status = String(worker.payload.status) as WorkerStatus;
+        if (TERMINAL_WORKER_STATES.has(status)) continue;
+        if (status === "ready" || status === "running") {
+          throw new Error(`Cannot close discussion ${room.id} while participant ${worker.id} is ${status}`);
+        }
+        const targetStatus: WorkerStatus = outcome === "completed" && status === "waiting" ? "completed" : "canceled";
+        workerObjects.push({
+          kind: "worker",
+          payload: validateProtocolObject({
+            ...worker.payload,
+            status: targetStatus,
+            terminal_at: timestamp,
+            status_reason: reason,
+            updated_at: timestamp
+          }, "worker")
+        });
+        workerPreconditions.push({ id: worker.id, kind: "worker", status });
+      }
+
+      const threadId = typeof discussion.thread_id === "string" ? discussion.thread_id : null;
+      const thread = threadId ? this.gateway.store.getObject(threadId) : null;
+      const objects: Array<{ kind: "room" | "thread" | "worker" | "team_run"; payload: JsonObject }> = [
+        {
+          kind: "room",
+          payload: validateProtocolObject({
+            ...room.payload,
+            status: "closed",
+            discussion: {
+              ...discussion,
+              status: outcome,
+              current_task_id: null,
+              closed_at: timestamp,
+              close_reason: reason
+            }
+          }, "room")
+        },
+        {
+          kind: "team_run",
+          payload: validateProtocolObject({
+            ...run.payload,
+            candidate_artifact_refs: [...new Set([...stringArray(run.payload.candidate_artifact_refs), ...candidateRefs])],
+            updated_at: timestamp
+          }, "team_run")
+        },
+        ...workerObjects
+      ];
+      if (thread?.kind === "thread") {
+        objects.push({ kind: "thread", payload: validateProtocolObject({ ...thread.payload, status: "closed", closed_at: timestamp }, "thread") });
+      }
+      try {
+        const mutation = this.gateway.store.atomicMutation({
+          preconditions: [
+            { id: room.id, kind: "room", status: "active", updatedAt: room.updatedAt },
+            { id: run.id, kind: "team_run", status: String(run.payload.status), updatedAt: run.updatedAt },
+            ...workerPreconditions
+          ],
+          objects,
+          events: []
+        });
+        const closedRoom = mutation.objects.find((object) => object.id === room.id);
+        if (!closedRoom) throw new Error(`Discussion ${room.id} close did not persist Room state`);
+        this.gateway.emit({
+          type: `discussion.${outcome}`,
+          actorId: leaderId,
+          workspaceId: String(room.workspaceId),
+          roomId: room.id,
+          threadId,
+          runId: run.id,
+          correlationId: String(discussion.root_objective_id),
+          summary: reason,
+          attentionState: outcome === "failed" ? "failed" : outcome === "canceled" ? "canceled" : "unread_result",
+          idempotencyKey: `discussion:${room.id}:${outcome}`
+        });
+        return closedRoom;
+      } catch (error) {
+        if (error instanceof Error && error.message.includes("changed since it was read") && attempt < OPTIMISTIC_RETRY_LIMIT - 1) continue;
+        throw error;
+      }
     }
-    const mutation = this.gateway.store.atomicMutation({
-      preconditions: [
-        { id: room.id, kind: "room", status: "active", updatedAt: room.updatedAt },
-        { id: run.id, kind: "team_run", status: String(run.payload.status), updatedAt: run.updatedAt },
-        ...workerPreconditions
-      ],
-      objects,
-      events: []
-    });
-    const closedRoom = mutation.objects.find((object) => object.id === room.id);
-    if (!closedRoom) throw new Error(`Discussion ${room.id} close did not persist Room state`);
-    this.gateway.emit({
-      type: `discussion.${outcome}`,
-      actorId: leaderId,
-      workspaceId: String(room.workspaceId),
-      roomId: room.id,
-      threadId,
-      runId: run.id,
-      correlationId: String(discussion.root_objective_id),
-      summary: reason,
-      attentionState: outcome === "failed" ? "failed" : outcome === "canceled" ? "canceled" : "unread_result"
-    });
-    return closedRoom;
+    throw new Error(`Discussion ${roomId} could not be closed after optimistic retries`);
   }
 
   candidateArtifacts(roomId: string): StoredObject[] {
     const room = this.requireRoom(roomId);
-    return this.validCandidateArtifacts(stringArray(asObject(room.payload.discussion).candidate_artifact_refs), String(room.workspaceId))
+    const discussion = asObject(room.payload.discussion);
+    return this.validCandidateArtifacts(stringArray(discussion.candidate_artifact_refs), String(room.workspaceId), String(discussion.run_id))
       .map((id) => this.gateway.store.getObject(id))
       .filter((artifact): artifact is StoredObject => Boolean(artifact?.kind === "artifact"));
   }
@@ -768,7 +831,14 @@ export class TeamRunDiscussion {
   }
 
   private createDiscussionThread(room: StoredObject, parentMessageId: string, leaderId: string): StoredObject {
-    const threadId = createId("thread");
+    const threadId = relatedId("thread", room.id);
+    const existing = this.gateway.store.getObject(threadId);
+    if (existing) {
+      if (existing.kind !== "thread" || existing.payload.room_id !== room.id) {
+        throw new Error(`Deterministic discussion Thread ${threadId} is already bound elsewhere`);
+      }
+      return existing;
+    }
     const thread = this.gateway.store.putObject("thread", validateProtocolObject({
       schema_version: "1.0",
       id: threadId,
@@ -787,7 +857,8 @@ export class TeamRunDiscussion {
       roomId: room.id,
       threadId: thread.id,
       runId: typeof room.payload.run_id === "string" ? room.payload.run_id : null,
-      summary: `Created temporary discussion Thread ${thread.id}`
+      summary: `Created temporary discussion Thread ${thread.id}`,
+      idempotencyKey: `discussion:${room.id}:thread`
     });
     return thread;
   }
@@ -807,7 +878,9 @@ export class TeamRunDiscussion {
       roomId: room.id,
       workspaceId: String(room.workspaceId),
       text: `Discussion topic: ${String(discussion.topic)}`,
-      correlationId: String(discussion.root_objective_id)
+      correlationId: String(discussion.root_objective_id),
+      messageId: relatedId("msg", room.id),
+      idempotencyKey: `discussion:${room.id}:kickoff`
     }).message;
     const thread = this.createDiscussionThread(room, kickoff.id, leaderId);
     this.updateDiscussion(room.id, (state) => ({ ...state, thread_id: thread.id, kickoff_message_id: kickoff.id }));
@@ -827,35 +900,27 @@ export class TeamRunDiscussion {
     }).join("\n");
   }
 
-  private hasDiscussionArtifactMessage(roomId: string, artifactId: string): boolean {
-    return this.gateway.store.listObjects("message").some((message) =>
-      message.payload.room_id === roomId && stringArray(message.payload.artifact_refs).includes(artifactId)
-    );
-  }
-
-  private validCandidateArtifacts(refs: string[], workspaceId: string): string[] {
+  private validCandidateArtifacts(refs: string[], workspaceId: string, runId?: string): string[] {
     const unique = [...new Set(refs)];
     for (const ref of unique) {
       const artifact = this.gateway.store.getObject(ref);
       if (!artifact || artifact.kind !== "artifact") throw new Error(`Discussion candidate Artifact ${ref} not found`);
       if (artifact.workspaceId !== workspaceId) throw new Error(`Discussion candidate Artifact ${ref} is outside workspace ${workspaceId}`);
+      if (runId && String(artifact.payload.run_id ?? "") !== runId) {
+        throw new Error(`Discussion candidate Artifact ${ref} is outside Team Run ${runId}`);
+      }
     }
     return unique;
   }
 
   private speakerGrant(room: StoredObject, speakerIndex: number, key: "tools" | "connections"): string[] {
     const discussion = asObject(room.payload.discussion);
-    const workers = stringArray(discussion.participant_ids);
-    const workerId = workers[speakerIndex];
-    if (!workerId) return [];
-    const worker = this.gateway.store.getObject(workerId);
-    if (!worker || worker.kind !== "worker") return [];
-    const grants = asObject(worker.payload.discussion_grants);
-    return stringArray(grants[key]);
+    const grant = objectArray(discussion.speaker_grants)[speakerIndex];
+    return grant ? stringArray(grant[key]) : [];
   }
 
   private updateDiscussion(roomId: string, update: (discussion: JsonObject) => JsonObject): StoredObject {
-    for (let attempt = 0; attempt < 4; attempt += 1) {
+    for (let attempt = 0; attempt < OPTIMISTIC_RETRY_LIMIT; attempt += 1) {
       const room = this.requireRoom(roomId);
       const payload = validateProtocolObject({ ...room.payload, discussion: update(asObject(room.payload.discussion)) }, "room");
       try {
@@ -866,11 +931,36 @@ export class TeamRunDiscussion {
         });
         return mutation.objects[0] ?? room;
       } catch (error) {
-        if (error instanceof Error && error.message.includes("changed since it was read") && attempt < 3) continue;
+        if (error instanceof Error && error.message.includes("changed since it was read") && attempt < OPTIMISTIC_RETRY_LIMIT - 1) continue;
         throw error;
       }
     }
     throw new Error(`Discussion ${roomId} could not be updated`);
+  }
+
+  private releaseOpeningReservation(runId: string, roomId: string): void {
+    for (let attempt = 0; attempt < OPTIMISTIC_RETRY_LIMIT; attempt += 1) {
+      const run = this.requireRun(runId);
+      if (run.payload.discussion_opening_id !== roomId) return;
+      const timestamp = nowIso();
+      const payload = validateProtocolObject({
+        ...run.payload,
+        discussion_opening_id: null,
+        discussion_opening_reserved_at: null,
+        updated_at: timestamp
+      }, "team_run");
+      try {
+        this.gateway.store.atomicMutation({
+          preconditions: [{ id: run.id, kind: "team_run", status: String(run.payload.status), updatedAt: run.updatedAt }],
+          objects: [{ kind: "team_run", payload }],
+          events: []
+        });
+        return;
+      } catch (error) {
+        if (error instanceof Error && error.message.includes("changed since it was read") && attempt < OPTIMISTIC_RETRY_LIMIT - 1) continue;
+        throw error;
+      }
+    }
   }
 
   private failScheduledTurn(roomId: string, taskId: string, workerId: string, reason: string): void {
