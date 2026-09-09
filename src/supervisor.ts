@@ -3,6 +3,8 @@ import { ExecutionOwnershipError, ExecutionQueue } from "./execution-queue.js";
 import { CoordinationGateway } from "./gateway.js";
 import { RecoveryCoordinator, type RecoveryDecision } from "./recovery.js";
 import { BotRunner } from "./runner.js";
+import { TeamRunFanout } from "./team-run-fanout.js";
+import { TeamRunCoordinator } from "./team-runs.js";
 import { validateProtocolObject } from "./validator.js";
 
 const TERMINAL_WORKER_STATES = new Set(["completed", "failed", "canceled", "expired"]);
@@ -11,7 +13,9 @@ export class ExecutionSupervisor {
   private unsubscribe: (() => void) | null = null;
   private recoveryTimer: ReturnType<typeof setInterval> | null = null;
   private readonly inFlight = new Map<string, Promise<void>>();
+  private startupFanoutReconcile: Promise<void> | null = null;
   readonly recovery: RecoveryCoordinator;
+  readonly fanout: TeamRunFanout;
 
   constructor(
     readonly gateway: CoordinationGateway,
@@ -20,11 +24,18 @@ export class ExecutionSupervisor {
     readonly recoverySweepMs = 5000
   ) {
     this.recovery = new RecoveryCoordinator(gateway.store, queue, gateway);
+    this.fanout = new TeamRunFanout(new TeamRunCoordinator(gateway.store), gateway, queue, runner);
   }
 
   start(): void {
     if (this.unsubscribe) return;
     this.unsubscribe = this.gateway.subscribeEvents((event) => this.onEvent(event));
+    this.fanout.recoverPreparedFanouts();
+    const startup = this.fanout.reconcileOpenFanouts();
+    this.startupFanoutReconcile = startup;
+    void startup.finally(() => {
+      if (this.startupFanoutReconcile === startup) this.startupFanoutReconcile = null;
+    });
     this.sweepRecovery();
     for (const targetId of this.queue.listQueuedTargets()) this.trigger(targetId);
     if (this.recoverySweepMs > 0) this.recoveryTimer = setInterval(() => this.sweepRecovery(), this.recoverySweepMs);
@@ -39,7 +50,13 @@ export class ExecutionSupervisor {
   }
 
   async waitForIdle(): Promise<void> {
-    while (this.inFlight.size > 0) await Promise.all([...this.inFlight.values()]);
+    while (true) {
+      const startup = this.startupFanoutReconcile;
+      if (startup) await startup;
+      if (this.inFlight.size > 0) await Promise.all([...this.inFlight.values()]);
+      await this.fanout.waitForIdle();
+      if (this.inFlight.size === 0 && this.startupFanoutReconcile === null && this.fanout.isIdle()) return;
+    }
   }
 
   trigger(targetId: string): void {
@@ -71,6 +88,7 @@ export class ExecutionSupervisor {
     for (const decision of decisions) {
       this.syncWorkerRecovery(decision);
       if (decision.action === "requeued") this.trigger(decision.execution.targetId);
+      if (decision.action === "reconciled" && decision.task) void this.fanout.reconcileTask(decision.task.id);
     }
     return decisions;
   }
@@ -136,6 +154,7 @@ export class ExecutionSupervisor {
       try {
         const result = await this.runner.runNext(targetId);
         if (!result) return;
+        await this.fanout.reconcileTask(result.task.id);
         if (this.queue.list(targetId, ["queued"]).length === 0) return;
       } catch (error) {
         if (error instanceof ExecutionOwnershipError) return;

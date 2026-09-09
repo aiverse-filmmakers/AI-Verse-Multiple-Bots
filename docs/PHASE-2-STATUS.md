@@ -6,7 +6,7 @@
 
 **Overall status:** IN PROGRESS
 
-**Directional phase progress:** approximately 30%
+**Directional phase progress:** approximately 45%
 
 This file is the implementation ledger for Phase 2. The canonical product roadmap remains `BUILD-MAP.md`.
 
@@ -18,9 +18,9 @@ The package must remain host-neutral. Phase 2 coordination primitives may be emb
 
 ## Current verification
 
-GitHub Actions run 116 on 2026-09-09 passed **66/66 tests**, with 0 failures, 0 canceled, and 0 skipped, at commit `c0399a9bcc6a78a917ec1942007f81290baa18e7`.
+GitHub Actions run 127 on 2026-09-09 passed **74/74 tests**, with 0 failures, 0 canceled, and 0 skipped, at commit `daa9693d14114d01b2a97d6e3b830d7ea2ad735b`.
 
-The six new Phase 2.3 acceptance tests pass alongside the previous 60-test suite.
+The eight Phase 2.4 acceptance tests pass alongside the previous 66-test suite.
 
 ## Slice 2.1 - Team Run object and lifecycle
 
@@ -32,16 +32,13 @@ Implemented:
 - active durable Bot leader requirement
 - workspace equality enforcement
 - topology contract matching Protocol v1.1
-- normalized Team Run budget
-- `max_workers` validation
-- explicit state machine for created/planning/running/waiting/synthesis/verification/terminal states
-- terminal-state immutability
+- normalized Team Run budget and `max_workers` validation
+- explicit lifecycle state machine and terminal-state immutability
 - completion blocked while Workers remain active
-- atomic object + event mutation through the existing coordination store
-- optimistic/concurrent lifecycle preconditions
-- run-scoped audit events carrying `run_id`
-- restart-persistent Team Run state
-- terminal Team Run transitions now refuse to strand live Worker Tasks outside execution cancellation
+- atomic object + event mutation through the coordination store
+- optimistic lifecycle preconditions
+- run-scoped audit events and restart-persistent state
+- terminal Team Run transitions refuse to strand live Worker Tasks outside execution cancellation
 
 ## Slice 2.2 - Temporary Worker identity and lifecycle
 
@@ -50,17 +47,15 @@ Implemented:
 Implemented:
 
 - `worker_*` temporary identities separate from the durable Bot registry
-- no default Room membership
-- no default long-term memory authority
+- no default Room membership or long-term memory authority
 - leader-only Worker creation/mutation
 - durable Bot `can_create_workers` permission enforcement
 - Team Run `max_workers` enforcement
 - Worker budget cannot expand configured Team Run limits
 - optional runtime/execution metadata without binding to one provider or OS
-- Worker Task binding
+- Worker Task binding and explicit Worker state machine
 - Worker cannot become ready/running without a bound Task
 - Task must be assigned to and owned by the Worker in the same workspace
-- explicit Worker state machine
 - terminal Team Run prevents new Worker creation
 - post-run Worker cleanup converts retained audit identities to `expired`
 - Worker records and lifecycle events survive restart
@@ -86,55 +81,109 @@ Implemented:
 ### Worker execution safety
 
 - Worker-aware event-driven supervisor wake-up
-- Task must be assigned to and owned by the Worker
-- Worker, Task and Team Run workspace/run linkage is validated before runtime execution
-- capability lease must be issued to the Worker, scoped to the Task, same-workspace and unexpired
-- environment lease, when present, must match Worker/workspace/Task and remain unexpired
+- Task ownership/assignment and Worker/Task/TeamRun workspace/run linkage validation
+- capability and environment lease validation before execution
 - Worker and Task budgets cannot expand Team Run authority
-- successful Worker execution creates an immutable Artifact with `worker_generated` provenance
-- Worker result returns to the durable leader without granting default durable Room membership
-- Worker/Task/queue lifecycle remains synchronized on completion, failure and cancellation
-- live Team Run cancellation aborts queued/running Worker Tasks through the existing execution cancellation path
+- successful Worker execution creates immutable `worker_generated` Artifacts
+- Worker result returns to the durable leader without granting durable Room membership
+- Worker/Task/queue lifecycle synchronization on completion, failure and cancellation
+- Team Run cancellation aborts queued/running Worker Tasks
 
 ### Manager topology
 
 - `TeamRunManager` prepares bounded Worker Tasks under one durable leader
-- Worker identity is created before executable Task assignment
-- Worker + capability lease + Task binding persist before `task.assigned` is emitted
-- this removes the assignment-before-binding race
-- Worker capability requests cannot exceed the durable leader's tool/connection grants
-- inherited constraints and budget ceilings remain enforced
+- Worker identity exists before executable Task assignment
+- Worker + capability lease + Task binding persist before `task.assigned`
+- Worker capability requests cannot exceed leader grants
+- inherited constraints/budget ceilings remain enforced
 - input Artifacts must belong to the same workspace
 - manager-created Worker results target the durable leader
 
-### Squad-level controls already active
+### Squad controls established in 2.3
 
-- aggregate Team Run token/cost/action usage is checked before accepting a Worker Artifact
-- aggregate budget exhaustion fails the over-budget Task and moves the Team Run to `budget_exhausted`
-- sibling active Worker Tasks are canceled when the Team Run budget is exhausted
+- aggregate Team Run token/cost/action usage checked before Artifact acceptance
+- budget exhaustion fails over-budget work and moves the Team Run to `budget_exhausted`
+- sibling active Worker Tasks cancel on Team Run budget exhaustion
 - retry-safe stale Worker execution can recover after database restart
-- recovered Workers move back through the correct ready/running lifecycle
-- manual/dead-letter recovery continues to use the Phase 1 fail-safe recovery boundary
+- manual/dead-letter recovery remains fail-safe
 
-## Phase 2.3 acceptance proof
+## Slice 2.4 - Bounded parallel fan-out
+
+**COMPLETE**
+
+Implemented:
+
+### Fan-out scheduling
+
+- host-neutral `TeamRunFanout` coordinator
+- bounded parallel fan-out for `parallel_panel`, `dynamic_squad`, and `hybrid` Team Runs
+- one active fan-out per Team Run at a time
+- central concurrency ceiling from durable leader `max_parallel_workers`, Team Run `max_workers`, and optional per-call `maxConcurrency`
+- `max_workers` and root Task-count ceilings enforced before executable work is created
+- every Worker receives an independent Task, capability lease, runtime context, budget envelope, and output path
+- fan-out Workers remain temporary principals and never enter the durable Bot registry
+
+### Reservation-safe squad budgets
+
+- Team Run token, cost, and action capacity is reserved across the full fan-out before Workers become executable
+- explicit per-Worker reservations cannot collectively exceed Team Run remaining capacity
+- unspecified Worker reservations are boundedly divided across remaining Team Run capacity
+- concurrent Workers cannot each independently consume the entire Team Run allowance
+- successful Task usage remains the canonical consumed-usage source
+
+### Durable activation and restart safety
+
+- two-stage fan-out lifecycle: `preparing` -> `running`
+- protocol records persist before execution wake-up
+- queue insertion is idempotent
+- startup recovery finishes a partially prepared fan-out before normal queue draining
+- stale retry-safe Workers recover independently after a database reopen
+- persisted join state is reconciled after recovery
+
+### Join semantics
+
+- `all` join waits for every Worker and preserves all successful Artifacts even if siblings fail
+- `first_success` settles on the first successful Worker and can cancel the unnecessary remainder
+- bounded quorum join settles when the configured success threshold is reached
+- impossible quorum resolves as failed rather than hanging indefinitely
+- join state records successful, failed, canceled, and pending Task IDs plus collected Artifact references
+
+### Cancellation and Artifact collection
+
+- explicit fan-out cancellation propagates across queued and running Worker Tasks
+- first-success/quorum cancellation only targets unnecessary nonterminal siblings
+- successful sibling Artifacts survive partial failure and cancellation of unrelated Workers
+- durable leader can collect fan-out Artifacts for the later synthesis stage
+
+### Cross-process concurrency hardening
+
+- `CoordinationStore.atomicMutation` now supports an optional `updatedAt` compare-and-swap precondition
+- existing store callers remain backward-compatible
+- fan-out creation compares the Team Run row it planned against before committing
+- fan-out activation/settlement uses bounded CAS retry when another Gateway process changed the Team Run
+- this prevents stale multi-process fan-out state from silently overwriting newer Team Run state
+
+## Phase 2.4 acceptance proof
 
 The new tests prove:
 
-1. manager topology executes a real temporary Worker Task and returns its Artifact to the durable leader
-2. runtime context carries the Worker as the canonical principal and does not fabricate a Bot identity
-3. managed Workers cannot expand leader tool authority
-4. canceling a Team Run aborts a running Worker Task and publishes no successful Artifact
-5. aggregate Team Run budget is enforced before a second over-budget Worker Artifact can be accepted
-6. retry-safe stale Worker execution survives store reopen and completes on the next authorized attempt
+1. three independent Workers execute simultaneously and all successful Artifacts are collected
+2. scheduling rejects fan-outs above the central concurrency or Team Run Worker ceiling before creating work
+3. aggregate consumptive budget is reserved before concurrent Workers become executable
+4. `first_success` preserves the winning Artifact and cancels remaining running Workers
+5. quorum settles after the required successes and cancels unnecessary remaining work
+6. `all` join records partial failure without corrupting successful sibling Artifacts
+7. explicit fan-out cancellation propagates to every queued/running Worker Task
+8. two stale retry-safe parallel Workers recover after database reopen and satisfy the persisted join
 
-**Verified suite:** 66 passed, 0 failed, 0 canceled, 0 skipped.
+**Verified suite:** 74 passed, 0 failed, 0 canceled, 0 skipped.
 
 ## Reusability boundary
 
-Phase 2.3 remains package-owned and host-neutral:
+Phase 2.4 remains package-owned and host-neutral:
 
 ```text
-TeamRunManager / PrincipalRunner / ExecutionSupervisor
+TeamRunManager / TeamRunFanout / PrincipalRunner / ExecutionSupervisor
   -> CoordinationStore + ExecutionQueue
   -> RuntimeAdapter contract
   -> protocol validator
@@ -147,18 +196,21 @@ AI-Verse native integration remains Phase 3 and must arrive through adapters and
 
 ## Next slice
 
-### 2.4 - Parallel fan-out
+### 2.5 - Direct handoff topology
 
 Required next work:
 
-1. bounded multi-Worker fan-out API under one Team Run
-2. central concurrency ceiling and `max_workers` enforcement at scheduling time
-3. atomic or reservation-safe aggregate Team Run budget accounting under concurrent completions
-4. independent Worker context packets and Artifact outputs
-5. `all`, `first_success`, and bounded quorum/join semantics where justified
-6. partial failure handling without corrupting successful sibling results
-7. cancellation fan-out across queued and running Workers
-8. restart/recovery proof with more than one concurrent Worker
-9. manager collection of Worker Artifacts for the later synthesis stage
+1. TeamRun-level direct handoff topology distinct from the Phase 1 durable-Bot Task handoff primitive
+2. explicit source/target principal rules for durable leader, temporary Worker, and durable Bot where topology permits
+3. ownership transfer that never silently promotes a Worker or bypasses the durable Bot registry
+4. same-workspace/run/root-objective and immutable-constraint preservation
+5. capability/environment authority reissue or fail-closed behavior at each ownership boundary
+6. queue ownership transfer only when execution is safely movable
+7. return-to-leader and stay-with-target completion semantics for TeamRun work
+8. cancellation/failure propagation across a handoff chain
+9. hop/loop bounds across mixed Bot/Worker principals
+10. restart/recovery proof for a handed-off TeamRun Task
+11. Artifact lineage proving which principal produced each result
+12. acceptance tests demonstrating direct handoff without Room/group discussion
 
-After parallel fan-out, continue through direct handoff topology, selective group discussion, disagreement detection, verifier/critic, synthesis, adaptive collaboration gate, and final squad budget/cancellation hardening.
+After direct handoff topology, continue through selective group discussion, disagreement detection, verifier/critic, synthesis, Worker cleanup hardening, adaptive collaboration gate, and final squad budget/cancellation controls.

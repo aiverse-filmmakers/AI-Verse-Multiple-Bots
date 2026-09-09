@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 const PREFIXES = new Set([
-  "bot", "worker", "room", "thread", "conv", "run", "runner", "task", "msg", "evt",
+  "bot", "worker", "room", "thread", "conv", "run", "runner", "fanout", "task", "msg", "evt",
   "art", "obj", "handoff", "lease", "envlease", "approval", "corr", "trace", "delivery"
 ]);
 

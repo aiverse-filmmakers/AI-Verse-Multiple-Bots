@@ -15,13 +15,13 @@ The target is an installable persistent-teammate layer that can run standalone o
 ```text
 Phase 0  Research + Architecture        [COMPLETE]    100%
 Phase 1  Runnable Coordination Core     [COMPLETE]    100%
-Phase 2  Dynamic Multi-Agent Squads     [IN PROGRESS] ~30%
+Phase 2  Dynamic Multi-Agent Squads     [IN PROGRESS] ~45%
 Phase 3  AI-Verse Native Integration    [NOT STARTED]
 Phase 4  Runtime / A2A Interoperability [NOT STARTED]
 Phase 5  Product + Install + Dashboard  [NOT STARTED]
 ```
 
-**Directional overall first-release progress:** roughly 46% complete.
+**Directional overall first-release progress:** roughly 49% complete.
 
 That overall figure is intentionally approximate because later phases contain different amounts of work. Passed phase gates, not percentages, are authoritative.
 
@@ -297,9 +297,9 @@ None.
 
 **Status:** IN PROGRESS
 
-**Current phase progress:** approximately 30%.
+**Current phase progress:** approximately 45%.
 
-**Current verification:** GitHub Actions run 116 on 2026-09-09 passed **66/66 tests** at commit `c0399a9bcc6a78a917ec1942007f81290baa18e7`.
+**Current verification:** GitHub Actions run 127 on 2026-09-09 passed **74/74 tests** at commit `daa9693d14114d01b2a97d6e3b830d7ea2ad735b`.
 
 Goal: a durable Bot decides whether to work alone or create bounded temporary Workers.
 
@@ -308,15 +308,15 @@ Major slices:
 1. Team Run object and lifecycle - **COMPLETE**
 2. temporary Worker identities and bounded lifecycle - **COMPLETE**
 3. Worker execution + manager/supervisor topology - **COMPLETE**
-4. parallel fan-out - **NEXT**
-5. direct handoff topology - remaining
+4. parallel fan-out - **COMPLETE**
+5. direct handoff topology - **NEXT**
 6. group/discussion topology where justified - remaining
 7. disagreement detection - remaining
 8. verifier/critic role - remaining
 9. synthesis - remaining
 10. Worker cleanup - remaining beyond terminal expiry foundation already implemented
 11. adaptive `single Bot vs squad` decision policy - remaining
-12. squad budget/cancellation controls - remaining beyond current `max_workers`, aggregate usage, cancellation and recovery foundation
+12. squad budget/cancellation controls - remaining beyond current Worker, fan-out, aggregate usage, cancellation, recovery, and CAS foundation
 
 ### Phase 2 capabilities now implemented
 
@@ -324,12 +324,9 @@ Major slices:
 - active durable Bot leader and same-workspace enforcement
 - run-scoped `worker_*` identities that never enter durable Bot registry
 - no default Worker Room membership or long-term memory authority
-- leader-only Worker lifecycle control
-- `can_create_workers` permission enforcement
-- Team Run `max_workers` enforcement
-- Worker budget cannot expand Team Run limits
+- leader-only Worker lifecycle control and `can_create_workers` enforcement
+- Team Run `max_workers` and Worker budget-boundary enforcement
 - Worker Task binding before ready/running execution states
-- atomic run/Worker/event state changes with concurrency preconditions
 - terminal Run transitions refuse to strand live Worker Tasks
 - terminal Worker expiry cleanup with retained audit records
 - restart-persistent Team Run and Worker audit state
@@ -339,13 +336,24 @@ Major slices:
 - Worker capability/environment lease validation
 - successful Worker Artifact publication with `worker_generated` provenance
 - manager topology with race-safe Worker + lease + Task preparation before execution wake-up
-- leader authority cannot be expanded through managed Worker tool/connection grants
+- leader authority cannot be expanded through managed Worker grants
 - aggregate Team Run usage enforcement before Artifact acceptance
 - live Team Run cancellation aborts Worker Tasks and runtime execution
 - retry-safe Worker execution recovery across restart
+- bounded parallel fan-out under one Team Run
+- central fan-out concurrency ceiling and scheduling-time Worker/Task limits
+- reservation-safe Team Run token/cost/action allocation before parallel execution
+- independent Worker Tasks, leases, contexts, and Artifacts
+- `all`, `first_success`, and bounded quorum join semantics
+- partial failure preserves successful sibling Artifacts
+- fan-out cancellation across queued/running Workers
+- two-stage durable fan-out activation with prepared-run recovery
+- multi-Worker restart/recovery proof
+- leader Artifact collection for later synthesis
+- cross-process Team Run compare-and-swap hardening for fan-out creation/settlement
 - package-level implementation with no AI-Verse OS-specific dependency
 
-The next gate is bounded parallel fan-out under one Team Run, including concurrency-safe aggregate budget accounting and multi-Worker restart/cancellation behavior.
+The next gate is direct handoff topology for TeamRun work: safe principal-to-principal ownership transfer across durable Bots and temporary Workers without identity promotion, scope expansion, or unsafe queue movement.
 
 ## Phase 3 - AI-Verse Native Integration
 
