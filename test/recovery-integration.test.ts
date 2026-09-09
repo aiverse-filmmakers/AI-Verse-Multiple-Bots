@@ -129,6 +129,7 @@ test("HTTP delegation persists recovery policy and dead-letter retry is operator
   try {
     assert.equal((await httpJson(address.port, "POST", "/v1/bots", httpBot("bot_http_a", "deterministic"))).status, 201);
     assert.equal((await httpJson(address.port, "POST", "/v1/bots", httpBot("bot_http_b", "unregistered_runtime"))).status, 201);
+    assert.equal((await httpJson(address.port, "POST", "/v1/bots", httpBot("bot_http_c", "unregistered_runtime"))).status, 201);
 
     const safe = await httpJson(address.port, "POST", "/v1/delegations", {
       createdBy: "bot_http_a",
@@ -148,7 +149,7 @@ test("HTTP delegation persists recovery policy and dead-letter retry is operator
 
     const manual = await httpJson(address.port, "POST", "/v1/delegations", {
       createdBy: "bot_http_a",
-      assigneeId: "bot_http_b",
+      assigneeId: "bot_http_c",
       workspaceId: "ws_http_recovery",
       rootObjectiveId: "obj_http_manual",
       objective: "Potential external side effect",
@@ -156,7 +157,7 @@ test("HTTP delegation persists recovery policy and dead-letter retry is operator
       recoveryPolicy: "manual"
     });
     assert.equal(manual.status, 201);
-    const claimed = service.executionQueue.claimNext("bot_http_b", "runner_crashed", 0.05);
+    const claimed = service.executionQueue.claimNext("bot_http_c", "runner_crashed", 0.05);
     if (!claimed) throw new Error("expected manual Task claim");
     service.executionQueue.markRunning(claimed.id, "runner_crashed", 0.05);
     const task = service.store.getObject(claimed.itemId);
