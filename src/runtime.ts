@@ -6,6 +6,7 @@ export interface RuntimeExecutionContext {
   capabilityLease: StoredObject;
   environmentLease: StoredObject | null;
   inputArtifacts: StoredObject[];
+  signal: AbortSignal;
 }
 
 export interface RuntimeExecutionResult {
@@ -44,6 +45,7 @@ export class DeterministicRuntimeAdapter implements RuntimeAdapter {
   readonly id = "deterministic";
 
   async execute(context: RuntimeExecutionContext): Promise<RuntimeExecutionResult> {
+    if (context.signal.aborted) throw context.signal.reason ?? new Error("Execution canceled");
     const objective = String(context.task.payload.objective ?? "");
     const constraints = Array.isArray(context.task.payload.required_constraints)
       ? context.task.payload.required_constraints.map(String)
