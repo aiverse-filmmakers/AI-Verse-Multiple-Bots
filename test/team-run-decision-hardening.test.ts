@@ -217,7 +217,6 @@ test("multiple Team Runs for one root objective are treated as an orchestration-
   gateway.createBot(bot());
   const teams = new TeamRunCoordinator(store);
   teams.createRun({
-    runId: "run_duplicate_a",
     leaderId: "bot_leader",
     workspaceId: "ws_decision_hardening",
     rootObjectiveId: "obj_duplicate",
@@ -226,7 +225,6 @@ test("multiple Team Runs for one root objective are treated as an orchestration-
     budget: { max_workers: 1 }
   });
   teams.createRun({
-    runId: "run_duplicate_b",
     leaderId: "bot_leader",
     workspaceId: "ws_decision_hardening",
     rootObjectiveId: "obj_duplicate",
