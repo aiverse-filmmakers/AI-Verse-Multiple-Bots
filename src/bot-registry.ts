@@ -93,13 +93,16 @@ export class BotRegistryRules {
     if (targetStatus === "disabled" || targetStatus === "archived") {
       this.assertNoLiveOwnedWork(stored);
     }
+    if (targetStatus === "disabled") {
+      this.assertNoManagerDependents(stored, true);
+    }
     if (targetStatus === "active") {
       this.assertAddressAvailability(stored.payload, stored.id);
       this.assertRelationships(stored.payload);
       this.assertInboundPeerDeclarations(stored.payload);
     }
     if (targetStatus === "archived") {
-      this.assertNoActiveManagerDependents(stored);
+      this.assertNoManagerDependents(stored, false);
       this.assertNoActiveRoomReferences(stored);
     }
 
@@ -245,16 +248,17 @@ export class BotRegistryRules {
     }
   }
 
-  private assertNoActiveManagerDependents(bot: StoredObject<BotManifest>): void {
+  private assertNoManagerDependents(bot: StoredObject<BotManifest>, activeOnly: boolean): void {
     const scopeKey = this.scopeKey(bot.payload);
     const dependents = (this.store.listObjects("bot") as StoredObject<BotManifest>[])
       .filter((candidate) => candidate.id !== bot.id && candidate.payload.status !== "archived")
+      .filter((candidate) => !activeOnly || candidate.payload.status === "active")
       .filter((candidate) => this.scopeKey(candidate.payload) === scopeKey)
       .filter((candidate) => asObject(candidate.payload.coordination)?.manager_id === bot.id);
     if (dependents.length > 0) {
       throw new BotRegistryError(
         "BOT_HAS_MANAGER_DEPENDENTS",
-        `Bot ${bot.id} cannot be archived while Bots depend on it as manager: ${dependents.map((candidate) => candidate.id).join(", ")}`
+        `Bot ${bot.id} cannot ${activeOnly ? "be disabled while active Bots" : "be archived while Bots"} depend on it as manager: ${dependents.map((candidate) => candidate.id).join(", ")}`
       );
     }
   }
