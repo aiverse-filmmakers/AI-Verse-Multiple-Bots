@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/aiverse-filmmakers/AI-Verse-Multiple-Bots/schemas/coordination-v1.schema.json",
-  "title": "AI-Verse Multiple Bots Coordination Protocol v1",
-  "description": "Architecture-stage normalized contracts aligned with Coordination Protocol v1.1 for persistent Bots, temporary Workers, Rooms, Threads, Messages, Tasks, Handoffs, Artifacts, Team Runs, leases, approvals and coordination Events.",
+  "title": "AI-Verse Multiple Bots Coordination Protocol v1.1",
+  "description": "Normalized contracts for persistent Bots, temporary Workers, Rooms, Threads, Messages, Tasks, Handoffs, Artifacts, Team Runs, leases, approvals and coordination Events.",
   "oneOf": [
     { "$ref": "#/$defs/Bot" },
     { "$ref": "#/$defs/Worker" },
@@ -19,36 +19,20 @@
     { "$ref": "#/$defs/Event" }
   ],
   "$defs": {
-    "Id": {
-      "type": "string",
-      "minLength": 1,
-      "maxLength": 256
-    },
-    "Timestamp": {
-      "type": "string",
-      "format": "date-time"
-    },
+    "Id": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "Timestamp": { "type": "string", "format": "date-time" },
     "WorkspaceScope": {
       "type": "object",
       "additionalProperties": false,
       "required": ["type"],
       "properties": {
-        "type": {
-          "type": "string",
-          "enum": ["workspace", "operator"]
-        },
-        "workspace_id": {
-          "$ref": "#/$defs/Id"
-        }
+        "type": { "type": "string", "enum": ["workspace", "operator"] },
+        "workspace_id": { "$ref": "#/$defs/Id" }
       },
       "allOf": [
         {
-          "if": {
-            "properties": { "type": { "const": "workspace" } }
-          },
-          "then": {
-            "required": ["workspace_id"]
-          }
+          "if": { "properties": { "type": { "const": "workspace" } } },
+          "then": { "required": ["workspace_id"] }
         }
       ]
     },
@@ -71,9 +55,7 @@
             "runtime_tool"
           ]
         },
-        "trusted_instruction": {
-          "type": "boolean"
-        },
+        "trusted_instruction": { "type": "boolean" },
         "source_refs": {
           "type": "array",
           "items": { "$ref": "#/$defs/Id" },
@@ -115,7 +97,9 @@
         "max_workers": { "type": ["integer", "null"], "minimum": 1 },
         "max_hops": { "type": ["integer", "null"], "minimum": 0 },
         "max_messages": { "type": ["integer", "null"], "minimum": 1 },
-        "max_rounds": { "type": ["integer", "null"], "minimum": 1 }
+        "max_rounds": { "type": ["integer", "null"], "minimum": 1 },
+        "max_tasks": { "type": ["integer", "null"], "minimum": 1 },
+        "max_actions": { "type": ["integer", "null"], "minimum": 0 }
       }
     },
     "Execution": {
@@ -132,12 +116,8 @@
           "type": "string",
           "enum": ["durable", "run_scoped", "disposable", "external"]
         },
-        "computer_use": {
-          "type": ["string", "boolean", "null"]
-        },
-        "browser_session_policy": {
-          "type": ["string", "null"]
-        }
+        "computer_use": { "type": ["string", "boolean", "null"] },
+        "browser_session_policy": { "type": ["string", "null"] }
       }
     },
     "AttentionState": {
@@ -155,16 +135,25 @@
     "Bot": {
       "type": "object",
       "additionalProperties": true,
-      "required": ["schema_version", "id", "name", "kind", "status", "role", "runtime", "execution", "scope", "permissions", "coordination"],
+      "required": [
+        "schema_version",
+        "id",
+        "name",
+        "kind",
+        "status",
+        "role",
+        "runtime",
+        "execution",
+        "scope",
+        "permissions",
+        "coordination"
+      ],
       "properties": {
         "schema_version": { "const": "1.0" },
         "id": { "$ref": "#/$defs/Id" },
         "name": { "type": "string", "minLength": 1 },
         "kind": { "const": "durable" },
-        "status": {
-          "type": "string",
-          "enum": ["active", "disabled", "archived"]
-        },
+        "status": { "type": "string", "enum": ["active", "disabled", "archived"] },
         "role": {
           "type": "object",
           "additionalProperties": true,
@@ -186,10 +175,7 @@
           }
         },
         "execution": { "$ref": "#/$defs/Execution" },
-        "model_policy": {
-          "type": "object",
-          "additionalProperties": true
-        },
+        "model_policy": { "type": "object", "additionalProperties": true },
         "scope": { "$ref": "#/$defs/WorkspaceScope" },
         "capabilities": {
           "type": "object",
@@ -208,15 +194,14 @@
           "properties": {
             "policy_ref": { "$ref": "#/$defs/Id" },
             "allowed_peers": { "type": "array", "items": { "type": "string" } },
+            "allowed_tools": { "type": "array", "items": { "type": "string" } },
+            "allowed_connections": { "type": "array", "items": { "type": "string" } },
             "can_create_workers": { "type": "boolean" },
             "can_create_bots": { "type": "boolean" },
             "can_handoff": { "type": "boolean" }
           }
         },
-        "memory": {
-          "type": "object",
-          "additionalProperties": true
-        },
+        "memory": { "type": "object", "additionalProperties": true },
         "coordination": {
           "type": "object",
           "additionalProperties": true,
@@ -227,14 +212,8 @@
             "max_hops": { "type": "integer", "minimum": 0 }
           }
         },
-        "attention": {
-          "type": "object",
-          "additionalProperties": true
-        },
-        "ui": {
-          "type": "object",
-          "additionalProperties": true
-        }
+        "attention": { "type": "object", "additionalProperties": true },
+        "ui": { "type": "object", "additionalProperties": true }
       }
     },
     "Worker": {
@@ -245,9 +224,11 @@
         "schema_version": { "const": "1.0" },
         "id": { "$ref": "#/$defs/Id" },
         "type": { "const": "worker" },
+        "kind": { "type": "string", "enum": ["temporary"] },
         "run_id": { "$ref": "#/$defs/Id" },
         "task_id": { "type": ["string", "null"] },
         "created_by": { "$ref": "#/$defs/Id" },
+        "parent_owner_id": { "type": ["string", "null"] },
         "workspace_id": { "$ref": "#/$defs/Id" },
         "role": {
           "type": "object",
@@ -258,10 +239,7 @@
             "objective": { "type": "string", "minLength": 1 }
           }
         },
-        "runtime": {
-          "type": "object",
-          "additionalProperties": true
-        },
+        "runtime": { "type": "object", "additionalProperties": true },
         "execution": { "$ref": "#/$defs/Execution" },
         "capability_lease_id": { "type": ["string", "null"] },
         "environment_lease_id": { "type": ["string", "null"] },
@@ -292,10 +270,7 @@
           "additionalProperties": true,
           "required": ["mode"],
           "properties": {
-            "mode": {
-              "type": "string",
-              "enum": ["conversational", "manager", "review", "hybrid"]
-            },
+            "mode": { "type": "string", "enum": ["conversational", "manager", "review", "hybrid"] },
             "speaker_policy": { "type": "string" },
             "leader": { "type": ["string", "null"] },
             "work_owner_policy": {
@@ -316,14 +291,8 @@
             "inherit_room_scope": { "type": "boolean" }
           }
         },
-        "context": {
-          "type": "object",
-          "additionalProperties": true
-        },
-        "attention": {
-          "type": "object",
-          "additionalProperties": true
-        },
+        "context": { "type": "object", "additionalProperties": true },
+        "attention": { "type": "object", "additionalProperties": true },
         "budget": { "$ref": "#/$defs/Budget" }
       }
     },
@@ -348,10 +317,7 @@
       "additionalProperties": false,
       "required": ["kind", "id"],
       "properties": {
-        "kind": {
-          "type": "string",
-          "enum": ["bot", "worker", "room", "thread", "task", "operator"]
-        },
+        "kind": { "type": "string", "enum": ["bot", "worker", "room", "thread", "task", "operator"] },
         "id": { "$ref": "#/$defs/Id" }
       }
     },
@@ -367,6 +333,7 @@
         "sender_id": { "$ref": "#/$defs/Id" },
         "target": { "$ref": "#/$defs/MessageTarget" },
         "workspace_id": { "$ref": "#/$defs/Id" },
+        "room_id": { "type": ["string", "null"] },
         "thread_id": { "type": ["string", "null"] },
         "reply_to_message_id": { "type": ["string", "null"] },
         "correlation_id": { "type": ["string", "null"] },
@@ -374,21 +341,9 @@
           "type": "string",
           "enum": ["queued", "accepted", "delivered", "processing", "replied", "expired", "failed", "canceled"]
         },
-        "content": {
-          "type": "array",
-          "items": { "$ref": "#/$defs/ContentPart" },
-          "minItems": 1
-        },
-        "mentions": {
-          "type": "array",
-          "items": { "$ref": "#/$defs/Id" },
-          "uniqueItems": true
-        },
-        "artifact_refs": {
-          "type": "array",
-          "items": { "$ref": "#/$defs/Id" },
-          "uniqueItems": true
-        },
+        "content": { "type": "array", "items": { "$ref": "#/$defs/ContentPart" }, "minItems": 1 },
+        "mentions": { "type": "array", "items": { "$ref": "#/$defs/Id" }, "uniqueItems": true },
+        "artifact_refs": { "type": "array", "items": { "$ref": "#/$defs/Id" }, "uniqueItems": true },
         "provenance": { "$ref": "#/$defs/Provenance" }
       }
     },
@@ -426,23 +381,16 @@
         "parent_task_id": { "type": ["string", "null"] },
         "reason": { "type": "string", "minLength": 1 },
         "objective": { "type": "string", "minLength": 1 },
-        "required_constraints": {
-          "type": "array",
-          "items": { "type": "string", "minLength": 1 }
-        },
+        "required_constraints": { "type": "array", "items": { "type": "string", "minLength": 1 } },
         "constraints_digest": { "type": ["string", "null"] },
-        "expected_output": {
-          "type": "object",
-          "additionalProperties": true,
-          "minProperties": 1
-        },
-        "input_artifact_refs": {
-          "type": "array",
-          "items": { "$ref": "#/$defs/Id" },
-          "uniqueItems": true
-        },
+        "expected_output": { "type": "object", "additionalProperties": true, "minProperties": 1 },
+        "input_artifact_refs": { "type": "array", "items": { "$ref": "#/$defs/Id" }, "uniqueItems": true },
+        "output_artifact_refs": { "type": "array", "items": { "$ref": "#/$defs/Id" }, "uniqueItems": true },
         "lease_id": { "$ref": "#/$defs/Id" },
         "environment_lease_id": { "type": ["string", "null"] },
+        "approval_id": { "type": ["string", "null"] },
+        "response_target": { "type": ["object", "null"], "additionalProperties": true },
+        "deadline_at": { "type": ["string", "null"], "format": "date-time" },
         "hop": { "type": "integer", "minimum": 0 },
         "max_hops": { "type": "integer", "minimum": 0 },
         "budget": { "$ref": "#/$defs/Budget" },
@@ -476,6 +424,7 @@
         "source_owner_id",
         "target_bot_id",
         "workspace_id",
+        "task_id",
         "root_objective_id",
         "reason",
         "required_constraints",
@@ -489,24 +438,14 @@
         "source_owner_id": { "$ref": "#/$defs/Id" },
         "target_bot_id": { "$ref": "#/$defs/Id" },
         "workspace_id": { "$ref": "#/$defs/Id" },
-        "task_id": { "type": ["string", "null"] },
+        "task_id": { "$ref": "#/$defs/Id" },
         "run_id": { "type": ["string", "null"] },
         "root_objective_id": { "$ref": "#/$defs/Id" },
         "reason": { "type": "string", "minLength": 1 },
-        "required_constraints": {
-          "type": "array",
-          "items": { "type": "string", "minLength": 1 }
-        },
-        "context_refs": {
-          "type": "array",
-          "items": { "$ref": "#/$defs/Id" },
-          "uniqueItems": true
-        },
-        "artifact_refs": {
-          "type": "array",
-          "items": { "$ref": "#/$defs/Id" },
-          "uniqueItems": true
-        },
+        "required_constraints": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "constraints_digest": { "type": ["string", "null"] },
+        "context_refs": { "type": "array", "items": { "$ref": "#/$defs/Id" }, "uniqueItems": true },
+        "artifact_refs": { "type": "array", "items": { "$ref": "#/$defs/Id" }, "uniqueItems": true },
         "capability_lease_id": { "type": ["string", "null"] },
         "environment_lease_id": { "type": ["string", "null"] },
         "return_policy": {
@@ -550,11 +489,7 @@
         "workspace_id": { "$ref": "#/$defs/Id" },
         "root_objective_id": { "$ref": "#/$defs/Id" },
         "leader_id": { "type": ["string", "null"] },
-        "participant_ids": {
-          "type": "array",
-          "items": { "$ref": "#/$defs/Id" },
-          "uniqueItems": true
-        },
+        "participant_ids": { "type": "array", "items": { "$ref": "#/$defs/Id" }, "uniqueItems": true },
         "topology": {
           "type": "string",
           "enum": [
@@ -603,7 +538,12 @@
         "tools": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
         "connections": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
         "destructive_actions": { "type": "string", "enum": ["deny", "approval_required", "allow_by_policy"] },
-        "expires_at": { "$ref": "#/$defs/Timestamp" }
+        "expires_at": { "$ref": "#/$defs/Timestamp" },
+        "transferred_from": { "type": ["string", "null"] },
+        "transferred_at": { "type": ["string", "null"], "format": "date-time" },
+        "revoked_at": { "type": ["string", "null"], "format": "date-time" },
+        "revoked_reason": { "type": ["string", "null"] },
+        "superseded_by": { "type": ["string", "null"] }
       }
     },
     "EnvironmentLease": {
@@ -622,7 +562,12 @@
           "enum": ["shared_workspace", "isolated_bot", "isolated_run", "external_managed"]
         },
         "environment_ref": { "$ref": "#/$defs/Id" },
-        "expires_at": { "$ref": "#/$defs/Timestamp" }
+        "expires_at": { "$ref": "#/$defs/Timestamp" },
+        "transferred_from": { "type": ["string", "null"] },
+        "transferred_at": { "type": ["string", "null"], "format": "date-time" },
+        "revoked_at": { "type": ["string", "null"], "format": "date-time" },
+        "revoked_reason": { "type": ["string", "null"] },
+        "superseded_by": { "type": ["string", "null"] }
       }
     },
     "Approval": {
