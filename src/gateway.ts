@@ -1,4 +1,5 @@
 import { createId } from "./id.js";
+import { ExecutionQueue } from "./execution-queue.js";
 import { CoordinationStore } from "./store.js";
 import type { AppendedEvent, BotManifest, CoordinationEvent, DeliveryRecord, JsonObject, StoredObject } from "./types.js";
 import { validateBotManifest, validateProtocolObject } from "./validator.js";
@@ -50,7 +51,7 @@ export interface HandoffInput {
 export class CoordinationGateway {
   private readonly subscribers = new Set<(event: AppendedEvent) => void>();
 
-  constructor(readonly store: CoordinationStore) {}
+  constructor(readonly store: CoordinationStore, readonly executionQueue?: ExecutionQueue) {}
 
   subscribeEvents(listener: (event: AppendedEvent) => void): () => void {
     this.subscribers.add(listener);
@@ -120,6 +121,7 @@ export class CoordinationGateway {
       status: "assigned"
     };
     const storedTask = this.store.putObject("task", validateProtocolObject(task, "task"));
+    this.executionQueue?.enqueueTask(taskId, input.assigneeId, input.workspaceId);
     const event = this.emit({
       type: "task.assigned",
       actorId: input.createdBy,
