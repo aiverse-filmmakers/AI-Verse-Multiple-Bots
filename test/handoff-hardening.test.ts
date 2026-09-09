@@ -4,6 +4,8 @@ import test from "node:test";
 import { ExecutionQueue } from "../src/execution-queue.js";
 import { CoordinationGateway } from "../src/gateway.js";
 import { CoordinationPolicy } from "../src/policy.js";
+import { BotRunner } from "../src/runner.js";
+import { DeterministicRuntimeAdapter, RuntimeRegistry } from "../src/runtime.js";
 import { CoordinationStore } from "../src/store.js";
 import type { BotManifest } from "../src/types.js";
 
@@ -230,6 +232,93 @@ test("immutable constraint tampering blocks Handoff acceptance", () => {
     assert.throws(() => gateway.acceptHandoff(requested.handoff.id, "bot_c"), /constraint digest is invalid/);
     assert.equal(store.getObject(requested.handoff.id)?.payload.status, "requested");
     assert.equal(store.getObject(delegated.task.id)?.payload.owner_id, "bot_b");
+  } finally {
+    queue.close();
+    store.close();
+  }
+});
+
+test("return_on_completion returns ownership to the source after target execution", async () => {
+  const { store, queue, gateway } = fixture();
+  try {
+    const delegated = gateway.delegate({
+      createdBy: "bot_a",
+      assigneeId: "bot_b",
+      workspaceId: "ws_handoff",
+      rootObjectiveId: "obj_return",
+      objective: "Complete specialist work",
+      reason: "Initial owner",
+      tools: ["web.search"]
+    });
+    const requested = gateway.requestHandoff({
+      sourceOwnerId: "bot_b",
+      targetOwnerId: "bot_c",
+      workspaceId: "ws_handoff",
+      workItemId: delegated.task.id,
+      rootObjectiveId: "obj_return",
+      reason: "Temporary specialist ownership",
+      returnPolicy: "return_on_completion"
+    });
+    gateway.acceptHandoff(requested.handoff.id, "bot_c");
+
+    const runner = new BotRunner(
+      store,
+      gateway,
+      queue,
+      new RuntimeRegistry().register(new DeterministicRuntimeAdapter()),
+      "runner_return"
+    );
+    const result = await runner.runNext("bot_c");
+    assert.equal(result?.status, "completed");
+    assert.equal(result?.task.payload.owner_id, "bot_b");
+    assert.equal(result?.task.payload.assignee_id, "bot_c");
+    assert.equal(store.getObject(requested.handoff.id)?.payload.status, "completed");
+    assert.equal(store.getObject(requested.handoff.id)?.payload.ownership_returned, true);
+
+    const eventTypes = store.listEventsAfter(0, 200).map((entry) => entry.event.type);
+    assert.ok(eventTypes.includes("handoff.completed"));
+    assert.ok(eventTypes.filter((type) => type === "ownership.changed").length >= 2);
+  } finally {
+    queue.close();
+    store.close();
+  }
+});
+
+test("stay_with_target keeps target ownership after completed Handoff", async () => {
+  const { store, queue, gateway } = fixture();
+  try {
+    const delegated = gateway.delegate({
+      createdBy: "bot_a",
+      assigneeId: "bot_b",
+      workspaceId: "ws_handoff",
+      rootObjectiveId: "obj_stay",
+      objective: "Complete and retain specialist ownership",
+      reason: "Initial owner",
+      tools: ["web.search"]
+    });
+    const requested = gateway.requestHandoff({
+      sourceOwnerId: "bot_b",
+      targetOwnerId: "bot_c",
+      workspaceId: "ws_handoff",
+      workItemId: delegated.task.id,
+      rootObjectiveId: "obj_stay",
+      reason: "Permanent specialist ownership",
+      returnPolicy: "stay_with_target"
+    });
+    gateway.acceptHandoff(requested.handoff.id, "bot_c");
+
+    const runner = new BotRunner(
+      store,
+      gateway,
+      queue,
+      new RuntimeRegistry().register(new DeterministicRuntimeAdapter()),
+      "runner_stay"
+    );
+    const result = await runner.runNext("bot_c");
+    assert.equal(result?.status, "completed");
+    assert.equal(result?.task.payload.owner_id, "bot_c");
+    assert.equal(store.getObject(requested.handoff.id)?.payload.status, "completed");
+    assert.equal(store.getObject(requested.handoff.id)?.payload.ownership_returned, false);
   } finally {
     queue.close();
     store.close();
