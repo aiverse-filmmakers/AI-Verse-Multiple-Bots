@@ -159,8 +159,8 @@ test("Worker Task binding unlocks the bounded lifecycle and terminal cleanup", (
   assert.equal(teams.transitionRun(run.id, "completed", "bot_leader").run.payload.status, "completed");
   const cleaned = teams.cleanupWorkers(run.id, "bot_leader");
   assert.equal(cleaned.workers.length, 1);
-  assert.equal(cleaned.workers[0].payload.status, "expired");
-  assert.equal(cleaned.events[0].event.type, "worker.expired");
+  assert.equal(cleaned.workers[0]!.payload.status, "expired");
+  assert.equal(cleaned.events[0]!.event.type, "worker.expired");
   assert.throws(() => teams.transitionWorker("worker_verifier", "running", "bot_leader"), /Invalid Worker transition/);
   store.close();
 });
@@ -187,7 +187,7 @@ test("canceling a Team Run atomically cancels active Workers before expiry clean
   const canceled = teams.transitionRun(run.id, "canceled", "bot_leader", "Operator stopped the objective");
   assert.equal(canceled.run.payload.status, "canceled");
   assert.equal(canceled.workers.length, 1);
-  assert.equal(canceled.workers[0].payload.status, "canceled");
+  assert.equal(canceled.workers[0]!.payload.status, "canceled");
   assert.ok(canceled.events.some((event) => event.event.type === "worker.status_changed"));
   assert.throws(() => teams.createWorker({
     runId: run.id,
@@ -197,7 +197,7 @@ test("canceling a Team Run atomically cancels active Workers before expiry clean
   }), /terminal Team Run/);
 
   const cleaned = teams.cleanupWorkers(run.id, "bot_leader");
-  assert.equal(cleaned.workers[0].payload.status, "expired");
+  assert.equal(cleaned.workers[0]!.payload.status, "expired");
   store.close();
 });
 

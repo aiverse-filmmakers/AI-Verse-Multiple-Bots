@@ -16,6 +16,12 @@ function stringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.map(String) : [];
 }
 
+function requiredAt<T>(values: T[], index: number, label: string): T {
+  const value = values[index];
+  if (value === undefined) throw new Error(`Atomic mutation did not return ${label}`);
+  return value;
+}
+
 export type TeamRunTopology =
   | "single"
   | "manager"
@@ -79,29 +85,9 @@ export interface TeamRunMutationResult {
   events: AppendedEvent[];
 }
 
-const TERMINAL_RUN_STATES = new Set<TeamRunStatus>([
-  "completed",
-  "failed",
-  "canceled",
-  "budget_exhausted"
-]);
-
-const TERMINAL_WORKER_STATES = new Set<WorkerStatus>([
-  "completed",
-  "failed",
-  "canceled",
-  "expired"
-]);
-
-const ACTIVE_TASK_STATES = new Set([
-  "created",
-  "assigned",
-  "accepted",
-  "running",
-  "waiting_input",
-  "waiting_approval",
-  "blocked"
-]);
+const TERMINAL_RUN_STATES = new Set<TeamRunStatus>(["completed", "failed", "canceled", "budget_exhausted"]);
+const TERMINAL_WORKER_STATES = new Set<WorkerStatus>(["completed", "failed", "canceled", "expired"]);
+const ACTIVE_TASK_STATES = new Set(["created", "assigned", "accepted", "running", "waiting_input", "waiting_approval", "blocked"]);
 
 const RUN_TRANSITIONS: Record<TeamRunStatus, ReadonlySet<TeamRunStatus>> = {
   created: new Set(["planning", "running", "failed", "canceled"]),
@@ -128,13 +114,7 @@ const WORKER_TRANSITIONS: Record<WorkerStatus, ReadonlySet<WorkerStatus>> = {
   expired: new Set()
 };
 
-/**
- * Phase 2 run-scoped coordination primitive.
- *
- * This coordinator deliberately depends only on package-level protocol/store
- * primitives. It has no AI-Verse OS, Brain, Memory, Skills, Dashboard or host
- * filesystem dependency, so any agent OS can embed it behind its own adapter.
- */
+/** Host-neutral Phase 2 Team Run and temporary Worker lifecycle. */
 export class TeamRunCoordinator {
   constructor(readonly store: CoordinationStore) {}
 
@@ -172,7 +152,10 @@ export class TeamRunCoordinator {
       objects: [{ kind: "team_run", payload: validateProtocolObject(run, "team_run") }],
       events: [event]
     });
-    return { run: result.objects[0], event: result.events[0] };
+    return {
+      run: requiredAt(result.objects, 0, "created Team Run"),
+      event: requiredAt(result.events, 0, "Team Run creation event")
+    };
   }
 
   getRun(runId: string): StoredObject | null {
@@ -185,8 +168,7 @@ export class TeamRunCoordinator {
   }
 
   listWorkers(runId: string): StoredObject[] {
-    return this.store.listObjects("worker")
-      .filter((worker) => String(worker.payload.run_id) === runId);
+    return this.store.listObjects("worker").filter((worker) => String(worker.payload.run_id) === runId);
   }
 
   getWorker(workerId: string): StoredObject | null {
@@ -197,16 +179,12 @@ export class TeamRunCoordinator {
   createWorker(input: CreateWorkerInput): { worker: StoredObject; run: StoredObject; event: AppendedEvent } {
     const run = this.requireRun(input.runId);
     const runStatus = String(run.payload.status) as TeamRunStatus;
-    if (TERMINAL_RUN_STATES.has(runStatus)) {
-      throw new Error(`Cannot create Worker for terminal Team Run ${run.id} (${runStatus})`);
-    }
+    if (TERMINAL_RUN_STATES.has(runStatus)) throw new Error(`Cannot create Worker for terminal Team Run ${run.id} (${runStatus})`);
+
     const leaderId = String(run.payload.leader_id ?? "");
-    if (input.createdBy !== leaderId) {
-      throw new Error(`Only Team Run leader ${leaderId} can create temporary Workers for ${run.id}`);
-    }
+    if (input.createdBy !== leaderId) throw new Error(`Only Team Run leader ${leaderId} can create temporary Workers for ${run.id}`);
     const leader = this.requireActiveLeader(leaderId, String(run.payload.workspace_id));
-    const permissions = asObject(leader.payload.permissions);
-    if (permissions.can_create_workers === false) {
+    if (asObject(leader.payload.permissions).can_create_workers === false) {
       throw new Error(`Bot ${leader.id} is not allowed to create temporary Workers`);
     }
     if (!input.roleTitle.trim()) throw new Error("Worker role title cannot be empty");
@@ -214,11 +192,10 @@ export class TeamRunCoordinator {
 
     const currentWorkers = this.listWorkers(run.id).filter((worker) => worker.payload.status !== "expired");
     const runBudget = normalizeBudget(run.payload.budget);
-    const maxWorkers = runBudget.max_workers;
-    if (typeof maxWorkers === "number" && currentWorkers.length >= maxWorkers) {
+    if (typeof runBudget.max_workers === "number" && currentWorkers.length >= runBudget.max_workers) {
       throw new BudgetError(
         "WORKER_BUDGET_EXCEEDED",
-        `Team Run ${run.id} already has ${currentWorkers.length} Workers with a limit of ${maxWorkers}`
+        `Team Run ${run.id} already has ${currentWorkers.length} Workers with a limit of ${runBudget.max_workers}`
       );
     }
 
@@ -240,10 +217,7 @@ export class TeamRunCoordinator {
       created_by: input.createdBy,
       parent_owner_id: leaderId,
       workspace_id: String(run.payload.workspace_id),
-      role: {
-        title: input.roleTitle.trim(),
-        objective: input.objective.trim()
-      },
+      role: { title: input.roleTitle.trim(), objective: input.objective.trim() },
       runtime: input.runtime ?? {},
       capability_lease_id: input.capabilityLeaseId ?? null,
       environment_lease_id: input.environmentLeaseId ?? null,
@@ -253,10 +227,9 @@ export class TeamRunCoordinator {
       updated_at: timestamp,
       ...(input.execution ? { execution: input.execution } : {})
     };
-    const participantIds = [...new Set([...stringArray(run.payload.participant_ids), workerId])];
     const updatedRun: JsonObject = {
       ...run.payload,
-      participant_ids: participantIds,
+      participant_ids: [...new Set([...stringArray(run.payload.participant_ids), workerId])],
       updated_at: timestamp
     };
     const event = this.makeEvent({
@@ -279,7 +252,11 @@ export class TeamRunCoordinator {
       ],
       events: [event]
     });
-    return { run: result.objects[0], worker: result.objects[1], event: result.events[0] };
+    return {
+      run: requiredAt(result.objects, 0, "updated Team Run"),
+      worker: requiredAt(result.objects, 1, "created Worker"),
+      event: requiredAt(result.events, 0, "Worker creation event")
+    };
   }
 
   attachWorkerTask(workerId: string, taskId: string, actorId: string): { worker: StoredObject; event: AppendedEvent } {
@@ -288,6 +265,7 @@ export class TeamRunCoordinator {
     this.assertLeaderActor(run, actorId);
     const runStatus = String(run.payload.status) as TeamRunStatus;
     if (TERMINAL_RUN_STATES.has(runStatus)) throw new Error(`Cannot bind Task while Team Run ${run.id} is ${runStatus}`);
+
     const currentTaskId = worker.payload.task_id;
     if (typeof currentTaskId === "string" && currentTaskId.length > 0 && currentTaskId !== taskId) {
       throw new Error(`Worker ${workerId} is already bound to Task ${currentTaskId}`);
@@ -295,12 +273,12 @@ export class TeamRunCoordinator {
     const task = this.requireWorkerTask(taskId, workerId, String(worker.payload.workspace_id));
     const status = String(worker.payload.status) as WorkerStatus;
     if (TERMINAL_WORKER_STATES.has(status)) throw new Error(`Cannot bind Task to terminal Worker ${workerId}`);
-    const timestamp = nowIso();
+
     const updated: JsonObject = {
       ...worker.payload,
       task_id: task.id,
       status: status === "created" ? "ready" : status,
-      updated_at: timestamp
+      updated_at: nowIso()
     };
     const event = this.makeEvent({
       type: "worker.task_bound",
@@ -319,7 +297,10 @@ export class TeamRunCoordinator {
       objects: [{ kind: "worker", payload: validateProtocolObject(updated, "worker") }],
       events: [event]
     });
-    return { worker: result.objects[0], event: result.events[0] };
+    return {
+      worker: requiredAt(result.objects, 0, "Task-bound Worker"),
+      event: requiredAt(result.events, 0, "Worker Task binding event")
+    };
   }
 
   transitionWorker(workerId: string, targetStatus: WorkerStatus, actorId: string, reason?: string): { worker: StoredObject; event: AppendedEvent } {
@@ -328,9 +309,7 @@ export class TeamRunCoordinator {
     this.assertLeaderActor(run, actorId);
     const runStatus = String(run.payload.status) as TeamRunStatus;
     const current = String(worker.payload.status) as WorkerStatus;
-    if (!WORKER_TRANSITIONS[current]?.has(targetStatus)) {
-      throw new Error(`Invalid Worker transition ${workerId}: ${current} -> ${targetStatus}`);
-    }
+    if (!WORKER_TRANSITIONS[current]?.has(targetStatus)) throw new Error(`Invalid Worker transition ${workerId}: ${current} -> ${targetStatus}`);
     if ((targetStatus === "ready" || targetStatus === "running") && !worker.payload.task_id) {
       throw new Error(`Worker ${workerId} cannot become ${targetStatus} without a bound Task`);
     }
@@ -340,6 +319,7 @@ export class TeamRunCoordinator {
     if (TERMINAL_RUN_STATES.has(runStatus) && targetStatus !== "expired") {
       throw new Error(`Worker ${workerId} cannot transition to ${targetStatus} after Team Run ${run.id} became ${runStatus}`);
     }
+
     const timestamp = nowIso();
     const updated: JsonObject = {
       ...worker.payload,
@@ -365,16 +345,17 @@ export class TeamRunCoordinator {
       objects: [{ kind: "worker", payload: validateProtocolObject(updated, "worker") }],
       events: [event]
     });
-    return { worker: result.objects[0], event: result.events[0] };
+    return {
+      worker: requiredAt(result.objects, 0, "transitioned Worker"),
+      event: requiredAt(result.events, 0, "Worker transition event")
+    };
   }
 
   transitionRun(runId: string, targetStatus: TeamRunStatus, actorId: string, reason?: string): TeamRunMutationResult {
     const run = this.requireRun(runId);
     this.assertLeaderActor(run, actorId);
     const current = String(run.payload.status) as TeamRunStatus;
-    if (!RUN_TRANSITIONS[current]?.has(targetStatus)) {
-      throw new Error(`Invalid Team Run transition ${runId}: ${current} -> ${targetStatus}`);
-    }
+    if (!RUN_TRANSITIONS[current]?.has(targetStatus)) throw new Error(`Invalid Team Run transition ${runId}: ${current} -> ${targetStatus}`);
 
     const workers = this.listWorkers(run.id);
     const activeWorkers = workers.filter((worker) => !TERMINAL_WORKER_STATES.has(String(worker.payload.status) as WorkerStatus));
@@ -429,17 +410,13 @@ export class TeamRunCoordinator {
     const result = this.store.atomicMutation({
       preconditions: [
         { id: run.id, kind: "team_run", status: current },
-        ...activeWorkers.map((worker) => ({
-          id: worker.id,
-          kind: "worker" as const,
-          status: String(worker.payload.status)
-        }))
+        ...activeWorkers.map((worker) => ({ id: worker.id, kind: "worker" as const, status: String(worker.payload.status) }))
       ],
       objects,
       events
     });
     return {
-      run: result.objects[0],
+      run: requiredAt(result.objects, 0, "transitioned Team Run"),
       workers: result.objects.slice(1),
       events: result.events
     };
@@ -449,20 +426,14 @@ export class TeamRunCoordinator {
     const run = this.requireRun(runId);
     this.assertLeaderActor(run, actorId);
     const runStatus = String(run.payload.status) as TeamRunStatus;
-    if (!TERMINAL_RUN_STATES.has(runStatus)) {
-      throw new Error(`Cannot clean up Workers while Team Run ${runId} is ${runStatus}`);
-    }
+    if (!TERMINAL_RUN_STATES.has(runStatus)) throw new Error(`Cannot clean up Workers while Team Run ${runId} is ${runStatus}`);
+
     const workers = this.listWorkers(runId).filter((worker) => worker.payload.status !== "expired");
     if (workers.length === 0) return { workers: [], events: [] };
     const timestamp = nowIso();
     const objects = workers.map((worker) => ({
       kind: "worker" as const,
-      payload: validateProtocolObject({
-        ...worker.payload,
-        status: "expired",
-        expired_at: timestamp,
-        updated_at: timestamp
-      }, "worker")
+      payload: validateProtocolObject({ ...worker.payload, status: "expired", expired_at: timestamp, updated_at: timestamp }, "worker")
     }));
     const events = workers.map((worker) => this.makeEvent({
       type: "worker.expired",
@@ -476,11 +447,7 @@ export class TeamRunCoordinator {
     const result = this.store.atomicMutation({
       preconditions: [
         { id: run.id, kind: "team_run", status: runStatus },
-        ...workers.map((worker) => ({
-          id: worker.id,
-          kind: "worker" as const,
-          status: String(worker.payload.status)
-        }))
+        ...workers.map((worker) => ({ id: worker.id, kind: "worker" as const, status: String(worker.payload.status) }))
       ],
       objects,
       events
@@ -518,14 +485,10 @@ export class TeamRunCoordinator {
     const task = this.store.getObject(taskId);
     if (!task || task.kind !== "task") throw new Error(`Worker Task ${taskId} not found`);
     if (task.workspaceId !== workspaceId) throw new Error(`Worker Task ${taskId} is outside workspace ${workspaceId}`);
-    const assigneeId = String(task.payload.assignee_id ?? "");
-    const ownerId = String(task.payload.owner_id ?? "");
-    if (assigneeId !== workerId || ownerId !== workerId) {
+    if (String(task.payload.assignee_id ?? "") !== workerId || String(task.payload.owner_id ?? "") !== workerId) {
       throw new Error(`Worker Task ${taskId} must be assigned to and owned by ${workerId}`);
     }
-    if (!ACTIVE_TASK_STATES.has(String(task.payload.status))) {
-      throw new Error(`Worker Task ${taskId} is not active`);
-    }
+    if (!ACTIVE_TASK_STATES.has(String(task.payload.status))) throw new Error(`Worker Task ${taskId} is not active`);
     return task;
   }
 
