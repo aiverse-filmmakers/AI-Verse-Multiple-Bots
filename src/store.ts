@@ -257,6 +257,11 @@ export class CoordinationStore {
     return rows.map((row) => this.rowToEvent(row));
   }
 
+  /** Backward-compatible shorthand for callers that do not need an explicit `After` suffix. */
+  listEvents(sequence = 0, limit = 100): AppendedEvent[] {
+    return this.listEventsAfter(sequence, limit);
+  }
+
   listRoomEvents(roomId: string, afterRoomSequence = 0, limit = 100, threadId?: string): AppendedEvent[] {
     let sql = `
       SELECT sequence, room_sequence, payload FROM events
