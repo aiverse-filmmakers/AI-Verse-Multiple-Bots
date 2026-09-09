@@ -12,6 +12,7 @@ import { validateProtocolObject } from "./validator.js";
 const SYNTHESIS_CONTRACT = "synthesis-final-v1";
 const TERMINAL_TASK_STATES = new Set(["completed", "failed", "canceled"]);
 const TERMINAL_WORKER_STATES = new Set(["completed", "failed", "canceled", "expired"]);
+const TERMINAL_RUN_STATES = new Set<TeamRunStatus>(["completed", "failed", "canceled", "budget_exhausted"]);
 const SYNTHESIS_RUN_STATES = new Set<TeamRunStatus>(["running", "synthesizing", "verifying"]);
 const OPTIMISTIC_RETRY_LIMIT = 4;
 const DEFAULT_MAX_SOURCE_ARTIFACTS = 64;
@@ -89,9 +90,8 @@ export interface SynthesisReconcileResult {
  * Final Team Run synthesis coordinator.
  *
  * Synthesis is owned by the durable Team Run leader, not by a new temporary
- * Worker. Runtime output is treated as an untrusted draft. Only this coordinator
- * can create the canonical `synthesis_final` Artifact and point the Team Run at
- * it after verification debt and live squad work are both clear.
+ * Worker. Runtime output is an untrusted draft. Only this coordinator can
+ * create the canonical `synthesis_final` Artifact and close the Team Run.
  */
 export class TeamRunSynthesis {
   constructor(
@@ -107,7 +107,9 @@ export class TeamRunSynthesis {
     if (input.createdBy !== leaderId) throw new Error(`Only Team Run leader ${leaderId} can schedule synthesis for ${run.id}`);
     const leader = this.requireActiveLeader(leaderId, String(run.payload.workspace_id));
 
+    const configuredFinalRef = typeof run.payload.final_artifact_ref === "string" ? run.payload.final_artifact_ref : null;
     const existingFinal = this.finalArtifact(run.id);
+    if (configuredFinalRef && !existingFinal) throw new Error(`Team Run ${run.id} has invalid final Artifact pointer ${configuredFinalRef}`);
     if (existingFinal) {
       const taskId = typeof existingFinal.payload.task_id === "string" ? existingFinal.payload.task_id : null;
       const task = taskId ? this.gateway.store.getObject(taskId) : null;
@@ -131,16 +133,17 @@ export class TeamRunSynthesis {
         if (reconciled?.outcome === null) throw new Error(`Team Run ${run.id} synthesis Task ${activeTask.id} has not settled`);
       }
       run = this.requireRun(run.id);
+      if (TERMINAL_RUN_STATES.has(String(run.payload.status) as TeamRunStatus)) {
+        throw new Error(`Team Run ${run.id} cannot retry synthesis from terminal status ${String(run.payload.status)}`);
+      }
     }
 
+    // All validation happens before lifecycle mutation. The final scheduling
+    // atomic mutation reserves both the synthesis Task and synthesizing state.
+    this.assertVerificationClear(run);
     this.assertNoLiveWork(run);
     this.assertTaskCapacity(run);
     this.assertLeaderAuthority(leader, input.tools ?? [], input.connections ?? []);
-
-    if (String(run.payload.status) !== "synthesizing") {
-      run = this.teams.transitionRun(run.id, "synthesizing", leaderId, "Ready for canonical synthesis").run;
-    }
-    this.assertVerificationClear(run);
 
     const maxSources = this.normalizeSourceLimit(input.maxSourceArtifacts);
     const sourceArtifactRefs = input.sourceArtifactRefs === undefined
@@ -156,6 +159,7 @@ export class TeamRunSynthesis {
     const leaseId = createId("lease");
     const timestamp = nowIso();
     const budget = inheritBudget(run.payload.budget, input.budget);
+    const maxAttempts = Math.max(1, Math.floor(input.maxAttempts ?? 2));
 
     const leasePayload = validateProtocolObject({
       schema_version: "1.0",
@@ -200,7 +204,7 @@ export class TeamRunSynthesis {
       hop: 0,
       max_hops: typeof normalizeBudget(run.payload.budget).max_hops === "number" ? normalizeBudget(run.payload.budget).max_hops : 6,
       recovery_policy: input.recoveryPolicy ?? "retry_safe",
-      max_attempts: Math.max(1, Math.floor(input.maxAttempts ?? 2)),
+      max_attempts: maxAttempts,
       synthesis_contract: SYNTHESIS_CONTRACT,
       synthesis_source_artifact_refs: sourceArtifactRefs,
       status: "assigned",
@@ -221,7 +225,7 @@ export class TeamRunSynthesis {
 
     const mutation = this.gateway.store.atomicMutation({
       preconditions: [
-        { id: run.id, kind: "team_run", status: "synthesizing", updatedAt: run.updatedAt },
+        { id: run.id, kind: "team_run", status: String(run.payload.status), updatedAt: run.updatedAt },
         { id: leader.id, kind: "bot", status: "active" }
       ],
       objects: [
@@ -238,7 +242,7 @@ export class TeamRunSynthesis {
     try {
       this.queue.enqueueTask(task.id, leaderId, String(run.payload.workspace_id), {
         recoveryPolicy: input.recoveryPolicy ?? "retry_safe",
-        maxAttempts: Math.max(1, Math.floor(input.maxAttempts ?? 2))
+        maxAttempts
       });
     } catch (error) {
       this.failUnqueued(task, updatedRun, error instanceof Error ? error.message : String(error));
@@ -278,6 +282,7 @@ export class TeamRunSynthesis {
       const existingFinal = this.findFinalForTask(task.id, run);
       if (existingFinal) {
         run = this.ensureCompletedWithFinal(run, existingFinal);
+        this.emitSettled(run, task, "completed", existingFinal, null);
         return { run, task, artifact: existingFinal, outcome: "completed", failureReason: null };
       }
 
@@ -288,28 +293,11 @@ export class TeamRunSynthesis {
       if (taskStatus === "failed" || taskStatus === "canceled") {
         const failureReason = String(task.payload.failure_reason ?? task.payload.cancel_reason ?? `Synthesis Task ${taskStatus}`);
         try {
-          const updatedRunPayload = validateProtocolObject({
-            ...run.payload,
-            status: "synthesizing",
-            active_synthesis_task_id: null,
-            synthesis_last_outcome: taskStatus,
-            synthesis_failure_reason: failureReason,
-            synthesis_settled_at: nowIso(),
-            updated_at: nowIso()
-          }, "team_run");
-          const mutation = this.gateway.store.atomicMutation({
-            preconditions: [
-              { id: run.id, kind: "team_run", status: String(run.payload.status), updatedAt: run.updatedAt },
-              { id: task.id, kind: "task", status: taskStatus }
-            ],
-            objects: [{ kind: "team_run", payload: updatedRunPayload }],
-            events: []
-          });
-          run = mutation.objects[0] ?? this.requireRun(run.id);
-          this.emitSettled(run, task, taskStatus, null, failureReason);
+          run = this.persistFailureSettlement(run, task, taskStatus as "failed" | "canceled", failureReason);
+          this.emitSettled(run, task, taskStatus as "failed" | "canceled", null, failureReason);
           return { run, task, artifact: null, outcome: taskStatus as "failed" | "canceled", failureReason };
         } catch (error) {
-          if (error instanceof Error && error.message.includes("changed since it was read") && attempt < OPTIMISTIC_RETRY_LIMIT - 1) continue;
+          if (this.isOptimisticConflict(error) && attempt < OPTIMISTIC_RETRY_LIMIT - 1) continue;
           throw error;
         }
       }
@@ -323,35 +311,23 @@ export class TeamRunSynthesis {
       } catch (error) {
         const failureReason = error instanceof Error ? error.message : String(error);
         try {
-          const updatedRunPayload = validateProtocolObject({
-            ...run.payload,
-            status: "synthesizing",
-            active_synthesis_task_id: null,
-            synthesis_last_outcome: "failed",
-            synthesis_failure_reason: failureReason,
-            synthesis_settled_at: nowIso(),
-            updated_at: nowIso()
-          }, "team_run");
-          const mutation = this.gateway.store.atomicMutation({
-            preconditions: [
-              { id: run.id, kind: "team_run", status: String(run.payload.status), updatedAt: run.updatedAt },
-              { id: task.id, kind: "task", status: "completed" }
-            ],
-            objects: [{ kind: "team_run", payload: updatedRunPayload }],
-            events: []
-          });
-          run = mutation.objects[0] ?? this.requireRun(run.id);
+          run = this.persistFailureSettlement(run, task, "failed", failureReason);
           this.emitSettled(run, task, "failed", null, failureReason);
           return { run, task, artifact: null, outcome: "failed", failureReason };
         } catch (settleError) {
-          if (settleError instanceof Error && settleError.message.includes("changed since it was read") && attempt < OPTIMISTIC_RETRY_LIMIT - 1) continue;
+          if (this.isOptimisticConflict(settleError) && attempt < OPTIMISTIC_RETRY_LIMIT - 1) continue;
           throw settleError;
         }
       }
 
+      // Re-check every completion gate immediately before the final atomic commit.
+      // A concurrent coordinator that creates new work updates TeamRun.updatedAt,
+      // making the final CAS fail and retry rather than completing behind it.
       this.assertVerificationClear(run);
+      this.assertNoLiveWork(run);
       const sourceRefs = uniqueSorted(stringArray(task.payload.synthesis_source_artifact_refs));
       for (const ref of sourceRefs) this.requireSynthesisSource(ref, run);
+
       const finalMaterial = {
         contract: SYNTHESIS_CONTRACT,
         run_id: run.id,
@@ -403,8 +379,12 @@ export class TeamRunSynthesis {
           source_refs: uniqueSorted([...sourceRefs, rawArtifact!.id])
         }
       }, "artifact");
+
+      // Final Artifact pointer and terminal TeamRun status commit together. This
+      // prevents a Worker from appearing between final persistence and run close.
       const updatedRunPayload = validateProtocolObject({
         ...run.payload,
+        status: "completed",
         active_synthesis_task_id: null,
         final_artifact_ref: finalId,
         latest_synthesis_artifact_ref: finalId,
@@ -412,6 +392,8 @@ export class TeamRunSynthesis {
         synthesis_last_outcome: "completed",
         synthesis_failure_reason: null,
         synthesis_settled_at: timestamp,
+        completed_at: timestamp,
+        status_reason: `Canonical synthesis ${finalId} completed`,
         updated_at: timestamp
       }, "team_run");
 
@@ -429,16 +411,16 @@ export class TeamRunSynthesis {
         });
         const artifact = mutation.objects.find((object) => object.id === finalId)!;
         run = mutation.objects.find((object) => object.id === run.id) ?? this.requireRun(run.id);
-        run = this.ensureCompletedWithFinal(run, artifact);
         this.emitSettled(run, task, "completed", artifact, null);
         return { run, task, artifact, outcome: "completed", failureReason: null };
       } catch (error) {
         const existing = this.gateway.store.getObject(finalId);
         if (existing?.kind === "artifact" && existing.payload.kind === "synthesis_final" && existing.payload.run_id === run.id) {
           run = this.ensureCompletedWithFinal(this.requireRun(run.id), existing);
+          this.emitSettled(run, task, "completed", existing, null);
           return { run, task, artifact: existing, outcome: "completed", failureReason: null };
         }
-        if (error instanceof Error && error.message.includes("changed since it was read") && attempt < OPTIMISTIC_RETRY_LIMIT - 1) continue;
+        if (this.isOptimisticConflict(error) && attempt < OPTIMISTIC_RETRY_LIMIT - 1) continue;
         throw error;
       }
     }
@@ -539,14 +521,9 @@ export class TeamRunSynthesis {
       const inline = asObject(verdict.payload.inline_content);
       if (stringArray(inline.resolved_report_refs).length > 0) refs.push(verdictRef);
     }
-    return uniqueSorted(refs).filter((ref) => {
-      try {
-        this.requireSynthesisSource(ref, run);
-        return true;
-      } catch {
-        return false;
-      }
-    });
+    const unique = uniqueSorted(refs);
+    for (const ref of unique) this.requireSynthesisSource(ref, run);
+    return unique;
   }
 
   private requireSynthesisSource(ref: string, run: StoredObject): StoredObject {
@@ -626,6 +603,30 @@ export class TeamRunSynthesis {
     ].join("\n");
   }
 
+  private persistFailureSettlement(run: StoredObject, task: StoredObject, outcome: "failed" | "canceled", failureReason: string): StoredObject {
+    const timestamp = nowIso();
+    const currentStatus = String(run.payload.status) as TeamRunStatus;
+    const settlementStatus = TERMINAL_RUN_STATES.has(currentStatus) ? currentStatus : "synthesizing";
+    const updatedRunPayload = validateProtocolObject({
+      ...run.payload,
+      status: settlementStatus,
+      active_synthesis_task_id: null,
+      synthesis_last_outcome: outcome,
+      synthesis_failure_reason: failureReason,
+      synthesis_settled_at: timestamp,
+      updated_at: timestamp
+    }, "team_run");
+    const mutation = this.gateway.store.atomicMutation({
+      preconditions: [
+        { id: run.id, kind: "team_run", status: currentStatus, updatedAt: run.updatedAt },
+        { id: task.id, kind: "task", status: String(task.payload.status) }
+      ],
+      objects: [{ kind: "team_run", payload: updatedRunPayload }],
+      events: []
+    });
+    return mutation.objects[0] ?? this.requireRun(run.id);
+  }
+
   private ensureCompletedWithFinal(run: StoredObject, artifact: StoredObject): StoredObject {
     const latest = this.requireRun(run.id);
     if (String(latest.payload.final_artifact_ref ?? "") !== artifact.id) {
@@ -633,6 +634,7 @@ export class TeamRunSynthesis {
     }
     if (String(latest.payload.status) === "completed") return latest;
     this.assertVerificationClear(latest);
+    this.assertNoLiveWork(latest);
     try {
       return this.teams.transitionRun(latest.id, "completed", String(latest.payload.leader_id), `Canonical synthesis ${artifact.id} completed`).run;
     } catch (error) {
@@ -675,8 +677,11 @@ export class TeamRunSynthesis {
 
   private failUnqueued(task: StoredObject, run: StoredObject, reason: string): void {
     const timestamp = nowIso();
+    const currentStatus = String(run.payload.status) as TeamRunStatus;
+    const settlementStatus = TERMINAL_RUN_STATES.has(currentStatus) ? currentStatus : "synthesizing";
     const updatedRunPayload = validateProtocolObject({
       ...run.payload,
+      status: settlementStatus,
       active_synthesis_task_id: null,
       synthesis_last_outcome: "failed",
       synthesis_failure_reason: reason,
@@ -686,7 +691,7 @@ export class TeamRunSynthesis {
     this.gateway.store.atomicMutation({
       preconditions: [
         { id: task.id, kind: "task", status: "assigned", ownerId: String(run.payload.leader_id) },
-        { id: run.id, kind: "team_run", status: String(run.payload.status), updatedAt: run.updatedAt }
+        { id: run.id, kind: "team_run", status: currentStatus, updatedAt: run.updatedAt }
       ],
       objects: [
         { kind: "task", payload: validateProtocolObject({ ...task.payload, status: "failed", failed_at: timestamp, failure_reason: reason }, "task") },
@@ -710,5 +715,20 @@ export class TeamRunSynthesis {
       attentionState: outcome === "completed" ? "unread_result" : "failed",
       idempotencyKey: `synthesis:${task.id}:${outcome}:${artifact?.id ?? "none"}`
     });
+    if (outcome === "completed" && String(run.payload.status) === "completed") {
+      this.gateway.emit({
+        type: "team_run.completed",
+        actorId: String(run.payload.leader_id),
+        workspaceId: String(run.payload.workspace_id),
+        runId: run.id,
+        correlationId: String(run.payload.root_objective_id),
+        summary: `Team Run ${run.id} completed with canonical synthesis ${artifact?.id}`,
+        idempotencyKey: `team-run:${run.id}:completed:${artifact?.id ?? "none"}`
+      });
+    }
+  }
+
+  private isOptimisticConflict(error: unknown): boolean {
+    return error instanceof Error && error.message.includes("changed since it was read");
   }
 }
