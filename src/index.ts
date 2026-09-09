@@ -1,6 +1,7 @@
 export * from "./execution-queue.js";
 export * from "./gateway.js";
 export * from "./id.js";
+export * from "./policy.js";
 export * from "./rooms.js";
 export * from "./runner.js";
 export * from "./runtime.js";
