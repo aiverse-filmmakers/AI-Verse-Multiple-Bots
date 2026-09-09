@@ -13,15 +13,15 @@ The target is an installable persistent-teammate layer that can run standalone o
 ## Current position
 
 ```text
-Phase 0  Research + Architecture        [COMPLETE]  100%
-Phase 1  Runnable Coordination Core     [COMPLETE]  100%
-Phase 2  Dynamic Multi-Agent Squads     [NOT STARTED]
+Phase 0  Research + Architecture        [COMPLETE]    100%
+Phase 1  Runnable Coordination Core     [COMPLETE]    100%
+Phase 2  Dynamic Multi-Agent Squads     [IN PROGRESS] ~15%
 Phase 3  AI-Verse Native Integration    [NOT STARTED]
 Phase 4  Runtime / A2A Interoperability [NOT STARTED]
 Phase 5  Product + Install + Dashboard  [NOT STARTED]
 ```
 
-**Directional overall first-release progress:** roughly 40% complete.
+**Directional overall first-release progress:** roughly 43% complete.
 
 That overall figure is intentionally approximate because later phases contain different amounts of work. Passed phase gates, not percentages, are authoritative.
 
@@ -295,24 +295,47 @@ None.
 
 ## Phase 2 - Dynamic Multi-Agent Squads
 
-**Status:** NOT STARTED
+**Status:** IN PROGRESS
+
+**Current phase progress:** approximately 15%.
+
+**Current verification:** GitHub Actions run 109 on 2026-09-09 passed **60/60 tests** at commit `bf745457ccb37922ae2d8873eb0dc908631b089f`.
 
 Goal: a durable Bot decides whether to work alone or create bounded temporary Workers.
 
-Remaining major slices:
+Major slices:
 
-1. Team Run object and lifecycle
-2. temporary Worker identities
-3. manager/supervisor topology
-4. parallel fan-out
-5. direct handoff topology
-6. group/discussion topology where justified
-7. disagreement detection
-8. verifier/critic role
-9. synthesis
-10. Worker cleanup
-11. adaptive "single Bot vs squad" decision policy
-12. squad budget/cancellation controls
+1. Team Run object and lifecycle - **COMPLETE**
+2. temporary Worker identities and bounded lifecycle - **COMPLETE**
+3. manager/supervisor topology - **NEXT**
+4. parallel fan-out - remaining
+5. direct handoff topology - remaining
+6. group/discussion topology where justified - remaining
+7. disagreement detection - remaining
+8. verifier/critic role - remaining
+9. synthesis - remaining
+10. Worker cleanup - remaining beyond the terminal expiry foundation already implemented
+11. adaptive "single Bot vs squad" decision policy - remaining
+12. squad budget/cancellation controls - remaining beyond the `max_workers`, budget-boundary, and terminal-cascade foundation already implemented
+
+### Phase 2 foundation now implemented
+
+- canonical Team Run records and explicit lifecycle
+- active durable Bot leader and same-workspace enforcement
+- run-scoped `worker_*` identities that never enter the durable Bot registry
+- no default Worker Room membership or long-term memory authority
+- leader-only Worker lifecycle control
+- `can_create_workers` permission enforcement
+- Team Run `max_workers` enforcement
+- Worker budget cannot expand configured Team Run limits
+- Worker Task binding before ready/running execution states
+- atomic run/Worker/event state changes with concurrency preconditions
+- terminal Run cancellation/failure/budget exhaustion cascades to active Workers
+- terminal Worker expiry cleanup with retained audit records
+- restart-persistent Team Run and Worker audit state
+- package-level implementation with no AI-Verse OS-specific dependency
+
+The next gate is Worker-aware execution dispatch plus manager/supervisor topology. Temporary Workers must execute through bounded Tasks and leases without being promoted into durable Bots.
 
 ## Phase 3 - AI-Verse Native Integration
 
