@@ -8,7 +8,6 @@ export * from "./id.js";
 export * from "./loop-guard.js";
 export * from "./openai-compatible-runtime.js";
 export * from "./policy.js";
-export * from "./principal-runner.js";
 export * from "./recovery.js";
 export * from "./rooms.js";
 export * from "./runner.js";
