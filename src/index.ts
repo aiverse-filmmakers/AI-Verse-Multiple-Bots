@@ -24,6 +24,7 @@ export * from "./team-run-handoff.js";
 export * from "./team-run-discussion.js";
 export * from "./team-run-disagreement.js";
 export * from "./team-run-verifier.js";
+export * from "./team-run-synthesis.js";
 export * from "./team-runs.js";
 export * from "./types.js";
 export * from "./validator.js";

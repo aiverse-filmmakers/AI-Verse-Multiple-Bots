@@ -392,9 +392,21 @@ Goal: a durable Bot decides whether to work alone or create bounded temporary Wo
    - resolved verification records `verification_ready_for_synthesis` but deliberately does not perform synthesis or transition into a synthesis implementation
    - localhost Gateway exposes verifier schedule/state/cancel controls
 
+9. **Synthesis - COMPLETE**
+   - final synthesis is owned and executed by the durable Team Run leader rather than an untracked hidden Worker
+   - synthesis runs through a canonical leader-owned Task with Task-scoped capability/environment leases, execution queue state and runtime receipts
+   - inputs are explicit same-Run candidate Artifacts plus resolved verifier verdicts; coordination reports are never silently treated as candidate evidence
+   - unresolved verification debt or an active verifier is a hard synthesis gate
+   - candidate scope, unfinished run work, active fan-out state, leader tool/connection authority and root Task-count limits fail closed before queue exposure
+   - inherited immutable constraints and the root objective are preserved into the final synthesis Task
+   - runtime output must satisfy the strict `team-run-synthesis-v1` contract and cannot cite unscoped Artifacts
+   - successful reconciliation publishes one deterministic canonical `team_run_synthesis` Artifact with full candidate/verifier provenance and completes the Team Run
+   - malformed, failed or canceled synthesis never creates a final result; a durable settlement receipt keeps the run retryable
+   - synthesis cancellation, retry-safe queue recovery, restart reconciliation and idempotent settlement are explicit
+   - localhost Gateway exposes synthesis schedule/state/cancel controls
+
 ### Remaining major slices
 
-9. synthesis
 10. Worker cleanup
 11. adaptive "single Bot vs squad" decision policy
 12. squad budget/cancellation controls

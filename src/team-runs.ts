@@ -56,7 +56,7 @@ const RUN_TRANSITIONS: Record<TeamRunStatus, ReadonlySet<TeamRunStatus>> = {
   waiting_input: new Set(["planning", "running", "canceled", "failed", "budget_exhausted"]),
   waiting_approval: new Set(["planning", "running", "canceled", "failed", "budget_exhausted"]),
   synthesizing: new Set(["verifying", "completed", "failed", "canceled", "budget_exhausted"]),
-  verifying: new Set(["completed", "failed", "canceled", "budget_exhausted"]),
+  verifying: new Set(["synthesizing", "completed", "failed", "canceled", "budget_exhausted"]),
   completed: new Set(),
   failed: new Set(),
   canceled: new Set(),

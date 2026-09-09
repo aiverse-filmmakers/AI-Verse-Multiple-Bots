@@ -18,6 +18,7 @@ import { TeamRunHandoff } from "./team-run-handoff.js";
 import { TeamRunDiscussion } from "./team-run-discussion.js";
 import { TeamRunDisagreementDetector } from "./team-run-disagreement.js";
 import { TeamRunVerifier } from "./team-run-verifier.js";
+import { TeamRunSynthesis } from "./team-run-synthesis.js";
 import { TeamRunCoordinator, type TeamRunStatus, type TeamRunTopology, type WorkerStatus } from "./team-runs.js";
 
 export interface GatewayServerOptions {
@@ -98,7 +99,8 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
   const discussion = new TeamRunDiscussion(teamRuns, gateway, executionQueue, runner);
   const disagreement = new TeamRunDisagreementDetector(teamRuns, gateway);
   const verifier = new TeamRunVerifier(teamRuns, gateway, executionQueue, runner);
-  const supervisor = new ExecutionSupervisor(gateway, executionQueue, runner, 5000, managerTopology, fanout, handoffs, discussion, verifier);
+  const synthesis = new TeamRunSynthesis(teamRuns, gateway, executionQueue, runner);
+  const supervisor = new ExecutionSupervisor(gateway, executionQueue, runner, 5000, managerTopology, fanout, handoffs, discussion, verifier, synthesis);
   supervisor.start();
 
   const server = createServer(async (req: any, res: any) => {
@@ -451,6 +453,42 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
         return;
       }
 
+      const synthesisCancelMatch = url.pathname.match(/^\/v1\/team-runs\/([^/]+)\/synthesis\/cancel$/);
+      if (method === "POST" && synthesisCancelMatch) {
+        const body = await readJson(req);
+        json(res, 200, await synthesis.cancel(
+          decodeURIComponent(synthesisCancelMatch[1] as string),
+          requiredString(body, "actorId"),
+          typeof body.reason === "string" ? body.reason : undefined
+        ));
+        return;
+      }
+
+      const synthesisRunMatch = url.pathname.match(/^\/v1\/team-runs\/([^/]+)\/synthesis$/);
+      if (method === "GET" && synthesisRunMatch) {
+        const runId = decodeURIComponent(synthesisRunMatch[1] as string);
+        if (!teamRuns.getRun(runId)) { json(res, 404, { error: "NOT_FOUND" }); return; }
+        json(res, 200, synthesis.state(runId));
+        return;
+      }
+      if (method === "POST" && synthesisRunMatch) {
+        const body = await readJson(req);
+        const result = synthesis.schedule({
+          runId: decodeURIComponent(synthesisRunMatch[1] as string),
+          createdBy: requiredString(body, "createdBy"),
+          artifactRefs: Array.isArray(body.artifactRefs) ? body.artifactRefs.map(String) : undefined,
+          tools: Array.isArray(body.tools) ? body.tools.map(String) : [],
+          connections: Array.isArray(body.connections) ? body.connections.map(String) : [],
+          budget: typeof body.budget === "object" && body.budget !== null && !Array.isArray(body.budget) ? body.budget as BudgetEnvelope : undefined,
+          deadlineAt: typeof body.deadlineAt === "string" ? body.deadlineAt : undefined,
+          leaseExpiresAt: typeof body.leaseExpiresAt === "string" ? body.leaseExpiresAt : undefined,
+          recoveryPolicy: optionalRecoveryPolicy(body.recoveryPolicy),
+          maxAttempts: optionalMaxAttempts(body.maxAttempts)
+        });
+        json(res, result.status === "scheduled" ? 202 : 200, result);
+        return;
+      }
+
       const directScheduleMatch = url.pathname.match(/^\/v1\/team-runs\/([^/]+)\/handoff\/schedule$/);
       if (method === "POST" && directScheduleMatch) {
         const body = await readJson(req);
@@ -784,6 +822,7 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
     discussion,
     disagreement,
     verifier,
+    synthesis,
     runtimes,
     runner,
     supervisor,
