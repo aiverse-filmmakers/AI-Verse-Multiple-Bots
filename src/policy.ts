@@ -46,6 +46,7 @@ export interface DelegationSafetyInput {
   parentTaskId?: string;
   hop?: number;
   maxHops?: number;
+  deadlineAt?: string;
 }
 
 export interface PreparedDelegationSafety {
@@ -76,6 +77,12 @@ export class CoordinationPolicy {
     this.assertPrincipalWorkspace(input.assigneeId, input.workspaceId, "assignee");
     this.assertPeerAllowed(input.createdBy, input.assigneeId);
     this.assertRequestedAuthority(input.assigneeId, input.tools ?? [], input.connections ?? []);
+
+    if (input.deadlineAt !== undefined) {
+      const deadline = Date.parse(input.deadlineAt);
+      if (!Number.isFinite(deadline)) throw new PolicyError("INVALID_DEADLINE", "deadlineAt must be a valid timestamp");
+      if (deadline <= Date.now()) throw new PolicyError("DEADLINE_EXPIRED", "deadlineAt must be in the future");
+    }
 
     if ((input.tools?.length ?? 0) > this.maxToolsPerTask) {
       throw new PolicyError("TOOL_LIMIT_EXCEEDED", `Task requests more than ${this.maxToolsPerTask} tools`);
