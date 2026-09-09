@@ -46,6 +46,11 @@ export class ExecutionSupervisor {
   }
 
   private onEvent(appended: AppendedEvent): void {
+    if (appended.event.type === "bot.created") {
+      this.trigger(appended.event.actor_id);
+      return;
+    }
+
     if (appended.event.type !== "task.assigned" || !appended.event.task_id) return;
     const task = this.gateway.store.getObject(appended.event.task_id);
     if (!task || task.kind !== "task") return;
