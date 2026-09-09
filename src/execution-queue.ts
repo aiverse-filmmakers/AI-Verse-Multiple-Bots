@@ -48,6 +48,15 @@ function leaseExpiry(seconds: number, now = Date.now()): string {
   return new Date(now + seconds * 1000).toISOString();
 }
 
+function normalizePolicy(policy: unknown): RecoveryPolicy {
+  return policy === "retry_safe" ? "retry_safe" : "manual";
+}
+
+function normalizeMaxAttempts(policy: RecoveryPolicy, value?: number): number {
+  const fallback = policy === "retry_safe" ? 3 : 1;
+  return Math.max(1, Math.floor(value ?? fallback));
+}
+
 export class ExecutionQueue {
   private readonly db: DatabaseSync;
 
@@ -81,6 +90,12 @@ export class ExecutionQueue {
       );
       CREATE INDEX IF NOT EXISTS idx_execution_target_state
         ON execution_queue(target_id, state, created_at);
+      CREATE TABLE IF NOT EXISTS execution_recovery_policy (
+        item_id TEXT PRIMARY KEY,
+        recovery_policy TEXT NOT NULL,
+        max_attempts INTEGER NOT NULL,
+        updated_at TEXT NOT NULL
+      );
     `);
     this.ensureColumn("max_attempts", "INTEGER NOT NULL DEFAULT 1");
     this.ensureColumn("recovery_policy", "TEXT NOT NULL DEFAULT 'manual'");
@@ -99,11 +114,33 @@ export class ExecutionQueue {
     this.db.close();
   }
 
+  setRecoveryPolicy(itemId: string, recoveryPolicy: RecoveryPolicy, maxAttempts?: number): void {
+    const policy = normalizePolicy(recoveryPolicy);
+    const attempts = normalizeMaxAttempts(policy, maxAttempts);
+    const timestamp = nowIso();
+    this.db.prepare(`
+      INSERT INTO execution_recovery_policy(item_id, recovery_policy, max_attempts, updated_at)
+      VALUES (?, ?, ?, ?)
+      ON CONFLICT(item_id) DO UPDATE SET
+        recovery_policy = excluded.recovery_policy,
+        max_attempts = excluded.max_attempts,
+        updated_at = excluded.updated_at
+    `).run(itemId, policy, attempts, timestamp);
+    this.db.prepare(`
+      UPDATE execution_queue
+      SET recovery_policy = ?, max_attempts = ?, updated_at = ?
+      WHERE item_id = ? AND state IN ('queued', 'dead_letter')
+    `).run(policy, attempts, timestamp, itemId);
+  }
+
   enqueueTask(taskId: string, targetId: string, workspaceId: string, options: EnqueueExecutionOptions = {}): ExecutionRecord {
     const existing = this.getByItem(taskId);
     if (existing) return existing;
-    const recoveryPolicy = options.recoveryPolicy ?? "manual";
-    const maxAttempts = Math.max(1, Math.floor(options.maxAttempts ?? (recoveryPolicy === "retry_safe" ? 3 : 1)));
+    const storedPolicy = this.db.prepare(`
+      SELECT recovery_policy, max_attempts FROM execution_recovery_policy WHERE item_id = ?
+    `).get(taskId) as { recovery_policy: string; max_attempts: number } | undefined;
+    const recoveryPolicy = normalizePolicy(options.recoveryPolicy ?? storedPolicy?.recovery_policy);
+    const maxAttempts = normalizeMaxAttempts(recoveryPolicy, options.maxAttempts ?? storedPolicy?.max_attempts);
     const timestamp = nowIso();
     const record: ExecutionRecord = {
       id: `exec_${randomUUID()}`,
@@ -162,6 +199,13 @@ export class ExecutionQueue {
       WHERE target_id = ? AND state IN (${placeholders})
       ORDER BY created_at, id
     `).all(targetId, ...states) as any[];
+    return rows.map((row) => this.row(row));
+  }
+
+  listDeadLetters(workspaceId?: string): ExecutionRecord[] {
+    const rows = workspaceId
+      ? this.db.prepare(`SELECT * FROM execution_queue WHERE state = 'dead_letter' AND workspace_id = ? ORDER BY updated_at, id`).all(workspaceId) as any[]
+      : this.db.prepare(`SELECT * FROM execution_queue WHERE state = 'dead_letter' ORDER BY updated_at, id`).all() as any[];
     return rows.map((row) => this.row(row));
   }
 
@@ -334,7 +378,7 @@ export class ExecutionQueue {
       state: row.state as ExecutionState,
       attempts: Number(row.attempts),
       maxAttempts: Number(row.max_attempts ?? 1),
-      recoveryPolicy: (row.recovery_policy === "retry_safe" ? "retry_safe" : "manual") as RecoveryPolicy,
+      recoveryPolicy: normalizePolicy(row.recovery_policy),
       claimedBy: row.claimed_by === null ? null : String(row.claimed_by),
       claimedAt: row.claimed_at === null ? null : String(row.claimed_at),
       heartbeatAt: row.heartbeat_at === null ? null : String(row.heartbeat_at),
