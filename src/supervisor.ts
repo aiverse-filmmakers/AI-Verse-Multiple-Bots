@@ -199,7 +199,6 @@ export class ExecutionSupervisor {
         this.discussion.reconcileTask(result.task.id);
         this.verifier.reconcileTask(result.task.id);
         this.synthesis.reconcileTask(result.task.id);
-        this.cleanup.recoverTerminalRuns();
         if (this.queue.list(targetId, ["queued"]).length === 0) return;
       } catch (error) {
         if (error instanceof ExecutionOwnershipError) return;
