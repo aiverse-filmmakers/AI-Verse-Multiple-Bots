@@ -1,0 +1,35 @@
+schema_version: "1.0"
+id: product-council
+name: Product Council
+status: active
+
+scope:
+  type: workspace
+  workspace_id: example
+
+members:
+  - product-lead
+  - researcher
+  - operator
+
+orchestration:
+  mode: conversational
+  speaker_policy: selective
+  leader: null
+  max_rounds_per_user_turn: 3
+  max_bot_messages_per_user_turn: 10
+  allow_member_mentions: true
+  allow_user_escalation: true
+
+context:
+  history_policy: summarized
+  max_recent_messages: 30
+
+budget:
+  token_limit: null
+  cost_limit: null
+  wall_clock_seconds: 300
+  max_workers: null
+  max_hops: 6
+  max_messages: 10
+  max_rounds: 3
