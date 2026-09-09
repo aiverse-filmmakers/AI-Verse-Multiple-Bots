@@ -324,3 +324,226 @@ test("stay_with_target keeps target ownership after completed Handoff", async ()
     store.close();
   }
 });
+
+
+function handoffArtifact(store: CoordinationStore, id: string, workspaceId = "ws_handoff") {
+  return store.putObject("artifact", {
+    schema_version: "1.0",
+    id,
+    type: "artifact",
+    workspace_id: workspaceId,
+    created_by: "bot_b",
+    task_id: "task_source",
+    kind: "handoff_context",
+    version: 1,
+    inline_content: { value: `context:${id}` },
+    provenance: { origin: "bot_generated", trusted_instruction: false }
+  });
+}
+
+test("accepted Handoff preserves root ownership and makes scoped Handoff Artifacts real Task inputs", async () => {
+  const { store, queue, gateway } = fixture();
+  try {
+    const delegated = gateway.delegate({
+      createdBy: "bot_a",
+      assigneeId: "bot_b",
+      workspaceId: "ws_handoff",
+      rootObjectiveId: "obj_handoff_inputs",
+      objective: "Continue from selected specialist context",
+      reason: "Initial delegated owner",
+      tools: ["web.search"]
+    });
+    const contextArtifact = handoffArtifact(store, "art_handoff_context");
+    const oldEnvironmentLeaseId = String(delegated.task.payload.environment_lease_id);
+    const requested = gateway.requestHandoff({
+      sourceOwnerId: "bot_b",
+      targetOwnerId: "bot_c",
+      workspaceId: "ws_handoff",
+      workItemId: delegated.task.id,
+      rootObjectiveId: "obj_handoff_inputs",
+      reason: "Bot C should own the next specialist stage",
+      artifactRefs: [contextArtifact.id]
+    });
+    const accepted = gateway.acceptHandoff(requested.handoff.id, "bot_c");
+
+    assert.equal(requested.handoff.payload.root_owner_id, "bot_a");
+    assert.equal(accepted.workItem.payload.root_owner_id, "bot_a");
+    assert.equal(accepted.workItem.payload.owner_id, "bot_c");
+    assert.deepEqual(accepted.workItem.payload.input_artifact_refs, [contextArtifact.id]);
+    assert.equal(accepted.handoff.payload.environment_lease_id, accepted.workItem.payload.environment_lease_id);
+    assert.notEqual(accepted.workItem.payload.environment_lease_id, oldEnvironmentLeaseId);
+    assert.equal(store.getObject(oldEnvironmentLeaseId)?.payload.superseded_by, accepted.workItem.payload.environment_lease_id);
+    assert.equal(store.getObject(String(accepted.workItem.payload.environment_lease_id))?.payload.issued_to, "bot_c");
+
+    const runner = new BotRunner(
+      store,
+      gateway,
+      queue,
+      new RuntimeRegistry().register(new DeterministicRuntimeAdapter()),
+      "runner_handoff_inputs"
+    );
+    const result = await runner.runNext("bot_c");
+    assert.equal(result?.status, "completed");
+    assert.deepEqual(result?.artifact?.payload.provenance && (result.artifact.payload.provenance as any).source_refs, [contextArtifact.id]);
+    assert.equal(result?.task.payload.root_owner_id, "bot_a");
+  } finally {
+    queue.close();
+    store.close();
+  }
+});
+
+test("cross-workspace Handoff Artifact is rejected before Handoff state or ownership is created", () => {
+  const { store, queue, gateway } = fixture();
+  try {
+    const delegated = gateway.delegate({
+      createdBy: "bot_a",
+      assigneeId: "bot_b",
+      workspaceId: "ws_handoff",
+      rootObjectiveId: "obj_cross_scope_handoff",
+      objective: "Keep transfer context scoped",
+      reason: "Initial owner",
+      tools: ["web.search"]
+    });
+    const externalArtifact = handoffArtifact(store, "art_other_workspace", "ws_other");
+    assert.throws(() => gateway.requestHandoff({
+      sourceOwnerId: "bot_b",
+      targetOwnerId: "bot_c",
+      workspaceId: "ws_handoff",
+      workItemId: delegated.task.id,
+      rootObjectiveId: "obj_cross_scope_handoff",
+      reason: "This transfer must fail",
+      artifactRefs: [externalArtifact.id]
+    }), /outside workspace/);
+
+    assert.equal(store.listObjects("handoff", "ws_handoff").length, 0);
+    assert.equal(store.getObject(delegated.task.id)?.payload.owner_id, "bot_b");
+    assert.equal(queue.getByItem(delegated.task.id)?.targetId, "bot_b");
+  } finally {
+    queue.close();
+    store.close();
+  }
+});
+
+test("root-owner tampering blocks Handoff acceptance without changing current ownership", () => {
+  const { store, queue, gateway } = fixture();
+  try {
+    const delegated = gateway.delegate({
+      createdBy: "bot_a",
+      assigneeId: "bot_b",
+      workspaceId: "ws_handoff",
+      rootObjectiveId: "obj_root_guard",
+      objective: "Preserve original root accountability",
+      reason: "Initial owner",
+      tools: ["web.search"]
+    });
+    const requested = gateway.requestHandoff({
+      sourceOwnerId: "bot_b",
+      targetOwnerId: "bot_c",
+      workspaceId: "ws_handoff",
+      workItemId: delegated.task.id,
+      rootObjectiveId: "obj_root_guard",
+      reason: "Specialist transfer"
+    });
+    const task = store.getObject(delegated.task.id);
+    if (!task) throw new Error("Task missing");
+    store.putObject("task", { ...task.payload, root_owner_id: "bot_b" });
+
+    assert.throws(() => gateway.acceptHandoff(requested.handoff.id, "bot_c"), /root ownership changed/);
+    assert.equal(store.getObject(requested.handoff.id)?.payload.status, "requested");
+    assert.equal(store.getObject(delegated.task.id)?.payload.owner_id, "bot_b");
+    assert.equal(queue.getByItem(delegated.task.id)?.targetId, "bot_b");
+  } finally {
+    queue.close();
+    store.close();
+  }
+});
+
+test("tampered environment scope blocks Handoff acceptance before authority transfer", () => {
+  const { store, queue, gateway } = fixture();
+  try {
+    const delegated = gateway.delegate({
+      createdBy: "bot_a",
+      assigneeId: "bot_b",
+      workspaceId: "ws_handoff",
+      rootObjectiveId: "obj_env_handoff_guard",
+      objective: "Preserve trusted execution scope",
+      reason: "Initial owner",
+      tools: ["web.search"]
+    });
+    const requested = gateway.requestHandoff({
+      sourceOwnerId: "bot_b",
+      targetOwnerId: "bot_c",
+      workspaceId: "ws_handoff",
+      workItemId: delegated.task.id,
+      rootObjectiveId: "obj_env_handoff_guard",
+      reason: "Specialist transfer"
+    });
+    const envId = String(delegated.task.payload.environment_lease_id);
+    const environmentLease = store.getObject(envId);
+    if (!environmentLease) throw new Error("Environment lease missing");
+    store.putObject("environment_lease", { ...environmentLease.payload, task_id: "task_wrong" });
+
+    assert.throws(() => gateway.acceptHandoff(requested.handoff.id, "bot_c"), /not scoped to Task/);
+    assert.equal(store.getObject(requested.handoff.id)?.payload.status, "requested");
+    assert.equal(store.getObject(delegated.task.id)?.payload.owner_id, "bot_b");
+    assert.equal(queue.getByItem(delegated.task.id)?.targetId, "bot_b");
+  } finally {
+    queue.close();
+    store.close();
+  }
+});
+
+test("return_on_block returns ownership, assignee, capability authority, environment authority and queued work together", () => {
+  const { store, queue, gateway } = fixture();
+  try {
+    const delegated = gateway.delegate({
+      createdBy: "bot_a",
+      assigneeId: "bot_b",
+      workspaceId: "ws_handoff",
+      rootObjectiveId: "obj_return_block",
+      objective: "Return blocked responsibility safely",
+      reason: "Initial owner",
+      tools: ["web.search"]
+    });
+    const requested = gateway.requestHandoff({
+      sourceOwnerId: "bot_b",
+      targetOwnerId: "bot_c",
+      workspaceId: "ws_handoff",
+      workItemId: delegated.task.id,
+      rootObjectiveId: "obj_return_block",
+      reason: "Temporary specialist ownership",
+      returnPolicy: "return_on_block"
+    });
+    const accepted = gateway.acceptHandoff(requested.handoff.id, "bot_c");
+    const targetLeaseId = String(accepted.workItem.payload.lease_id);
+    const targetEnvironmentLeaseId = String(accepted.workItem.payload.environment_lease_id);
+    store.putObject("task", { ...accepted.workItem.payload, status: "blocked" });
+
+    const settled = gateway.settleHandoffForTask(delegated.task.id, "blocked", "bot_c");
+    if (!settled) throw new Error("expected blocked Handoff settlement");
+    assert.equal(settled.handoff.payload.status, "completed");
+    assert.equal(settled.handoff.payload.ownership_returned, true);
+    assert.equal(settled.task.payload.owner_id, "bot_b");
+    assert.equal(settled.task.payload.assignee_id, "bot_b");
+    assert.equal(settled.task.payload.root_owner_id, "bot_a");
+    assert.equal(queue.getByItem(delegated.task.id)?.targetId, "bot_b");
+
+    const returnedLeaseId = String(settled.task.payload.lease_id);
+    const returnedEnvironmentLeaseId = String(settled.task.payload.environment_lease_id);
+    assert.notEqual(returnedLeaseId, targetLeaseId);
+    assert.notEqual(returnedEnvironmentLeaseId, targetEnvironmentLeaseId);
+    assert.equal(store.getObject(targetLeaseId)?.payload.superseded_by, returnedLeaseId);
+    assert.equal(store.getObject(returnedLeaseId)?.payload.issued_to, "bot_b");
+    assert.equal(store.getObject(targetEnvironmentLeaseId)?.payload.superseded_by, returnedEnvironmentLeaseId);
+    assert.equal(store.getObject(returnedEnvironmentLeaseId)?.payload.issued_to, "bot_b");
+
+    const eventTypes = settled.events.map((entry) => entry.event.type);
+    assert.ok(eventTypes.includes("handoff.completed"));
+    assert.ok(eventTypes.includes("capability_lease.reissued"));
+    assert.ok(eventTypes.includes("environment_lease.reissued"));
+    assert.ok(eventTypes.includes("ownership.changed"));
+  } finally {
+    queue.close();
+    store.close();
+  }
+});

@@ -449,6 +449,10 @@ export class CoordinationGateway {
       throw new Error(`Task ${task.id} cannot be handed off from status ${String(task.payload.status)}`);
     }
 
+    const rootOwnerId = this.taskRootOwner(task);
+    const handoffArtifacts = this.validateHandoffArtifacts(input.workspaceId, input.artifactRefs);
+    const artifactRefs = handoffArtifacts.map((artifact) => artifact.id);
+
     const activeHandoff = this.store.listObjects("handoff", input.workspaceId)
       .find((candidate) => {
         const candidateTaskId = String(candidate.payload.task_id ?? candidate.payload.work_item_id ?? "");
@@ -457,8 +461,11 @@ export class CoordinationGateway {
     if (activeHandoff) throw new Error(`Task ${task.id} already has active Handoff ${activeHandoff.id}`);
 
     const sourceLease = this.requireCapabilityLease(String(task.payload.lease_id));
+    this.assertCapabilityLeaseForTask(sourceLease, task, input.sourceOwnerId);
     const environmentLease = this.optionalEnvironmentLease(task.payload.environment_lease_id);
+    if (environmentLease) this.assertEnvironmentLeaseForTask(environmentLease, task, input.sourceOwnerId);
     const environmentPolicy = environmentLease ? String(environmentLease.payload.environment_policy) : null;
+
     this.policy?.prepareHandoff({
       sourceOwnerId: input.sourceOwnerId,
       targetOwnerId: input.targetOwnerId,
@@ -469,7 +476,7 @@ export class CoordinationGateway {
     });
 
     if (environmentLease && environmentPolicy !== "shared_workspace") {
-      throw new Error(`Environment ${environmentLease.id} uses ${environmentPolicy} and cannot be transferred by the Phase 1 shared-environment handoff path`);
+      throw new Error(`Environment ${environmentLease.id} uses ${environmentPolicy} and cannot be transferred by the shared-environment handoff path`);
     }
 
     const currentConstraints = normalizeConstraints(task.payload.required_constraints);
@@ -479,13 +486,14 @@ export class CoordinationGateway {
     }
     const handoffConstraints = normalizeConstraints([...currentConstraints, ...(input.requiredConstraints ?? [])]);
     const handoffId = createId("handoff");
-    const handoff: JsonObject = {
+    const handoff = validateProtocolObject({
       schema_version: "1.0",
       id: handoffId,
       type: "handoff",
       source_owner_id: input.sourceOwnerId,
       target_bot_id: input.targetOwnerId,
       target_owner_id: input.targetOwnerId,
+      root_owner_id: rootOwnerId,
       workspace_id: input.workspaceId,
       task_id: task.id,
       work_item_id: task.id,
@@ -493,13 +501,13 @@ export class CoordinationGateway {
       reason: input.reason,
       required_constraints: handoffConstraints,
       constraints_digest: constraintsDigest(handoffConstraints),
-      artifact_refs: input.artifactRefs ?? [],
+      artifact_refs: artifactRefs,
       capability_lease_id: sourceLease.id,
       environment_lease_id: environmentLease?.id ?? null,
       return_policy: input.returnPolicy ?? "return_on_completion",
       status: "requested"
-    };
-    const stored = this.store.putObject("handoff", validateProtocolObject(handoff, "handoff"));
+    }, "handoff");
+    const stored = this.store.putObject("handoff", handoff);
     const event = this.emit({
       type: "handoff.requested",
       actorId: input.sourceOwnerId,
@@ -532,6 +540,20 @@ export class CoordinationGateway {
       throw new Error(`Task ${task.id} cannot accept Handoff from status ${String(task.payload.status)}`);
     }
 
+    const taskRootOwnerId = this.taskRootOwner(task);
+    const handoffRootOwnerId = typeof storedHandoff.payload.root_owner_id === "string" && storedHandoff.payload.root_owner_id.length > 0
+      ? storedHandoff.payload.root_owner_id
+      : taskRootOwnerId;
+    if (handoffRootOwnerId !== taskRootOwnerId) {
+      throw new Error(`Task ${task.id} root ownership changed before Handoff acceptance`);
+    }
+
+    const handoffArtifacts = this.validateHandoffArtifacts(workspaceId, stringArray(storedHandoff.payload.artifact_refs));
+    const existingInputRefs = stringArray(task.payload.input_artifact_refs);
+    const existingInputSet = new Set(existingInputRefs);
+    const newlyAttachedArtifactRefs = handoffArtifacts.map((artifact) => artifact.id).filter((id) => !existingInputSet.has(id));
+    const mergedInputArtifactRefs = [...new Set([...existingInputRefs, ...handoffArtifacts.map((artifact) => artifact.id)])];
+
     const handoffConstraints = normalizeConstraints(storedHandoff.payload.required_constraints);
     const recordedDigest = String(storedHandoff.payload.constraints_digest ?? "");
     if (!recordedDigest || recordedDigest !== constraintsDigest(handoffConstraints)) {
@@ -548,21 +570,12 @@ export class CoordinationGateway {
     }
 
     const sourceLease = this.requireCapabilityLease(String(task.payload.lease_id));
-    if (String(sourceLease.payload.issued_to) !== sourceOwnerId || String(sourceLease.payload.task_id) !== task.id) {
-      throw new Error(`Capability lease ${sourceLease.id} is not owned by ${sourceOwnerId} for Task ${task.id}`);
-    }
-    const leaseExpiry = Date.parse(String(sourceLease.payload.expires_at));
-    if (!Number.isFinite(leaseExpiry) || leaseExpiry <= Date.now()) throw new Error(`Capability lease ${sourceLease.id} is expired`);
-
+    this.assertCapabilityLeaseForTask(sourceLease, task, sourceOwnerId);
     const sourceEnvironmentLease = this.optionalEnvironmentLease(task.payload.environment_lease_id);
+    if (sourceEnvironmentLease) this.assertEnvironmentLeaseForTask(sourceEnvironmentLease, task, sourceOwnerId);
     const environmentPolicy = sourceEnvironmentLease ? String(sourceEnvironmentLease.payload.environment_policy) : null;
-    if (sourceEnvironmentLease) {
-      if (environmentPolicy !== "shared_workspace") {
-        throw new Error(`Environment ${sourceEnvironmentLease.id} requires adapter-specific transfer for policy ${environmentPolicy}`);
-      }
-      if (String(sourceEnvironmentLease.payload.issued_to) !== sourceOwnerId) {
-        throw new Error(`Environment lease ${sourceEnvironmentLease.id} is not issued to ${sourceOwnerId}`);
-      }
+    if (sourceEnvironmentLease && environmentPolicy !== "shared_workspace") {
+      throw new Error(`Environment ${sourceEnvironmentLease.id} requires adapter-specific transfer for policy ${environmentPolicy}`);
     }
 
     this.policy?.prepareHandoff({
@@ -576,13 +589,14 @@ export class CoordinationGateway {
 
     const timestamp = nowIso();
     const newLeaseId = createId("lease");
-    const revokedLease: JsonObject = {
+    const newEnvironmentLeaseId = sourceEnvironmentLease ? createId("envlease") : null;
+    const revokedLease = validateProtocolObject({
       ...sourceLease.payload,
       revoked_at: timestamp,
       revoked_reason: `Handoff ${handoffId} accepted by ${targetId}`,
       superseded_by: newLeaseId
-    };
-    const newLease: JsonObject = {
+    }, "capability_lease");
+    const newLease = validateProtocolObject({
       ...sourceLease.payload,
       id: newLeaseId,
       issued_to: targetId,
@@ -591,42 +605,42 @@ export class CoordinationGateway {
       revoked_at: null,
       revoked_reason: null,
       superseded_by: null
-    };
+    }, "capability_lease");
 
     const objects: Array<{ kind: any; payload: JsonObject }> = [
       {
         kind: "handoff",
-        payload: {
+        payload: validateProtocolObject({
           ...storedHandoff.payload,
           target_bot_id: targetId,
           target_owner_id: targetId,
+          root_owner_id: taskRootOwnerId,
           task_id: task.id,
           work_item_id: task.id,
           capability_lease_id: newLeaseId,
+          environment_lease_id: newEnvironmentLeaseId,
           accepted_at: timestamp,
           accepted_by: actorId,
           status: "accepted"
-        }
+        }, "handoff")
       },
       { kind: "capability_lease", payload: revokedLease },
       { kind: "capability_lease", payload: newLease }
     ];
 
-    let newEnvironmentLeaseId: string | null = null;
-    if (sourceEnvironmentLease) {
-      newEnvironmentLeaseId = createId("envlease");
+    if (sourceEnvironmentLease && newEnvironmentLeaseId) {
       objects.push({
         kind: "environment_lease",
-        payload: {
+        payload: validateProtocolObject({
           ...sourceEnvironmentLease.payload,
           revoked_at: timestamp,
           revoked_reason: `Handoff ${handoffId} accepted by ${targetId}`,
           superseded_by: newEnvironmentLeaseId
-        }
+        }, "environment_lease")
       });
       objects.push({
         kind: "environment_lease",
-        payload: {
+        payload: validateProtocolObject({
           ...sourceEnvironmentLease.payload,
           id: newEnvironmentLeaseId,
           issued_to: targetId,
@@ -635,22 +649,24 @@ export class CoordinationGateway {
           revoked_at: null,
           revoked_reason: null,
           superseded_by: null
-        }
+        }, "environment_lease")
       });
     }
 
-    const updatedTaskPayload: JsonObject = {
+    const updatedTaskPayload = validateProtocolObject({
       ...task.payload,
       owner_id: targetId,
       assignee_id: targetId,
+      root_owner_id: taskRootOwnerId,
       required_constraints: handoffConstraints,
       constraints_digest: recordedDigest,
+      input_artifact_refs: mergedInputArtifactRefs,
       lease_id: newLeaseId,
       environment_lease_id: newEnvironmentLeaseId,
       handoff_id: handoffId,
       handed_off_from: sourceOwnerId,
       handed_off_at: timestamp
-    };
+    }, "task");
     objects.push({ kind: "task", payload: updatedTaskPayload });
 
     const preconditions: Array<{ id: string; kind: any; status?: string; ownerId?: string }> = [
@@ -665,12 +681,12 @@ export class CoordinationGateway {
       if (approval.payload.status !== "pending") throw new Error(`Approval ${approvalId} is not pending`);
       objects.push({
         kind: "approval",
-        payload: {
+        payload: validateProtocolObject({
           ...approval.payload,
           actor_id: targetId,
           retargeted_at: timestamp,
           retargeted_by_handoff: handoffId
-        }
+        }, "approval")
       });
       preconditions.push({ id: approval.id, kind: "approval", status: "pending" });
       const unexpectedQueue = this.executionQueue?.getByItem(task.id);
@@ -725,6 +741,16 @@ export class CoordinationGateway {
         taskId: task.id,
         correlationId: rootObjectiveId,
         summary: `Transferred shared execution environment to ${targetId}`
+      });
+    }
+    if (newlyAttachedArtifactRefs.length > 0) {
+      eventInputs.push({
+        type: "task.inputs_attached",
+        actorId,
+        workspaceId,
+        taskId: task.id,
+        correlationId: rootObjectiveId,
+        summary: `Attached ${newlyAttachedArtifactRefs.length} Handoff Artifact${newlyAttachedArtifactRefs.length === 1 ? "" : "s"} to ${task.id}`
       });
     }
     if (task.payload.status === "waiting_approval") {
@@ -810,30 +836,157 @@ export class CoordinationGateway {
     const sourceOwnerId = String(handoff.payload.source_owner_id);
     const targetId = String(handoff.payload.target_bot_id ?? handoff.payload.target_owner_id ?? "");
     if (String(task.payload.owner_id) !== targetId) return null;
+    const taskRootOwnerId = this.taskRootOwner(task);
+    const handoffRootOwnerId = typeof handoff.payload.root_owner_id === "string" && handoff.payload.root_owner_id.length > 0
+      ? handoff.payload.root_owner_id
+      : taskRootOwnerId;
+    if (handoffRootOwnerId !== taskRootOwnerId) {
+      throw new Error(`Task ${task.id} root ownership changed before Handoff settlement`);
+    }
+
     const returnPolicy = String(handoff.payload.return_policy ?? "return_on_completion");
     const shouldReturn = (outcome === "completed" && returnPolicy === "return_on_completion")
       || (outcome === "blocked" && returnPolicy === "return_on_block");
     const terminalHandoff = outcome === "completed" ? "completed" : outcome === "failed" ? "failed" : outcome === "canceled" ? "canceled" : shouldReturn ? "completed" : "accepted";
     if (outcome === "blocked" && !shouldReturn) return null;
 
-    const updatedTaskPayload: JsonObject = shouldReturn
-      ? { ...task.payload, owner_id: sourceOwnerId, ownership_returned_at: nowIso(), ownership_returned_from: targetId }
-      : { ...task.payload };
-    const updatedHandoffPayload: JsonObject = {
+    const timestamp = nowIso();
+    let updatedTaskPayload: JsonObject = shouldReturn
+      ? {
+          ...task.payload,
+          owner_id: sourceOwnerId,
+          root_owner_id: taskRootOwnerId,
+          ownership_returned_at: timestamp,
+          ownership_returned_from: targetId
+        }
+      : { ...task.payload, root_owner_id: taskRootOwnerId };
+    const authorityObjects: Array<{ kind: any; payload: JsonObject }> = [];
+    const eventInputs: EmitInput[] = [];
+    let queueRetarget: { itemId: string; fromTargetId: string; toTargetId: string; required?: boolean } | undefined;
+
+    // A blocked Task may become executable again. Returning responsibility must therefore return
+    // the task-scoped authority and execution environment too, never ownership metadata alone.
+    if (shouldReturn && outcome === "blocked") {
+      const targetLease = this.requireCapabilityLease(String(task.payload.lease_id));
+      this.assertCapabilityLeaseForTask(targetLease, task, targetId);
+      const targetEnvironmentLease = this.optionalEnvironmentLease(task.payload.environment_lease_id);
+      if (targetEnvironmentLease) this.assertEnvironmentLeaseForTask(targetEnvironmentLease, task, targetId);
+      const environmentPolicy = targetEnvironmentLease ? String(targetEnvironmentLease.payload.environment_policy) : null;
+      if (targetEnvironmentLease && environmentPolicy !== "shared_workspace") {
+        throw new Error(`Environment ${targetEnvironmentLease.id} requires adapter-specific return for policy ${environmentPolicy}`);
+      }
+
+      this.policy?.prepareHandoff({
+        sourceOwnerId: targetId,
+        targetOwnerId: sourceOwnerId,
+        workspaceId: String(task.workspaceId),
+        tools: stringArray(targetLease.payload.tools),
+        connections: stringArray(targetLease.payload.connections),
+        environmentPolicy
+      });
+
+      const returnedLeaseId = createId("lease");
+      const returnedEnvironmentLeaseId = targetEnvironmentLease ? createId("envlease") : null;
+      authorityObjects.push({
+        kind: "capability_lease",
+        payload: validateProtocolObject({
+          ...targetLease.payload,
+          revoked_at: timestamp,
+          revoked_reason: `Handoff ${handoff.id} returned blocked Task to ${sourceOwnerId}`,
+          superseded_by: returnedLeaseId
+        }, "capability_lease")
+      });
+      authorityObjects.push({
+        kind: "capability_lease",
+        payload: validateProtocolObject({
+          ...targetLease.payload,
+          id: returnedLeaseId,
+          issued_to: sourceOwnerId,
+          transferred_from: targetLease.id,
+          transferred_at: timestamp,
+          revoked_at: null,
+          revoked_reason: null,
+          superseded_by: null
+        }, "capability_lease")
+      });
+
+      if (targetEnvironmentLease && returnedEnvironmentLeaseId) {
+        authorityObjects.push({
+          kind: "environment_lease",
+          payload: validateProtocolObject({
+            ...targetEnvironmentLease.payload,
+            revoked_at: timestamp,
+            revoked_reason: `Handoff ${handoff.id} returned blocked Task to ${sourceOwnerId}`,
+            superseded_by: returnedEnvironmentLeaseId
+          }, "environment_lease")
+        });
+        authorityObjects.push({
+          kind: "environment_lease",
+          payload: validateProtocolObject({
+            ...targetEnvironmentLease.payload,
+            id: returnedEnvironmentLeaseId,
+            issued_to: sourceOwnerId,
+            transferred_from: targetEnvironmentLease.id,
+            transferred_at: timestamp,
+            revoked_at: null,
+            revoked_reason: null,
+            superseded_by: null
+          }, "environment_lease")
+        });
+      }
+
+      updatedTaskPayload = {
+        ...updatedTaskPayload,
+        assignee_id: sourceOwnerId,
+        lease_id: returnedLeaseId,
+        environment_lease_id: returnedEnvironmentLeaseId
+      };
+
+      const queued = this.executionQueue?.getByItem(task.id);
+      if (queued && new Set(["claimed", "running"]).has(queued.state)) {
+        throw new Error(`Cannot return blocked Handoff ${handoff.id} while Task ${task.id} execution is ${queued.state}`);
+      }
+      if (queued?.state === "queued") {
+        queueRetarget = { itemId: task.id, fromTargetId: targetId, toTargetId: sourceOwnerId, required: true };
+      }
+
+      eventInputs.push({
+        type: "capability_lease.reissued",
+        actorId,
+        workspaceId: task.workspaceId,
+        taskId,
+        correlationId: String(task.payload.root_objective_id),
+        summary: `Returned Task authority from ${targetId} to ${sourceOwnerId}`
+      });
+      if (targetEnvironmentLease) {
+        eventInputs.push({
+          type: "environment_lease.reissued",
+          actorId,
+          workspaceId: task.workspaceId,
+          taskId,
+          correlationId: String(task.payload.root_objective_id),
+          summary: `Returned shared execution environment to ${sourceOwnerId}`
+        });
+      }
+    }
+
+    const updatedHandoffPayload = validateProtocolObject({
       ...handoff.payload,
+      root_owner_id: taskRootOwnerId,
       status: terminalHandoff,
-      settled_at: nowIso(),
+      settled_at: timestamp,
       outcome,
       ownership_returned: shouldReturn
-    };
-    const eventInputs: EmitInput[] = [{
+    }, "handoff");
+    const validatedTaskPayload = validateProtocolObject(updatedTaskPayload, "task");
+    eventInputs.unshift({
       type: terminalHandoff === "completed" ? "handoff.completed" : `handoff.${terminalHandoff}`,
       actorId,
       workspaceId: task.workspaceId,
       taskId,
       correlationId: String(task.payload.root_objective_id),
       summary: `Handoff ${handoff.id} settled from Task outcome ${outcome}`
-    }];
+    });
     if (shouldReturn) {
       eventInputs.push({
         type: "ownership.changed",
@@ -844,6 +997,7 @@ export class CoordinationGateway {
         summary: `${sourceOwnerId} regained ownership of ${taskId}`
       });
     }
+
     const mutation = this.store.atomicMutation({
       preconditions: [
         { id: handoff.id, kind: "handoff", status: "accepted" },
@@ -851,9 +1005,11 @@ export class CoordinationGateway {
       ],
       objects: [
         { kind: "handoff", payload: updatedHandoffPayload },
-        { kind: "task", payload: updatedTaskPayload }
+        ...authorityObjects,
+        { kind: "task", payload: validatedTaskPayload }
       ],
-      events: eventInputs.map((entry) => this.buildEvent(entry))
+      events: eventInputs.map((entry) => this.buildEvent(entry)),
+      queueRetarget
     });
     this.publishCommitted(mutation.events);
     const settledHandoff = mutation.objects.find((object) => object.id === handoff.id);
@@ -1031,6 +1187,58 @@ export class CoordinationGateway {
       environment_ref: environmentRef,
       expires_at: expiresAt
     }, "environment_lease");
+  }
+
+
+  private taskRootOwner(task: StoredObject): string {
+    if (typeof task.payload.root_owner_id === "string" && task.payload.root_owner_id.length > 0) return task.payload.root_owner_id;
+    if (typeof task.payload.created_by === "string" && task.payload.created_by.length > 0) return task.payload.created_by;
+    return String(task.payload.owner_id);
+  }
+
+  private validateHandoffArtifacts(workspaceId: string, refs: string[] | undefined): StoredObject[] {
+    const artifacts: StoredObject[] = [];
+    for (const ref of [...new Set((refs ?? []).map((value) => value.trim()).filter(Boolean))]) {
+      const artifact = this.store.getObject(ref);
+      if (!artifact || artifact.kind !== "artifact") throw new Error(`Handoff Artifact ${ref} not found`);
+      if (artifact.workspaceId !== workspaceId) throw new Error(`Handoff Artifact ${ref} is outside workspace ${workspaceId}`);
+      artifacts.push(artifact);
+    }
+    return artifacts;
+  }
+
+  private assertCapabilityLeaseForTask(lease: StoredObject, task: StoredObject, ownerId: string): void {
+    if (String(lease.payload.issued_to) !== ownerId) {
+      throw new Error(`Capability lease ${lease.id} is not issued to ${ownerId}`);
+    }
+    if (String(lease.payload.task_id) !== task.id) {
+      throw new Error(`Capability lease ${lease.id} is not scoped to Task ${task.id}`);
+    }
+    if (lease.workspaceId !== task.workspaceId) {
+      throw new Error(`Capability lease ${lease.id} is outside Task workspace ${String(task.workspaceId)}`);
+    }
+    if (typeof lease.payload.revoked_at === "string" && lease.payload.revoked_at.length > 0) {
+      throw new Error(`Capability lease ${lease.id} is revoked`);
+    }
+    const expiresAt = Date.parse(String(lease.payload.expires_at));
+    if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) throw new Error(`Capability lease ${lease.id} is expired`);
+  }
+
+  private assertEnvironmentLeaseForTask(lease: StoredObject, task: StoredObject, ownerId: string): void {
+    if (String(lease.payload.issued_to) !== ownerId) {
+      throw new Error(`Environment lease ${lease.id} is not issued to ${ownerId}`);
+    }
+    if (String(lease.payload.task_id) !== task.id) {
+      throw new Error(`Environment lease ${lease.id} is not scoped to Task ${task.id}`);
+    }
+    if (lease.workspaceId !== task.workspaceId) {
+      throw new Error(`Environment lease ${lease.id} is outside Task workspace ${String(task.workspaceId)}`);
+    }
+    if (typeof lease.payload.revoked_at === "string" && lease.payload.revoked_at.length > 0) {
+      throw new Error(`Environment lease ${lease.id} is revoked`);
+    }
+    const expiresAt = Date.parse(String(lease.payload.expires_at));
+    if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) throw new Error(`Environment lease ${lease.id} is expired`);
   }
 
   private requireApproval(approvalId: string): StoredObject {

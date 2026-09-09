@@ -438,6 +438,7 @@
         "type": { "const": "handoff" },
         "source_owner_id": { "$ref": "#/$defs/Id" },
         "target_bot_id": { "$ref": "#/$defs/Id" },
+        "root_owner_id": { "$ref": "#/$defs/Id" },
         "workspace_id": { "$ref": "#/$defs/Id" },
         "task_id": { "$ref": "#/$defs/Id" },
         "run_id": { "type": ["string", "null"] },
