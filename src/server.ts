@@ -1,9 +1,11 @@
 import { createServer } from "node:http";
 import { URL } from "node:url";
+import { delegateWithArtifacts } from "./artifact-delegation.js";
 import type { BudgetEnvelope } from "./budget.js";
 import type { BotManifest, JsonObject } from "./types.js";
 import { ExecutionQueue, type RecoveryPolicy } from "./execution-queue.js";
 import { CoordinationGateway, type ApprovalRequirement } from "./gateway.js";
+import { OpenAICompatibleRuntimeAdapter } from "./openai-compatible-runtime.js";
 import { CoordinationPolicy } from "./policy.js";
 import { RoomCoordinator } from "./rooms.js";
 import { BotRunner } from "./runner.js";
@@ -78,7 +80,9 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
   const policy = new CoordinationPolicy(store, { requireRegisteredBots: true });
   const gateway = new CoordinationGateway(store, executionQueue, policy);
   const rooms = new RoomCoordinator(store, gateway);
-  const runtimes = new RuntimeRegistry().register(new DeterministicRuntimeAdapter());
+  const runtimes = new RuntimeRegistry()
+    .register(new DeterministicRuntimeAdapter())
+    .register(new OpenAICompatibleRuntimeAdapter());
   const runner = new BotRunner(store, gateway, executionQueue, runtimes);
   const supervisor = new ExecutionSupervisor(gateway, executionQueue, runner);
   supervisor.start();
@@ -321,7 +325,7 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
 
       if (method === "POST" && url.pathname === "/v1/delegations") {
         const body = await readJson(req);
-        const result = gateway.delegate({
+        const result = delegateWithArtifacts(gateway, {
           createdBy: requiredString(body, "createdBy"),
           assigneeId: requiredString(body, "assigneeId"),
           workspaceId: requiredString(body, "workspaceId"),
@@ -330,6 +334,7 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
           reason: requiredString(body, "reason"),
           requiredConstraints: Array.isArray(body.requiredConstraints) ? body.requiredConstraints.map(String) : [],
           expectedOutput: typeof body.expectedOutput === "object" && body.expectedOutput !== null ? body.expectedOutput as JsonObject : undefined,
+          inputArtifactRefs: Array.isArray(body.inputArtifactRefs) ? body.inputArtifactRefs.map(String) : [],
           tools: Array.isArray(body.tools) ? body.tools.map(String) : [],
           connections: Array.isArray(body.connections) ? body.connections.map(String) : [],
           parentTaskId: typeof body.parentTaskId === "string" ? body.parentTaskId : undefined,
