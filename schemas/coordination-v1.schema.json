@@ -1,15 +1,19 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://aiverse.dev/schemas/multiple-bots/coordination-v1.schema.json",
+  "$id": "https://github.com/aiverse-filmmakers/AI-Verse-Multiple-Bots/schemas/coordination-v1.schema.json",
   "title": "AI-Verse Multiple Bots Coordination Protocol v1",
-  "description": "Draft normalized contracts for Bots, Rooms, Messages, Tasks, Artifacts, Team Runs and Events.",
+  "description": "Draft normalized contracts for persistent Bots, Rooms, Threads, Messages, Tasks, Artifacts, Team Runs, leases, approvals and coordination Events.",
   "oneOf": [
     { "$ref": "#/$defs/Bot" },
     { "$ref": "#/$defs/Room" },
+    { "$ref": "#/$defs/Thread" },
     { "$ref": "#/$defs/Message" },
     { "$ref": "#/$defs/Task" },
     { "$ref": "#/$defs/Artifact" },
     { "$ref": "#/$defs/TeamRun" },
+    { "$ref": "#/$defs/CapabilityLease" },
+    { "$ref": "#/$defs/EnvironmentLease" },
+    { "$ref": "#/$defs/Approval" },
     { "$ref": "#/$defs/Event" }
   ],
   "$defs": {
@@ -112,10 +116,44 @@
         "max_rounds": { "type": ["integer", "null"], "minimum": 1 }
       }
     },
+    "Execution": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["environment_policy"],
+      "properties": {
+        "environment_policy": {
+          "type": "string",
+          "enum": ["shared_workspace", "isolated_bot", "isolated_run", "external_managed"]
+        },
+        "environment_ref": { "type": ["string", "null"] },
+        "persistence": {
+          "type": "string",
+          "enum": ["durable", "run_scoped", "disposable", "external"]
+        },
+        "computer_use": {
+          "type": ["string", "boolean", "null"]
+        },
+        "browser_session_policy": {
+          "type": ["string", "null"]
+        }
+      }
+    },
+    "AttentionState": {
+      "type": "string",
+      "enum": [
+        "none",
+        "working",
+        "unread_result",
+        "needs_input",
+        "needs_approval",
+        "handoff_waiting",
+        "failed"
+      ]
+    },
     "Bot": {
       "type": "object",
       "additionalProperties": true,
-      "required": ["schema_version", "id", "name", "kind", "status", "runtime", "scope", "permissions"],
+      "required": ["schema_version", "id", "name", "kind", "status", "role", "runtime", "execution", "scope", "permissions", "coordination"],
       "properties": {
         "schema_version": { "const": "1.0" },
         "id": { "$ref": "#/$defs/Id" },
@@ -125,7 +163,17 @@
           "type": "string",
           "enum": ["active", "disabled", "archived"]
         },
-        "description": { "type": ["string", "null"] },
+        "role": {
+          "type": "object",
+          "additionalProperties": true,
+          "required": ["title", "mission"],
+          "properties": {
+            "title": { "type": "string", "minLength": 1 },
+            "mission": { "type": "string", "minLength": 1 },
+            "responsibilities": { "type": "array", "items": { "type": "string" } },
+            "non_responsibilities": { "type": "array", "items": { "type": "string" } }
+          }
+        },
         "runtime": {
           "type": "object",
           "additionalProperties": true,
@@ -135,13 +183,12 @@
             "profile_ref": { "type": ["string", "null"] }
           }
         },
+        "execution": { "$ref": "#/$defs/Execution" },
         "model_policy": {
           "type": "object",
           "additionalProperties": true
         },
-        "scope": {
-          "$ref": "#/$defs/WorkspaceScope"
-        },
+        "scope": { "$ref": "#/$defs/WorkspaceScope" },
         "capabilities": {
           "type": "object",
           "additionalProperties": true,
@@ -164,7 +211,25 @@
             "can_handoff": { "type": "boolean" }
           }
         },
+        "memory": {
+          "type": "object",
+          "additionalProperties": true
+        },
         "coordination": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "manager_id": { "type": ["string", "null"] },
+            "default_mode": { "type": "string" },
+            "max_parallel_workers": { "type": "integer", "minimum": 1 },
+            "max_hops": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "attention": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "ui": {
           "type": "object",
           "additionalProperties": true
         }
@@ -197,13 +262,49 @@
             },
             "speaker_policy": { "type": "string" },
             "leader": { "type": ["string", "null"] },
+            "work_owner_policy": {
+              "type": "string",
+              "enum": ["explicit_single_owner", "leader_owned", "task_owned"]
+            },
             "max_rounds_per_user_turn": { "type": "integer", "minimum": 1 },
             "max_bot_messages_per_user_turn": { "type": "integer", "minimum": 1 },
             "allow_member_mentions": { "type": "boolean" },
             "allow_user_escalation": { "type": "boolean" }
           }
         },
+        "threads": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "inherit_room_scope": { "type": "boolean" }
+          }
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "attention": {
+          "type": "object",
+          "additionalProperties": true
+        },
         "budget": { "$ref": "#/$defs/Budget" }
+      }
+    },
+    "Thread": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["schema_version", "id", "type", "workspace_id", "parent_message_id", "created_by", "status"],
+      "properties": {
+        "schema_version": { "const": "1.0" },
+        "id": { "$ref": "#/$defs/Id" },
+        "type": { "const": "thread" },
+        "workspace_id": { "$ref": "#/$defs/Id" },
+        "room_id": { "type": ["string", "null"] },
+        "bot_conversation_id": { "type": ["string", "null"] },
+        "parent_message_id": { "$ref": "#/$defs/Id" },
+        "created_by": { "$ref": "#/$defs/Id" },
+        "status": { "type": "string", "enum": ["active", "resolved", "archived"] }
       }
     },
     "MessageTarget": {
@@ -213,7 +314,7 @@
       "properties": {
         "kind": {
           "type": "string",
-          "enum": ["bot", "worker", "room", "task", "operator"]
+          "enum": ["bot", "worker", "room", "thread", "task", "operator"]
         },
         "id": { "$ref": "#/$defs/Id" }
       }
@@ -230,7 +331,13 @@
         "sender_id": { "$ref": "#/$defs/Id" },
         "target": { "$ref": "#/$defs/MessageTarget" },
         "workspace_id": { "$ref": "#/$defs/Id" },
-        "correlation_id": { "$ref": "#/$defs/Id" },
+        "thread_id": { "type": ["string", "null"] },
+        "reply_to_message_id": { "type": ["string", "null"] },
+        "correlation_id": { "type": ["string", "null"] },
+        "delivery_state": {
+          "type": "string",
+          "enum": ["queued", "accepted", "delivered", "processing", "replied", "expired", "failed"]
+        },
         "content": {
           "type": "array",
           "items": { "$ref": "#/$defs/ContentPart" },
@@ -276,7 +383,7 @@
         "created_by": { "$ref": "#/$defs/Id" },
         "assignee_id": { "$ref": "#/$defs/Id" },
         "workspace_id": { "$ref": "#/$defs/Id" },
-        "run_id": { "$ref": "#/$defs/Id" },
+        "run_id": { "type": ["string", "null"] },
         "root_objective_id": { "$ref": "#/$defs/Id" },
         "parent_task_id": { "type": ["string", "null"] },
         "reason": { "type": "string", "minLength": 1 },
@@ -297,6 +404,7 @@
           "uniqueItems": true
         },
         "lease_id": { "$ref": "#/$defs/Id" },
+        "environment_lease_id": { "type": ["string", "null"] },
         "hop": { "type": "integer", "minimum": 0 },
         "max_hops": { "type": "integer", "minimum": 0 },
         "budget": { "$ref": "#/$defs/Budget" },
@@ -330,8 +438,8 @@
         "type": { "const": "artifact" },
         "workspace_id": { "$ref": "#/$defs/Id" },
         "created_by": { "$ref": "#/$defs/Id" },
-        "run_id": { "$ref": "#/$defs/Id" },
-        "task_id": { "$ref": "#/$defs/Id" },
+        "run_id": { "type": ["string", "null"] },
+        "task_id": { "type": ["string", "null"] },
         "media_type": { "type": ["string", "null"] },
         "kind": { "type": "string", "minLength": 1 },
         "version": { "type": "integer", "minimum": 1 },
@@ -384,6 +492,66 @@
         "budget": { "$ref": "#/$defs/Budget" }
       }
     },
+    "CapabilityLease": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["schema_version", "id", "type", "principal", "issued_to", "workspace_id", "task_id", "expires_at"],
+      "properties": {
+        "schema_version": { "const": "1.0" },
+        "id": { "$ref": "#/$defs/Id" },
+        "type": { "const": "capability_lease" },
+        "principal": { "$ref": "#/$defs/Id" },
+        "issued_to": { "$ref": "#/$defs/Id" },
+        "workspace_id": { "$ref": "#/$defs/Id" },
+        "task_id": { "$ref": "#/$defs/Id" },
+        "tools": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "connections": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "destructive_actions": { "type": "string", "enum": ["deny", "approval_required", "allow_by_policy"] },
+        "expires_at": { "$ref": "#/$defs/Timestamp" }
+      }
+    },
+    "EnvironmentLease": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["schema_version", "id", "type", "issued_to", "workspace_id", "environment_policy", "environment_ref", "expires_at"],
+      "properties": {
+        "schema_version": { "const": "1.0" },
+        "id": { "$ref": "#/$defs/Id" },
+        "type": { "const": "environment_lease" },
+        "issued_to": { "$ref": "#/$defs/Id" },
+        "workspace_id": { "$ref": "#/$defs/Id" },
+        "task_id": { "type": ["string", "null"] },
+        "environment_policy": {
+          "type": "string",
+          "enum": ["shared_workspace", "isolated_bot", "isolated_run", "external_managed"]
+        },
+        "environment_ref": { "$ref": "#/$defs/Id" },
+        "expires_at": { "$ref": "#/$defs/Timestamp" }
+      }
+    },
+    "Approval": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["schema_version", "id", "type", "workspace_id", "actor_id", "status", "action"],
+      "properties": {
+        "schema_version": { "const": "1.0" },
+        "id": { "$ref": "#/$defs/Id" },
+        "type": { "const": "approval" },
+        "workspace_id": { "$ref": "#/$defs/Id" },
+        "actor_id": { "$ref": "#/$defs/Id" },
+        "task_id": { "type": ["string", "null"] },
+        "status": { "type": "string", "enum": ["pending", "approved", "denied", "expired", "canceled"] },
+        "action": {
+          "type": "object",
+          "additionalProperties": true,
+          "required": ["kind", "summary"],
+          "properties": {
+            "kind": { "type": "string", "minLength": 1 },
+            "summary": { "type": "string", "minLength": 1 }
+          }
+        }
+      }
+    },
     "Event": {
       "type": "object",
       "additionalProperties": true,
@@ -394,14 +562,16 @@
         "type": { "type": "string", "minLength": 1 },
         "timestamp": { "$ref": "#/$defs/Timestamp" },
         "actor_id": { "$ref": "#/$defs/Id" },
-        "workspace_id": { "$ref": "#/$defs/Id" },
-        "run_id": { "$ref": "#/$defs/Id" },
-        "task_id": { "$ref": "#/$defs/Id" },
-        "room_id": { "$ref": "#/$defs/Id" },
-        "correlation_id": { "$ref": "#/$defs/Id" },
-        "causation_id": { "$ref": "#/$defs/Id" },
-        "trace_id": { "$ref": "#/$defs/Id" },
+        "workspace_id": { "type": ["string", "null"] },
+        "run_id": { "type": ["string", "null"] },
+        "task_id": { "type": ["string", "null"] },
+        "room_id": { "type": ["string", "null"] },
+        "thread_id": { "type": ["string", "null"] },
+        "correlation_id": { "type": ["string", "null"] },
+        "causation_id": { "type": ["string", "null"] },
+        "trace_id": { "type": ["string", "null"] },
         "summary": { "type": ["string", "null"] },
+        "attention_state": { "$ref": "#/$defs/AttentionState" },
         "provenance": { "$ref": "#/$defs/Provenance" }
       }
     }
