@@ -16,14 +16,25 @@ orchestration:
   mode: conversational
   speaker_policy: selective
   leader: null
+  work_owner_policy: explicit_single_owner
   max_rounds_per_user_turn: 3
   max_bot_messages_per_user_turn: 10
   allow_member_mentions: true
   allow_user_escalation: true
 
+threads:
+  enabled: true
+  inherit_room_scope: true
+
 context:
   history_policy: summarized
   max_recent_messages: 30
+
+attention:
+  surface_unread_results: true
+  surface_blockers: true
+  surface_approvals: true
+  surface_unresolved_handoffs: true
 
 budget:
   token_limit: null
