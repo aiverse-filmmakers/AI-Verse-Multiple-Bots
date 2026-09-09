@@ -14,6 +14,10 @@ function stringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.map(String) : [];
 }
 
+function asObject(value: unknown): JsonObject | null {
+  return typeof value === "object" && value !== null && !Array.isArray(value) ? value as JsonObject : null;
+}
+
 export interface RunResult {
   execution: ExecutionRecord;
   task: StoredObject;
@@ -153,16 +157,50 @@ export class BotRunner {
         attentionState: "unread_result"
       });
 
-      const creatorId = String(task.payload.created_by);
-      if (creatorId !== botId) {
-        this.gateway.sendMessage({
-          senderId: botId,
-          targetKind: this.gateway.getBot(creatorId) ? "bot" : "operator",
-          targetId: creatorId,
-          workspaceId: claimed.workspaceId,
-          text: `Task ${task.id} completed. Artifact: ${artifactId}. ${result.summary}`,
-          correlationId: String(task.payload.root_objective_id)
-        });
+      const responseTarget = asObject(task.payload.response_target);
+      if (responseTarget && typeof responseTarget.kind === "string" && typeof responseTarget.id === "string") {
+        if (responseTarget.kind === "room" || responseTarget.kind === "thread") {
+          let roomId = typeof responseTarget.roomId === "string" ? responseTarget.roomId : null;
+          const threadId = responseTarget.kind === "thread"
+            ? (typeof responseTarget.threadId === "string" ? responseTarget.threadId : responseTarget.id)
+            : (typeof responseTarget.threadId === "string" ? responseTarget.threadId : undefined);
+          if (!roomId && threadId) {
+            const thread = this.store.getObject(threadId);
+            if (thread?.kind === "thread" && typeof thread.payload.room_id === "string") roomId = thread.payload.room_id;
+          }
+          if (!roomId && responseTarget.kind === "room") roomId = responseTarget.id;
+          if (!roomId) throw new Error(`Response target ${responseTarget.kind}:${responseTarget.id} has no Room`);
+          this.gateway.publishRoomMessage({
+            senderId: botId,
+            roomId,
+            workspaceId: claimed.workspaceId,
+            threadId,
+            text: result.summary,
+            artifactRefs: [artifactId],
+            correlationId: String(task.payload.root_objective_id)
+          });
+        } else {
+          this.gateway.sendMessage({
+            senderId: botId,
+            targetKind: responseTarget.kind === "operator" ? "operator" : "bot",
+            targetId: responseTarget.id,
+            workspaceId: claimed.workspaceId,
+            text: `Task ${task.id} completed. Artifact: ${artifactId}. ${result.summary}`,
+            correlationId: String(task.payload.root_objective_id)
+          });
+        }
+      } else {
+        const creatorId = String(task.payload.created_by);
+        if (creatorId !== botId) {
+          this.gateway.sendMessage({
+            senderId: botId,
+            targetKind: this.gateway.getBot(creatorId) ? "bot" : "operator",
+            targetId: creatorId,
+            workspaceId: claimed.workspaceId,
+            text: `Task ${task.id} completed. Artifact: ${artifactId}. ${result.summary}`,
+            correlationId: String(task.payload.root_objective_id)
+          });
+        }
       }
 
       return {
