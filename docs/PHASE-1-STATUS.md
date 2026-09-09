@@ -4,7 +4,7 @@
 
 **Phase:** 1
 
-**Overall status:** in progress, approximately 92%
+**Overall status:** in progress, approximately 96%
 
 This file is the implementation ledger for Phase 1. It records what is actually on `main`, what has been tested, and what remains before the Phase 1 completion milestone is claimed.
 
@@ -46,12 +46,13 @@ Implemented lifecycle:
 Task assigned
   -> execution queued
   -> Bot wakes from event
-  -> queue claim
+  -> runner-owned queue claim
   -> Task running
+  -> execution heartbeat
   -> runtime adapter
   -> budget/loop/progress checks
-  -> Artifact published
-  -> Task completed
+  -> ownership recheck
+  -> Artifact + Task + queue finalization
   -> Handoff settlement when applicable
   -> creator/Room notified
 ```
@@ -64,6 +65,11 @@ Implemented safeguards:
 - lease expiry enforcement
 - environment lease lookup
 - runtime availability checked before claim
+- unique runner identity
+- execution ownership lease
+- continuous heartbeat
+- stale runner loses write authority
+- file-backed completion/failure/cancel finalization uses atomic Task/Artifact/queue transitions
 - canceled/failed/over-budget/no-progress execution cannot publish a normal completion Artifact
 
 ### Runtime adapter boundary
@@ -81,7 +87,7 @@ Implemented:
 - usage reporting for input/output tokens, cost and actions
 - runtime receipt surface
 
-A real external/model runtime adapter is intentionally still deferred until crash-recovery rules are hardened.
+A real external/model runtime adapter is intentionally still deferred until Bot registry rules are hardened.
 
 ### Delegation
 
@@ -102,6 +108,7 @@ Implemented:
 - automatic execution enqueue for immediately executable work
 - Room-backed Task delegation
 - loop/ping-pong guard before Task creation
+- persistent recovery policy and max-attempt metadata
 
 ### Rooms and Threads
 
@@ -245,9 +252,53 @@ Implemented:
 - return policy contract: `stay_with_target`, `return_on_completion`, `return_on_block`, `explicit_only`
 - automatic Handoff settlement on completion, failure and cancellation
 - ownership returns to source on completion when configured
-- runtime event subscribers receive atomic committed event batches
+- runtime event subscribers receive committed Handoff event batches
 - `POST /v1/handoffs/:id/reject`
 - canonical JSON Schema/validator alignment
+
+### Execution recovery hardening
+
+**Phase-1 gate complete.**
+
+Recovery is intentionally fail-safe:
+
+```text
+stale claimed/running execution
+  -> Task already terminal? reconcile, never replay
+  -> explicitly retry_safe and attempts remain? requeue
+  -> otherwise dead-letter and require operator review
+```
+
+Implemented:
+
+- unique runner IDs
+- execution claim leases
+- heartbeat timestamp and lease expiry
+- periodic heartbeat from a running adapter
+- runner-owned state transitions
+- late/superseded runner receives `ExecutionOwnershipError`
+- atomic file-backed Task/Artifact/queue completion
+- atomic file-backed failure/cancel transitions
+- startup stale-execution sweep
+- periodic stale-execution sweep
+- persistent `manual` / `retry_safe` recovery policy
+- persistent `maxAttempts`
+- replay-safe retry with attempt counting
+- attempt-exhaustion dead-lettering
+- manual/unknown side-effect work never auto-replays
+- terminal Task stale-queue reconciliation
+- visible blocked Task on dead-letter
+- recovery provenance on the Task
+- `execution.requeued`
+- `execution.dead_letter`
+- `execution.reconciled`
+- `execution.retry_authorized`
+- operator-only dead-letter retry
+- `GET /v1/recovery/dead-letters`
+- `POST /v1/tasks/:id/retry`
+- `recoveryPolicy` and `maxAttempts` on HTTP delegation
+- event-driven execution drain deferred one microtask so delegation metadata settles before claim
+- slow live runtime proven to remain owned through heartbeat beyond its original short lease
 
 ## Current HTTP surface
 
@@ -260,6 +311,8 @@ Implemented main endpoints include:
 - `GET /v1/mailbox/:id`
 - `POST /v1/delegations`
 - `POST /v1/tasks/:id/cancel`
+- `POST /v1/tasks/:id/retry`
+- `GET /v1/recovery/dead-letters`
 - `GET /v1/approvals`
 - `POST /v1/approvals/:id/approve`
 - `POST /v1/approvals/:id/deny`
@@ -283,23 +336,27 @@ Default binding remains localhost-oriented.
 
 ## Test and CI status
 
-Latest verified GitHub Actions suite after Handoff Hardening and contract alignment: **32/32 passing**.
+Latest verified GitHub Actions suite after Execution Recovery Hardening: **40/40 passing**.
 
-Newly proven Handoff behavior includes:
+Newly proven recovery behavior includes:
 
-- accepted Handoff atomically retargets queued execution
-- capability authority is reissued rather than reused
-- pending Approval follows the new Task owner without prematurely queueing work
-- rejected Handoff leaves Task, queue and authority unchanged
-- Handoff acceptance refuses already-claimed execution
-- immutable constraint tampering blocks acceptance
-- `return_on_completion` returns ownership to the source after successful target execution
-- `stay_with_target` preserves target ownership after completion
-- Safety II budget fields and canonical Handoff keys are locked by schema regression tests
-- runtime validator rejects legacy-only Handoff aliases
+- stale `retry_safe` execution is requeued
+- late old runner loses write authority after recovery
+- replacement runner increments execution attempt number
+- stale `manual` execution dead-letters rather than replaying
+- retry-safe execution dead-letters when attempts are exhausted
+- terminal Task with stale queue state is reconciled without replay
+- only operator can retry dead-lettered work
+- fresh heartbeat prevents stale recovery
+- a genuinely slow runtime keeps its execution lease alive through continuous heartbeats
+- HTTP delegation persists recovery policy and max attempts
+- HTTP dead-letter inspection works
+- HTTP Bot actor cannot authorize retry
+- HTTP operator retry restores blocked work to `assigned`/`queued`
 
 Previously proven behavior remains covered:
 
+- Handoff atomicity and return policies
 - child Task budget inheritance and anti-expansion
 - root Task-count budget
 - lineage ping-pong protection
@@ -322,40 +379,32 @@ Node's built-in `node:sqlite` still emits its experimental-feature warning on No
 
 ## Remaining Phase 1 work
 
-### A. Execution recovery hardening - NEXT
+### A. Bot registry hardening - NEXT
 
-- stale claimed/running detection
-- execution heartbeat/lease
-- safe recovery policy
-- retry rules
-- dead-letter state
-- multi-process runner ownership
+- explicit activate/disable/archive transitions
+- duplicate ID protection
+- normalized workspace-local name/alias collision rules
+- manager relationship validation
+- peer relationship validation
+- lifecycle transition safety while Bot owns active work
 
-Do not blindly retry unknown external side effects after a crash.
+### B. First real runtime adapter
 
-### B. Bot registry hardening
-
-- disable/archive transitions
-- alias/collision rules outside Rooms
-- relationship validation
-
-### C. First real runtime adapter
-
-After recovery rules are green:
+After registry rules are green:
 
 - attach one real useful runtime behind the existing interface
 - normalize runtime/tool receipts
 - prove two persistent Bots collaborating end-to-end with the real adapter
 
-### D. Final Phase-1 contract pass
+### C. Final Phase-1 contract pass
 
 - apply Room aggregate max-message/max-round envelopes
 - release-level conformance tests
-- final restart/cancel/handoff/approval acceptance scenario
+- final restart/cancel/handoff/approval/recovery acceptance scenario
 - verify clean install/doctor prerequisites needed for Phase 5 packaging
 
 ## Immediate next implementation step
 
-Build **Execution Recovery Hardening**.
+Build **Bot Registry Hardening**.
 
-The recovery rule is conservative: pure/idempotent work may be safely requeued after a stale execution lease, but work with unknown or consequential external side effects must never be blindly replayed after a crash. It must enter a visible dead-letter/manual-recovery state instead.
+The registry must treat durable Bot identity as long-lived coordination state. Creating, disabling, reactivating or archiving a Bot must never silently overwrite another Bot, create ambiguous addressing, break workspace boundaries, introduce manager cycles, or strand active owned work.
