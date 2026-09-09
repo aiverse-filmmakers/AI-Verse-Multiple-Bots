@@ -60,6 +60,7 @@ test("Room mention schedules bounded Bot work and publishes the result back into
     });
     assert.deepEqual(first.mentions, ["bot_research-lead"]);
     assert.equal(first.scheduledTaskIds.length, 1);
+    assert.match(first.correlationId, /^turn_/);
 
     await supervisor.waitForIdle();
     const roomMessages = store.listObjects("message", "ws_room")
@@ -131,6 +132,100 @@ test("Room membership and mention failures are visible and do not silently route
 
     const types = store.listEventsAfter(0, 100).map((entry) => entry.event.type);
     assert.ok(types.includes("room.unresolved_mention"));
+  } finally {
+    store.close();
+  }
+});
+
+test("Room max_messages budget is enforced across repeated scheduling calls in one correlation turn", () => {
+  const store = new CoordinationStore(":memory:");
+  const gateway = new CoordinationGateway(store);
+  const rooms = new RoomCoordinator(store, gateway);
+  try {
+    gateway.createBot(bot("bot_budget-a", "Budget A"));
+    gateway.createBot(bot("bot_budget-b", "Budget B"));
+    gateway.createBot(bot("bot_budget-c", "Budget C"));
+    const room = rooms.createRoom({
+      id: "room_message_budget",
+      name: "Message Budget Room",
+      workspaceId: "ws_room",
+      memberIds: ["bot_budget-a", "bot_budget-b", "bot_budget-c"],
+      speakerPolicy: "all_members",
+      maxBotMessagesPerUserTurn: 2,
+      maxRoundsPerUserTurn: 3
+    });
+
+    const first = rooms.sendMessage({
+      roomId: room.id,
+      senderId: "operator_local",
+      text: "First bounded dispatch",
+      correlationId: "turn_message_budget"
+    });
+    assert.equal(first.scheduledTaskIds.length, 2);
+    assert.equal(first.budgetExhausted, undefined);
+
+    const second = rooms.sendMessage({
+      roomId: room.id,
+      senderId: "operator_local",
+      text: "Try to schedule more in the same turn",
+      correlationId: "turn_message_budget"
+    });
+    assert.equal(second.scheduledTaskIds.length, 0);
+    assert.equal(second.budgetExhausted, "max_messages");
+    assert.equal(
+      store.listObjects("task", "ws_room").filter((task) => task.payload.root_objective_id === "turn_message_budget").length,
+      2
+    );
+    const exhausted = store.listRoomEvents(room.id, 0, 100)
+      .filter((entry) => entry.event.type === "room.budget_exhausted");
+    assert.equal(exhausted.length, 1);
+    assert.match(String(exhausted[0]?.event.summary), /max_messages/);
+  } finally {
+    store.close();
+  }
+});
+
+test("Room max_rounds budget prevents another scheduling round for the same correlation turn", () => {
+  const store = new CoordinationStore(":memory:");
+  const gateway = new CoordinationGateway(store);
+  const rooms = new RoomCoordinator(store, gateway);
+  try {
+    gateway.createBot(bot("bot_round-lead", "Round Lead"));
+    const room = rooms.createRoom({
+      id: "room_round_budget",
+      name: "Round Budget Room",
+      workspaceId: "ws_room",
+      memberIds: ["bot_round-lead"],
+      leaderId: "bot_round-lead",
+      speakerPolicy: "selective",
+      maxBotMessagesPerUserTurn: 5,
+      maxRoundsPerUserTurn: 1
+    });
+
+    const first = rooms.sendMessage({
+      roomId: room.id,
+      senderId: "operator_local",
+      text: "Round one",
+      correlationId: "turn_round_budget"
+    });
+    assert.equal(first.scheduledTaskIds.length, 1);
+
+    const second = rooms.sendMessage({
+      roomId: room.id,
+      senderId: "operator_local",
+      text: "Round two should be blocked",
+      correlationId: "turn_round_budget"
+    });
+    assert.equal(second.scheduledTaskIds.length, 0);
+    assert.equal(second.budgetExhausted, "max_rounds");
+
+    const rounds = store.listRoomEvents(room.id, 0, 100)
+      .filter((entry) => entry.event.type === "room.round_scheduled" && entry.event.correlation_id === "turn_round_budget");
+    assert.equal(rounds.length, 1);
+    const exhausted = store.listRoomEvents(room.id, 0, 100)
+      .filter((entry) => entry.event.type === "room.budget_exhausted" && entry.event.correlation_id === "turn_round_budget");
+    assert.equal(exhausted.length, 1);
+    assert.match(String(exhausted[0]?.event.summary), /max_rounds/);
   } finally {
     store.close();
   }
