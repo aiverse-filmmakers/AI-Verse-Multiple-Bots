@@ -219,16 +219,16 @@
     "Worker": {
       "type": "object",
       "additionalProperties": true,
-      "required": ["schema_version", "id", "type", "run_id", "created_by", "workspace_id", "role", "status"],
+      "required": ["schema_version", "id", "type", "kind", "run_id", "task_id", "created_by", "parent_owner_id", "workspace_id", "role", "status"],
       "properties": {
         "schema_version": { "const": "1.0" },
         "id": { "$ref": "#/$defs/Id" },
         "type": { "const": "worker" },
         "kind": { "type": "string", "enum": ["temporary"] },
         "run_id": { "$ref": "#/$defs/Id" },
-        "task_id": { "type": ["string", "null"] },
+        "task_id": { "$ref": "#/$defs/Id" },
         "created_by": { "$ref": "#/$defs/Id" },
-        "parent_owner_id": { "type": ["string", "null"] },
+        "parent_owner_id": { "$ref": "#/$defs/Id" },
         "workspace_id": { "$ref": "#/$defs/Id" },
         "role": {
           "type": "object",

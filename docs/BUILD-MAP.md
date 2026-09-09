@@ -15,7 +15,7 @@ The target is an installable persistent-teammate layer that can run standalone o
 ```text
 Phase 0  Research + Architecture        [COMPLETE]  100%
 Phase 1  Runnable Coordination Core     [COMPLETE]  100%
-Phase 2  Dynamic Multi-Agent Squads     [NOT STARTED]
+Phase 2  Dynamic Multi-Agent Squads     [IN PROGRESS]
 Phase 3  AI-Verse Native Integration    [NOT STARTED]
 Phase 4  Runtime / A2A Interoperability [NOT STARTED]
 Phase 5  Product + Install + Dashboard  [NOT STARTED]
@@ -295,14 +295,30 @@ None.
 
 ## Phase 2 - Dynamic Multi-Agent Squads
 
-**Status:** NOT STARTED
+**Status:** IN PROGRESS
 
 Goal: a durable Bot decides whether to work alone or create bounded temporary Workers.
 
-Remaining major slices:
+### Completed Phase 2 substrate
 
-1. Team Run object and lifecycle
-2. temporary Worker identities
+1. **Team Run object and lifecycle - COMPLETE**
+   - durable run identity, workspace/root-objective scope and explicit leader
+   - canonical lifecycle transition graph
+   - run-scoped ordered events and replay
+   - restart persistence
+   - terminal-run guard while temporary Workers remain active
+2. **Temporary Worker identities/lifecycle - COMPLETE**
+   - run-scoped `worker_*` identity distinct from durable Bots
+   - atomic Worker + unscheduled Task + capability/environment lease creation
+   - explicit parent owner and task binding
+   - inherited constraints and bounded run/leader authority
+   - `max_workers` plus leader `max_parallel_workers` enforcement
+   - explicit Worker lifecycle and terminal Task coupling
+   - no durable Bot registration, Room membership or automatic long-term memory authority
+   - no execution queue exposure until a later topology/execution slice schedules the Worker Task
+
+### Remaining major slices
+
 3. manager/supervisor topology
 4. parallel fan-out
 5. direct handoff topology

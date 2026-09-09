@@ -12,6 +12,7 @@ import { BotRunner } from "./runner.js";
 import { DeterministicRuntimeAdapter, RuntimeRegistry } from "./runtime.js";
 import { CoordinationStore } from "./store.js";
 import { ExecutionSupervisor } from "./supervisor.js";
+import { TeamRunCoordinator, type TeamRunStatus, type TeamRunTopology, type WorkerStatus } from "./team-runs.js";
 
 export interface GatewayServerOptions {
   host?: string;
@@ -80,6 +81,7 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
   const policy = new CoordinationPolicy(store, { requireRegisteredBots: true });
   const gateway = new CoordinationGateway(store, executionQueue, policy);
   const rooms = new RoomCoordinator(store, gateway);
+  const teamRuns = new TeamRunCoordinator(store, gateway, policy);
   const runtimes = new RuntimeRegistry()
     .register(new DeterministicRuntimeAdapter())
     .register(new OpenAICompatibleRuntimeAdapter());
@@ -265,6 +267,102 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
           return;
         }
         json(res, 200, room);
+        return;
+      }
+
+      if (method === "GET" && url.pathname === "/v1/team-runs") {
+        json(res, 200, { runs: teamRuns.listRuns(url.searchParams.get("workspace") ?? undefined) });
+        return;
+      }
+
+      if (method === "POST" && url.pathname === "/v1/team-runs") {
+        const body = await readJson(req);
+        json(res, 201, teamRuns.createRun({
+          createdBy: requiredString(body, "createdBy"),
+          leaderId: requiredString(body, "leaderId"),
+          workspaceId: requiredString(body, "workspaceId"),
+          rootObjectiveId: requiredString(body, "rootObjectiveId"),
+          topology: typeof body.topology === "string" ? body.topology as TeamRunTopology : undefined,
+          budget: typeof body.budget === "object" && body.budget !== null && !Array.isArray(body.budget) ? body.budget as BudgetEnvelope : undefined,
+          parentTaskId: typeof body.parentTaskId === "string" ? body.parentTaskId : undefined,
+          reason: typeof body.reason === "string" ? body.reason : undefined
+        }));
+        return;
+      }
+
+      const teamRunEventsMatch = url.pathname.match(/^\/v1\/team-runs\/([^/]+)\/events$/);
+      if (method === "GET" && teamRunEventsMatch) {
+        const runId = decodeURIComponent(teamRunEventsMatch[1] as string);
+        const after = Number(url.searchParams.get("after") ?? "0");
+        const limit = Math.min(Number(url.searchParams.get("limit") ?? "100"), 1000);
+        json(res, 200, { events: store.listRunEvents(runId, after, limit) });
+        return;
+      }
+
+      const teamRunWorkersMatch = url.pathname.match(/^\/v1\/team-runs\/([^/]+)\/workers$/);
+      if (method === "GET" && teamRunWorkersMatch) {
+        json(res, 200, { workers: teamRuns.listWorkers(decodeURIComponent(teamRunWorkersMatch[1] as string)) });
+        return;
+      }
+      if (method === "POST" && teamRunWorkersMatch) {
+        const body = await readJson(req);
+        const role = typeof body.role === "object" && body.role !== null && !Array.isArray(body.role) ? body.role as JsonObject : {};
+        json(res, 201, teamRuns.spawnWorker({
+          runId: decodeURIComponent(teamRunWorkersMatch[1] as string),
+          createdBy: requiredString(body, "createdBy"),
+          role: {
+            title: requiredString(role, "title"),
+            objective: requiredString(role, "objective")
+          },
+          requiredConstraints: Array.isArray(body.requiredConstraints) ? body.requiredConstraints.map(String) : [],
+          expectedOutput: typeof body.expectedOutput === "object" && body.expectedOutput !== null && !Array.isArray(body.expectedOutput)
+            ? body.expectedOutput as JsonObject
+            : undefined,
+          tools: Array.isArray(body.tools) ? body.tools.map(String) : [],
+          connections: Array.isArray(body.connections) ? body.connections.map(String) : [],
+          budget: typeof body.budget === "object" && body.budget !== null && !Array.isArray(body.budget) ? body.budget as BudgetEnvelope : undefined,
+          deadlineAt: typeof body.deadlineAt === "string" ? body.deadlineAt : undefined,
+          leaseExpiresAt: typeof body.leaseExpiresAt === "string" ? body.leaseExpiresAt : undefined,
+          runtimeAdapter: typeof body.runtimeAdapter === "string" ? body.runtimeAdapter : undefined,
+          runtimeProfileRef: body.runtimeProfileRef === null || typeof body.runtimeProfileRef === "string" ? body.runtimeProfileRef as string | null : undefined,
+          environmentPolicy: typeof body.environmentPolicy === "string" ? body.environmentPolicy as any : undefined,
+          environmentRef: typeof body.environmentRef === "string" ? body.environmentRef : undefined
+        }));
+        return;
+      }
+
+      const teamRunTransitionMatch = url.pathname.match(/^\/v1\/team-runs\/([^/]+)\/transition$/);
+      if (method === "POST" && teamRunTransitionMatch) {
+        const body = await readJson(req);
+        json(res, 200, teamRuns.transitionRun(
+          decodeURIComponent(teamRunTransitionMatch[1] as string),
+          requiredString(body, "status") as TeamRunStatus,
+          requiredString(body, "actorId"),
+          typeof body.reason === "string" ? body.reason : undefined
+        ));
+        return;
+      }
+
+      const workerTransitionMatch = url.pathname.match(/^\/v1\/workers\/([^/]+)\/transition$/);
+      if (method === "POST" && workerTransitionMatch) {
+        const body = await readJson(req);
+        json(res, 200, teamRuns.transitionWorker(
+          decodeURIComponent(workerTransitionMatch[1] as string),
+          requiredString(body, "status") as WorkerStatus,
+          requiredString(body, "actorId"),
+          typeof body.reason === "string" ? body.reason : undefined
+        ));
+        return;
+      }
+
+      const teamRunGetMatch = url.pathname.match(/^\/v1\/team-runs\/([^/]+)$/);
+      if (method === "GET" && teamRunGetMatch) {
+        const run = teamRuns.getRun(decodeURIComponent(teamRunGetMatch[1] as string));
+        if (!run) {
+          json(res, 404, { error: "NOT_FOUND" });
+          return;
+        }
+        json(res, 200, run);
         return;
       }
 
@@ -492,6 +590,7 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
     policy,
     gateway,
     rooms,
+    teamRuns,
     runtimes,
     runner,
     supervisor,
