@@ -15,13 +15,13 @@ The target is an installable persistent-teammate layer that can run standalone o
 ```text
 Phase 0  Research + Architecture        [COMPLETE]    100%
 Phase 1  Runnable Coordination Core     [COMPLETE]    100%
-Phase 2  Dynamic Multi-Agent Squads     [IN PROGRESS] ~15%
+Phase 2  Dynamic Multi-Agent Squads     [IN PROGRESS] ~30%
 Phase 3  AI-Verse Native Integration    [NOT STARTED]
 Phase 4  Runtime / A2A Interoperability [NOT STARTED]
 Phase 5  Product + Install + Dashboard  [NOT STARTED]
 ```
 
-**Directional overall first-release progress:** roughly 43% complete.
+**Directional overall first-release progress:** roughly 46% complete.
 
 That overall figure is intentionally approximate because later phases contain different amounts of work. Passed phase gates, not percentages, are authoritative.
 
@@ -103,8 +103,8 @@ That overall figure is intentionally approximate because later phases contain di
 - manager-cycle detection
 - manager dependency guards during disable/archive
 - explicit peer validation
-- safe forward peer declarations with inbound scope validation when the target appears
-- self-peer and cross-scope peer rejection
+- safe forward peer declaration
+- cross-scope peer rejection
 - lifecycle transition blocked while a Bot owns or is assigned live work
 - archive blocked while active Rooms still reference the Bot
 - disabled Room members cannot speak, resolve as active mentions, receive speaker scheduling or own Room work
@@ -162,7 +162,7 @@ That overall figure is intentionally approximate because later phases contain di
 - terminal Task state reconciles stale queue state without replay
 - dead-letter Task becomes visibly blocked with recovery metadata
 - operator-only dead-letter retry
-- HTTP dead-letter listing and retry controls
+- HTTP dead-letter inspection/retry
 - live long-running runtime heartbeat proven in CI
 - canceled/failed/over-budget Tasks publish no successful Artifact
 
@@ -202,10 +202,10 @@ That overall figure is intentionally approximate because later phases contain di
 - atomic Handoff + Task ownership + lease + Approval + queue + event mutation
 - queued execution retargeting
 - claimed/running execution fails closed rather than moving underneath a runner
-- capability authority reissued to the target instead of reusing source authority
+- capability authority reissued to target
 - target capability compatibility validation
 - shared-workspace environment lease reissue
-- isolated/external environment transfers fail closed until an adapter-specific secure transfer exists
+- isolated/external environment transfers fail closed until a secure adapter exists
 - pending Approval actor retargeting without prematurely queueing work
 - immutable constraint digest verification and stricter-constraint preservation
 - `stay_with_target`, `return_on_completion`, `return_on_block`, and `explicit_only` policy contract
@@ -234,8 +234,8 @@ That overall figure is intentionally approximate because later phases contain di
 - Room replay HTTP API
 - disabled Bots remain durable members but are unavailable for active Room work
 - durable correlation IDs for multi-call Room turns
-- aggregate `max_messages` enforcement across a complete correlation turn
-- aggregate `max_rounds` enforcement across a complete correlation turn
+- aggregate `max_messages` enforcement across a complete turn
+- aggregate `max_rounds` enforcement across a complete turn
 - visible `room.round_scheduled` and `room.budget_exhausted` events
 
 Advanced squad/topology behavior belongs in Phase 2.
@@ -271,7 +271,7 @@ Implemented and enforced:
 - first-class Approval objects
 - approval queue
 - operator-only approval decisions
-- approval-required Tasks remain outside the execution queue
+- approval-required Tasks remain outside execution queue
 - denied approval cancels work and produces no Artifact
 - fail-safe crash recovery that never auto-replays work unless explicitly declared replay-safe
 - Bot identity/lifecycle rules that prevent silent retargeting or disabling a live owner
@@ -297,9 +297,9 @@ None.
 
 **Status:** IN PROGRESS
 
-**Current phase progress:** approximately 15%.
+**Current phase progress:** approximately 30%.
 
-**Current verification:** GitHub Actions run 109 on 2026-09-09 passed **60/60 tests** at commit `bf745457ccb37922ae2d8873eb0dc908631b089f`.
+**Current verification:** GitHub Actions run 116 on 2026-09-09 passed **66/66 tests** at commit `c0399a9bcc6a78a917ec1942007f81290baa18e7`.
 
 Goal: a durable Bot decides whether to work alone or create bounded temporary Workers.
 
@@ -307,35 +307,45 @@ Major slices:
 
 1. Team Run object and lifecycle - **COMPLETE**
 2. temporary Worker identities and bounded lifecycle - **COMPLETE**
-3. manager/supervisor topology - **NEXT**
-4. parallel fan-out - remaining
+3. Worker execution + manager/supervisor topology - **COMPLETE**
+4. parallel fan-out - **NEXT**
 5. direct handoff topology - remaining
 6. group/discussion topology where justified - remaining
 7. disagreement detection - remaining
 8. verifier/critic role - remaining
 9. synthesis - remaining
-10. Worker cleanup - remaining beyond the terminal expiry foundation already implemented
-11. adaptive "single Bot vs squad" decision policy - remaining
-12. squad budget/cancellation controls - remaining beyond the `max_workers`, budget-boundary, and terminal-cascade foundation already implemented
+10. Worker cleanup - remaining beyond terminal expiry foundation already implemented
+11. adaptive `single Bot vs squad` decision policy - remaining
+12. squad budget/cancellation controls - remaining beyond current `max_workers`, aggregate usage, cancellation and recovery foundation
 
-### Phase 2 foundation now implemented
+### Phase 2 capabilities now implemented
 
 - canonical Team Run records and explicit lifecycle
 - active durable Bot leader and same-workspace enforcement
-- run-scoped `worker_*` identities that never enter the durable Bot registry
+- run-scoped `worker_*` identities that never enter durable Bot registry
 - no default Worker Room membership or long-term memory authority
 - leader-only Worker lifecycle control
 - `can_create_workers` permission enforcement
 - Team Run `max_workers` enforcement
-- Worker budget cannot expand configured Team Run limits
+- Worker budget cannot expand Team Run limits
 - Worker Task binding before ready/running execution states
 - atomic run/Worker/event state changes with concurrency preconditions
-- terminal Run cancellation/failure/budget exhaustion cascades to active Workers
+- terminal Run transitions refuse to strand live Worker Tasks
 - terminal Worker expiry cleanup with retained audit records
 - restart-persistent Team Run and Worker audit state
+- common execution-principal runtime contract for Bots and Workers
+- Worker-aware event-driven execution supervisor
+- Worker runtime inheritance from durable leader with run-scoped overrides
+- Worker capability/environment lease validation
+- successful Worker Artifact publication with `worker_generated` provenance
+- manager topology with race-safe Worker + lease + Task preparation before execution wake-up
+- leader authority cannot be expanded through managed Worker tool/connection grants
+- aggregate Team Run usage enforcement before Artifact acceptance
+- live Team Run cancellation aborts Worker Tasks and runtime execution
+- retry-safe Worker execution recovery across restart
 - package-level implementation with no AI-Verse OS-specific dependency
 
-The next gate is Worker-aware execution dispatch plus manager/supervisor topology. Temporary Workers must execute through bounded Tasks and leases without being promoted into durable Bots.
+The next gate is bounded parallel fan-out under one Team Run, including concurrency-safe aggregate budget accounting and multi-Worker restart/cancellation behavior.
 
 ## Phase 3 - AI-Verse Native Integration
 
@@ -403,7 +413,7 @@ The first finished release must prove at minimum:
 - work survives restart
 - cancellation works
 - budgets/limits stop runaway coordination
-- approval-required actions cannot bypass the approval boundary
+- approval-required actions cannot bypass approval boundary
 - workspace isolation cannot be bypassed through Bot-to-Bot routing
 - external runtime failure does not corrupt coordination state
 - Dashboard/channel clients can observe/control without owning truth
