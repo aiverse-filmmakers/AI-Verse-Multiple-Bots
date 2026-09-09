@@ -299,6 +299,17 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
         return;
       }
 
+      const taskEscalateMatch = url.pathname.match(/^\/v1\/tasks\/([^/]+)\/escalate$/);
+      if (method === "POST" && taskEscalateMatch) {
+        const body = await readJson(req);
+        json(res, 202, gateway.requestUserEscalation({
+          taskId: decodeURIComponent(taskEscalateMatch[1] as string),
+          actorId: requiredString(body, "actorId"),
+          reason: requiredString(body, "reason")
+        }));
+        return;
+      }
+
       const taskCancelMatch = url.pathname.match(/^\/v1\/tasks\/([^/]+)\/cancel$/);
       if (method === "POST" && taskCancelMatch) {
         const body = await readJson(req);

@@ -81,6 +81,60 @@ export class CoordinationLoopGuard {
     }
   }
 
+  assertHandoff(input: {
+    workspaceId: string;
+    workItemId: string;
+    rootObjectiveId: string;
+    sourceOwnerId: string;
+    targetOwnerId: string;
+  }): void {
+    if (input.sourceOwnerId === input.targetOwnerId) return;
+
+    const transitionedStatuses = new Set(["accepted", "ownership_changed", "completed", "failed", "canceled"]);
+    const history = this.store.listObjects("handoff", input.workspaceId)
+      .filter((handoff) => String(handoff.payload.task_id ?? handoff.payload.work_item_id ?? "") === input.workItemId)
+      .filter((handoff) => String(handoff.payload.root_objective_id ?? "") === input.rootObjectiveId)
+      .filter((handoff) => transitionedStatuses.has(String(handoff.payload.status ?? "")));
+
+    const candidatePair = pairKey(input.sourceOwnerId, input.targetOwnerId);
+    const pairTransitions = history.filter((handoff) => {
+      const source = String(handoff.payload.source_owner_id ?? "");
+      const target = String(handoff.payload.target_bot_id ?? handoff.payload.target_owner_id ?? "");
+      return source && target && pairKey(source, target) === candidatePair;
+    }).length;
+    if (pairTransitions + 1 >= this.maxPairTransitions) {
+      throw new CoordinationLoopError(
+        "PING_PONG_DETECTED",
+        `Handoff would create ${pairTransitions + 1} ownership transitions between ${input.sourceOwnerId} and ${input.targetOwnerId} for ${input.workItemId}`
+      );
+    }
+
+    const edges = new Map<string, Set<string>>();
+    for (const handoff of history) {
+      const source = String(handoff.payload.source_owner_id ?? "");
+      const target = String(handoff.payload.target_bot_id ?? handoff.payload.target_owner_id ?? "");
+      if (!source || !target || source === target) continue;
+      const targets = edges.get(source) ?? new Set<string>();
+      targets.add(target);
+      edges.set(source, targets);
+    }
+
+    const pending = [input.targetOwnerId];
+    const visited = new Set<string>();
+    while (pending.length > 0) {
+      const current = pending.pop() as string;
+      if (current === input.sourceOwnerId) {
+        throw new CoordinationLoopError(
+          "LOOP_DETECTED",
+          `Handoff ${input.sourceOwnerId} -> ${input.targetOwnerId} would close an ownership cycle for ${input.workItemId}`
+        );
+      }
+      if (visited.has(current)) continue;
+      visited.add(current);
+      for (const next of edges.get(current) ?? []) pending.push(next);
+    }
+  }
+
   assertProgress(input: {
     task: StoredObject;
     fingerprint: string;

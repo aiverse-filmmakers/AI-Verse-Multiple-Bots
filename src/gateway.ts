@@ -6,7 +6,8 @@ import { MailboxCoordinator } from "./mailbox.js";
 import type { MailboxTransitionInput, MailboxWakeListener, SendMessageInput } from "./mailbox.js";
 import { ExecutionQueue } from "./execution-queue.js";
 import { CanonicalEventBus } from "./event-bus.js";
-import { CoordinationPolicy } from "./policy.js";
+import { CoordinationLoopError } from "./loop-guard.js";
+import { CoordinationPolicy, type PreparedDelegationSafety } from "./policy.js";
 import { CoordinationStore } from "./store.js";
 import type { AppendedEvent, BotManifest, CoordinationEvent, DeliveryRecord, JsonObject, StoredObject } from "./types.js";
 import { validateProtocolObject } from "./validator.js";
@@ -70,6 +71,12 @@ export interface HandoffInput {
   requiredConstraints?: string[];
   artifactRefs?: string[];
   returnPolicy?: "stay_with_target" | "return_on_completion" | "return_on_block" | "explicit_only";
+}
+
+export interface UserEscalationInput {
+  taskId: string;
+  actorId: string;
+  reason: string;
 }
 
 export interface PublishRoomMessageInput {
@@ -188,28 +195,39 @@ export class CoordinationGateway {
     approval: StoredObject | null;
     event: AppendedEvent;
   } {
-    const prepared = this.policy?.prepareDelegation({
-      createdBy: input.createdBy,
-      assigneeId: input.assigneeId,
-      workspaceId: input.workspaceId,
-      rootObjectiveId: input.rootObjectiveId,
-      objective: input.objective,
-      requiredConstraints: input.requiredConstraints,
-      tools: input.tools,
-      connections: input.connections,
-      parentTaskId: input.parentTaskId,
-      hop: input.hop,
-      maxHops: input.maxHops,
-      deadlineAt: input.deadlineAt,
-      budget: input.budget
-    }) ?? {
-      parentTaskId: input.parentTaskId ?? null,
-      requiredConstraints: input.requiredConstraints ?? [],
-      hop: input.hop ?? 0,
-      maxHops: input.maxHops ?? 6,
-      deadlineAt: input.deadlineAt ?? null,
-      budget: input.budget ?? {}
-    };
+    let prepared: PreparedDelegationSafety;
+    try {
+      prepared = this.policy?.prepareDelegation({
+        createdBy: input.createdBy,
+        assigneeId: input.assigneeId,
+        workspaceId: input.workspaceId,
+        rootObjectiveId: input.rootObjectiveId,
+        objective: input.objective,
+        requiredConstraints: input.requiredConstraints,
+        tools: input.tools,
+        connections: input.connections,
+        parentTaskId: input.parentTaskId,
+        hop: input.hop,
+        maxHops: input.maxHops,
+        deadlineAt: input.deadlineAt,
+        budget: input.budget
+      }) ?? {
+        parentTaskId: input.parentTaskId ?? null,
+        requiredConstraints: input.requiredConstraints ?? [],
+        hop: input.hop ?? 0,
+        maxHops: input.maxHops ?? 6,
+        deadlineAt: input.deadlineAt ?? null,
+        budget: input.budget ?? {}
+      };
+    } catch (error) {
+      this.emitLoopSafetyBlock(error, {
+        actorId: input.createdBy,
+        workspaceId: input.workspaceId,
+        correlationId: input.rootObjectiveId,
+        type: "safety.delegation_loop_blocked"
+      });
+      throw error;
+    }
 
     const inputArtifacts = this.validateDelegationInputArtifacts(input.workspaceId, input.inputArtifactRefs);
     const inputArtifactRefs = inputArtifacts.map((artifact) => artifact.id);
@@ -435,6 +453,55 @@ export class CoordinationGateway {
     return { approval: denied, task: canceledTask, events };
   }
 
+  requestUserEscalation(input: UserEscalationInput): AppendedEvent {
+    const reason = input.reason.trim();
+    if (!reason) throw new Error("User escalation reason cannot be empty");
+    const task = this.store.getObject(input.taskId);
+    if (!task || task.kind !== "task") throw new Error(`Escalation Task ${input.taskId} not found`);
+    const status = String(task.payload.status ?? "");
+    if (new Set(["completed", "failed", "canceled", "timeout", "budget_exhausted", "rejected_policy"]).has(status)) {
+      throw new Error(`Task ${task.id} is terminal and cannot request user escalation`);
+    }
+
+    const allowedActors = new Set([
+      String(task.payload.created_by ?? ""),
+      String(task.payload.assignee_id ?? ""),
+      String(task.payload.owner_id ?? "")
+    ]);
+    if (!input.actorId.startsWith("operator_") && !allowedActors.has(input.actorId)) {
+      throw new Error(`${input.actorId} is not authorized to escalate Task ${task.id}`);
+    }
+    this.assertEscalationPrincipal(input.actorId, String(task.workspaceId));
+
+    const responseTarget = objectValue(task.payload.response_target);
+    const roomId = typeof responseTarget.roomId === "string"
+      ? responseTarget.roomId
+      : typeof responseTarget.room_id === "string"
+        ? responseTarget.room_id
+        : responseTarget.kind === "room" && typeof responseTarget.id === "string"
+          ? responseTarget.id
+          : null;
+    const threadId = typeof responseTarget.threadId === "string"
+      ? responseTarget.threadId
+      : typeof responseTarget.thread_id === "string"
+        ? responseTarget.thread_id
+        : responseTarget.kind === "thread" && typeof responseTarget.id === "string"
+          ? responseTarget.id
+          : null;
+
+    return this.emit({
+      type: "user.escalation_requested",
+      actorId: input.actorId,
+      workspaceId: task.workspaceId,
+      taskId: task.id,
+      roomId,
+      threadId,
+      correlationId: String(task.payload.root_objective_id),
+      summary: reason,
+      attentionState: "needs_input"
+    });
+  }
+
   requestHandoff(input: HandoffInput): { handoff: StoredObject; event: AppendedEvent } {
     const task = this.store.getObject(input.workItemId);
     if (!task || task.kind !== "task") throw new Error(`Handoff Task ${input.workItemId} not found`);
@@ -459,6 +526,25 @@ export class CoordinationGateway {
         return candidateTaskId === task.id && new Set(["requested", "accepted"]).has(String(candidate.payload.status));
       });
     if (activeHandoff) throw new Error(`Task ${task.id} already has active Handoff ${activeHandoff.id}`);
+
+    try {
+      this.policy?.loopGuard.assertHandoff({
+        workspaceId: input.workspaceId,
+        workItemId: task.id,
+        rootObjectiveId: input.rootObjectiveId,
+        sourceOwnerId: input.sourceOwnerId,
+        targetOwnerId: input.targetOwnerId
+      });
+    } catch (error) {
+      this.emitLoopSafetyBlock(error, {
+        actorId: input.sourceOwnerId,
+        workspaceId: input.workspaceId,
+        taskId: task.id,
+        correlationId: input.rootObjectiveId,
+        type: "safety.handoff_loop_blocked"
+      });
+      throw error;
+    }
 
     const sourceLease = this.requireCapabilityLease(String(task.payload.lease_id));
     this.assertCapabilityLeaseForTask(sourceLease, task, input.sourceOwnerId);
@@ -1140,6 +1226,49 @@ export class CoordinationGateway {
     this.events.publishCommitted(events);
   }
 
+
+  private emitLoopSafetyBlock(
+    error: unknown,
+    input: {
+      actorId: string;
+      workspaceId: string;
+      correlationId: string;
+      taskId?: string;
+      type: "safety.delegation_loop_blocked" | "safety.handoff_loop_blocked";
+    }
+  ): void {
+    if (!(error instanceof CoordinationLoopError)) return;
+    this.emit({
+      type: input.type,
+      actorId: input.actorId,
+      workspaceId: input.workspaceId,
+      taskId: input.taskId,
+      correlationId: input.correlationId,
+      summary: `${error.code}: ${error.message}`,
+      attentionState: "needs_input"
+    });
+  }
+
+  private assertEscalationPrincipal(actorId: string, workspaceId: string): void {
+    if (actorId.startsWith("operator_")) return;
+    if (actorId.startsWith("bot_")) {
+      const bot = this.getBot(actorId);
+      if (!bot) throw new Error(`Escalation Bot ${actorId} is not registered`);
+      if (bot.payload.status !== "active") throw new Error(`Escalation Bot ${actorId} is not active`);
+      if (bot.workspaceId !== workspaceId) throw new Error(`Escalation Bot ${actorId} is outside workspace ${workspaceId}`);
+      return;
+    }
+    if (actorId.startsWith("worker_")) {
+      const worker = this.store.getObject(actorId);
+      if (!worker || worker.kind !== "worker") throw new Error(`Escalation Worker ${actorId} is not registered`);
+      if (worker.workspaceId !== workspaceId) throw new Error(`Escalation Worker ${actorId} is outside workspace ${workspaceId}`);
+      if (!new Set(["created", "ready", "running", "waiting"]).has(String(worker.payload.status ?? ""))) {
+        throw new Error(`Escalation Worker ${actorId} is not active`);
+      }
+      return;
+    }
+    throw new Error(`Unsupported escalation actor ${actorId}`);
+  }
 
   private validateDelegationInputArtifacts(workspaceId: string, refs: string[] | undefined): StoredObject[] {
     const artifacts: StoredObject[] = [];

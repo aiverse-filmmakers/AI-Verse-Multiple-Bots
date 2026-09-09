@@ -207,3 +207,199 @@ test("repeated identical completed output eventually fails as no progress", asyn
     store.close();
   }
 });
+
+
+test("Handoff safety blocks repeated pair transitions and longer ownership cycles before creating new Handoff state", () => {
+  const store = new CoordinationStore(":memory:");
+  const gateway = strictGateway(store);
+  try {
+    for (const id of ["bot_a", "bot_b", "bot_c"]) gateway.createBot(bot(id));
+
+    const repeated = gateway.delegate({
+      createdBy: "bot_c",
+      assigneeId: "bot_a",
+      workspaceId: "ws_safety",
+      rootObjectiveId: "obj_handoff_repeat",
+      objective: "Own repeat-guard work",
+      reason: "safety setup"
+    });
+    for (let index = 1; index <= 2; index += 1) {
+      gateway.record("handoff", {
+        schema_version: "1.0",
+        id: `handoff_repeat_${index}`,
+        type: "handoff",
+        source_owner_id: "bot_a",
+        target_bot_id: "bot_b",
+        workspace_id: "ws_safety",
+        task_id: repeated.task.id,
+        root_objective_id: "obj_handoff_repeat",
+        reason: `prior transition ${index}`,
+        required_constraints: [],
+        return_policy: "explicit_only",
+        status: "completed"
+      });
+    }
+
+    assert.throws(() => gateway.requestHandoff({
+      sourceOwnerId: "bot_a",
+      targetOwnerId: "bot_b",
+      workspaceId: "ws_safety",
+      workItemId: repeated.task.id,
+      rootObjectiveId: "obj_handoff_repeat",
+      reason: "third transition must be blocked"
+    }), (error: unknown) => error instanceof CoordinationLoopError && error.code === "PING_PONG_DETECTED");
+    assert.equal(store.listObjects("handoff", "ws_safety").filter((item) => item.payload.root_objective_id === "obj_handoff_repeat").length, 2);
+    assert.ok(store.listEventsAfter(0, 200).some((entry) =>
+      entry.event.type === "safety.handoff_loop_blocked" && entry.event.task_id === repeated.task.id
+    ));
+
+    const cyclic = gateway.delegate({
+      createdBy: "bot_a",
+      assigneeId: "bot_c",
+      workspaceId: "ws_safety",
+      rootObjectiveId: "obj_handoff_cycle",
+      objective: "Own cycle-guard work",
+      reason: "cycle setup"
+    });
+    gateway.record("handoff", {
+      schema_version: "1.0",
+      id: "handoff_cycle_ab",
+      type: "handoff",
+      source_owner_id: "bot_a",
+      target_bot_id: "bot_b",
+      workspace_id: "ws_safety",
+      task_id: cyclic.task.id,
+      root_objective_id: "obj_handoff_cycle",
+      reason: "A to B",
+      required_constraints: [],
+      return_policy: "explicit_only",
+      status: "completed"
+    });
+    gateway.record("handoff", {
+      schema_version: "1.0",
+      id: "handoff_cycle_bc",
+      type: "handoff",
+      source_owner_id: "bot_b",
+      target_bot_id: "bot_c",
+      workspace_id: "ws_safety",
+      task_id: cyclic.task.id,
+      root_objective_id: "obj_handoff_cycle",
+      reason: "B to C",
+      required_constraints: [],
+      return_policy: "explicit_only",
+      status: "completed"
+    });
+
+    assert.throws(() => gateway.requestHandoff({
+      sourceOwnerId: "bot_c",
+      targetOwnerId: "bot_a",
+      workspaceId: "ws_safety",
+      workItemId: cyclic.task.id,
+      rootObjectiveId: "obj_handoff_cycle",
+      reason: "C to A would close the cycle"
+    }), (error: unknown) => error instanceof CoordinationLoopError && error.code === "LOOP_DETECTED");
+    assert.equal(store.listObjects("handoff", "ws_safety").filter((item) => item.payload.root_objective_id === "obj_handoff_cycle").length, 2);
+  } finally {
+    store.close();
+  }
+});
+
+test("Worker capacity guard enforces max_workers without counting terminal Workers", () => {
+  const store = new CoordinationStore(":memory:");
+  const policy = new CoordinationPolicy(store, { requireRegisteredBots: true });
+  const gateway = new CoordinationGateway(store, undefined, policy);
+  try {
+    gateway.createBot(bot("bot_a"));
+    gateway.record("worker", {
+      schema_version: "1.0",
+      id: "worker_active_1",
+      type: "worker",
+      kind: "temporary",
+      run_id: "run_capacity",
+      created_by: "bot_a",
+      parent_owner_id: "bot_a",
+      task_id: "task_capacity_active_1",
+      workspace_id: "ws_safety",
+      role: { title: "Researcher", objective: "Research one bounded angle" },
+      status: "running"
+    });
+    gateway.record("worker", {
+      schema_version: "1.0",
+      id: "worker_terminal",
+      type: "worker",
+      kind: "temporary",
+      run_id: "run_capacity",
+      created_by: "bot_a",
+      parent_owner_id: "bot_a",
+      task_id: "task_capacity_terminal",
+      workspace_id: "ws_safety",
+      role: { title: "Finished", objective: "Already finished" },
+      status: "completed"
+    });
+
+    assert.deepEqual(policy.assertWorkerCapacity({
+      workspaceId: "ws_safety",
+      runId: "run_capacity",
+      budget: { max_workers: 2 },
+      additionalWorkers: 1
+    }), { activeWorkers: 1, requestedWorkers: 1, limit: 2 });
+
+    gateway.record("worker", {
+      schema_version: "1.0",
+      id: "worker_active_2",
+      type: "worker",
+      kind: "temporary",
+      run_id: "run_capacity",
+      created_by: "bot_a",
+      parent_owner_id: "bot_a",
+      task_id: "task_capacity_active_2",
+      workspace_id: "ws_safety",
+      role: { title: "Verifier", objective: "Verify one bounded angle" },
+      status: "waiting"
+    });
+
+    assert.throws(() => policy.assertWorkerCapacity({
+      workspaceId: "ws_safety",
+      runId: "run_capacity",
+      budget: { max_workers: 2 },
+      additionalWorkers: 1
+    }), (error: unknown) => error instanceof BudgetError && error.code === "WORKER_BUDGET_EXCEEDED");
+  } finally {
+    store.close();
+  }
+});
+
+test("task owner can explicitly escalate to the user and unauthorized peers cannot", () => {
+  const store = new CoordinationStore(":memory:");
+  const gateway = strictGateway(store);
+  try {
+    for (const id of ["bot_a", "bot_b", "bot_c"]) gateway.createBot(bot(id));
+    const delegated = gateway.delegate({
+      createdBy: "bot_a",
+      assigneeId: "bot_b",
+      workspaceId: "ws_safety",
+      rootObjectiveId: "obj_escalate",
+      objective: "Resolve an ambiguous decision",
+      reason: "Need bounded work",
+      approval: { required: true, reason: "Hold execution while the decision is unresolved" }
+    });
+
+    const escalation = gateway.requestUserEscalation({
+      taskId: delegated.task.id,
+      actorId: "bot_b",
+      reason: "I need the user's choice between the two safe options."
+    });
+    assert.equal(escalation.event.type, "user.escalation_requested");
+    assert.equal(escalation.event.task_id, delegated.task.id);
+    assert.equal(escalation.event.correlation_id, "obj_escalate");
+    assert.equal(escalation.event.attention_state, "needs_input");
+
+    assert.throws(() => gateway.requestUserEscalation({
+      taskId: delegated.task.id,
+      actorId: "bot_c",
+      reason: "Unrelated peer must not escalate someone else's work"
+    }), /not authorized to escalate/);
+  } finally {
+    store.close();
+  }
+});

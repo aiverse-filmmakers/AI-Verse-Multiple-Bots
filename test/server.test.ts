@@ -92,3 +92,37 @@ test("HTTP gateway exposes strict Bot messaging, Room replay and global event re
     await service.close();
   }
 });
+
+
+test("HTTP gateway exposes explicit task-to-user escalation without making approval-gated work executable", async () => {
+  const service = createGatewayServer({ dbPath: ":memory:", port: 0 });
+  const address = await service.listen();
+  try {
+    assert.equal((await httpJson(address.port, "POST", "/v1/bots", manifest("bot_escalator", "Escalator"))).status, 201);
+    assert.equal((await httpJson(address.port, "POST", "/v1/bots", manifest("bot_owner", "Owner"))).status, 201);
+
+    const delegated = await httpJson(address.port, "POST", "/v1/delegations", {
+      createdBy: "bot_owner",
+      assigneeId: "bot_escalator",
+      workspaceId: "ws_http",
+      rootObjectiveId: "obj_http_escalation",
+      objective: "Wait for a user decision",
+      reason: "Explicit escalation acceptance",
+      approval: { required: true, reason: "Do not execute before approval" }
+    });
+    assert.equal(delegated.status, 201);
+    assert.equal(delegated.body.task.payload.status, "waiting_approval");
+    assert.equal(service.executionQueue.getByItem(delegated.body.task.id), null);
+
+    const escalated = await httpJson(address.port, "POST", `/v1/tasks/${delegated.body.task.id}/escalate`, {
+      actorId: "bot_escalator",
+      reason: "Please choose which approved direction to pursue."
+    });
+    assert.equal(escalated.status, 202);
+    assert.equal(escalated.body.event.type, "user.escalation_requested");
+    assert.equal(escalated.body.event.attention_state, "needs_input");
+    assert.equal(service.executionQueue.getByItem(delegated.body.task.id), null);
+  } finally {
+    await service.close();
+  }
+});

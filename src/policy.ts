@@ -1,4 +1,4 @@
-import { BudgetError, inheritBudget, type BudgetEnvelope } from "./budget.js";
+import { BudgetError, inheritBudget, normalizeBudget, type BudgetEnvelope } from "./budget.js";
 import { CoordinationLoopGuard } from "./loop-guard.js";
 import { CoordinationStore } from "./store.js";
 import type { JsonObject, StoredObject } from "./types.js";
@@ -20,6 +20,8 @@ const ACTIVE_TASK_STATES = new Set([
   "waiting_approval",
   "blocked"
 ]);
+
+const ACTIVE_WORKER_STATES = new Set(["created", "ready", "running", "waiting"]);
 
 export class PolicyError extends Error {
   constructor(readonly code: string, message: string) {
@@ -70,6 +72,13 @@ export interface HandoffSafetyInput {
   tools?: string[];
   connections?: string[];
   environmentPolicy?: string | null;
+}
+
+export interface WorkerCapacityInput {
+  workspaceId: string;
+  runId: string;
+  budget?: BudgetEnvelope;
+  additionalWorkers?: number;
 }
 
 export class CoordinationPolicy {
@@ -183,6 +192,27 @@ export class CoordinationPolicy {
 
     this.assertRequestedAuthority(input.targetOwnerId, input.tools ?? [], input.connections ?? []);
     if (input.environmentPolicy) this.assertEnvironmentCompatibility(input.targetOwnerId, input.environmentPolicy);
+  }
+
+  assertWorkerCapacity(input: WorkerCapacityInput): { activeWorkers: number; requestedWorkers: number; limit: number | null } {
+    if (!input.runId.trim()) throw new PolicyError("INVALID_RUN", "runId is required for Worker capacity checks");
+    const requestedWorkers = input.additionalWorkers ?? 1;
+    if (!Number.isInteger(requestedWorkers) || requestedWorkers < 0) {
+      throw new BudgetError("INVALID_BUDGET", "additionalWorkers must be a non-negative integer");
+    }
+    const budget = normalizeBudget(input.budget);
+    const activeWorkers = this.store.listObjects("worker", input.workspaceId)
+      .filter((worker) => String(worker.payload.run_id ?? "") === input.runId)
+      .filter((worker) => ACTIVE_WORKER_STATES.has(String(worker.payload.status ?? "")))
+      .length;
+    const limit = typeof budget.max_workers === "number" ? budget.max_workers : null;
+    if (limit !== null && activeWorkers + requestedWorkers > limit) {
+      throw new BudgetError(
+        "WORKER_BUDGET_EXCEEDED",
+        `Team Run ${input.runId} has ${activeWorkers} active Workers and cannot add ${requestedWorkers} with max_workers ${limit}`
+      );
+    }
+    return { activeWorkers, requestedWorkers, limit };
   }
 
   assertMessage(senderId: string, targetId: string, workspaceId: string): void {
