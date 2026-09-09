@@ -15,13 +15,13 @@ The target is an installable persistent-teammate layer that can run standalone o
 ```text
 Phase 0  Research + Architecture        [COMPLETE]    100%
 Phase 1  Runnable Coordination Core     [COMPLETE]    100%
-Phase 2  Dynamic Multi-Agent Squads     [IN PROGRESS] ~80%
+Phase 2  Dynamic Multi-Agent Squads     [IN PROGRESS] ~88%
 Phase 3  AI-Verse Native Integration    [NOT STARTED]
 Phase 4  Runtime / A2A Interoperability [NOT STARTED]
 Phase 5  Product + Install + Dashboard  [NOT STARTED]
 ```
 
-**Directional overall first-release progress:** roughly 59% complete.
+**Directional overall first-release progress:** roughly 61% complete.
 
 That overall figure is intentionally approximate because later phases contain different amounts of work. Passed phase gates, not percentages, are authoritative.
 
@@ -165,9 +165,9 @@ None.
 
 **Status:** IN PROGRESS
 
-**Current phase progress:** approximately 80%.
+**Current phase progress:** approximately 88%.
 
-**Current verification:** GitHub Actions run 180 on 2026-09-09 passed **118/118 tests** at commit `ac785919a549c36ff882788cc6f362a9e4085120`.
+**Current verification:** GitHub Actions run 191 on 2026-09-09 passed **134/134 tests** at commit `120ecb079ef9e19ae7cdfe5d7c1f17a468389c44`.
 
 Goal: a durable Bot decides whether to work alone or create bounded temporary Workers, coordinates them through the topology justified by the work, and returns a bounded, auditable result without turning temporary helpers into durable identities.
 
@@ -181,10 +181,10 @@ Major slices:
 6. bounded group/discussion topology where justified - **COMPLETE**
 7. disagreement detection - **COMPLETE**
 8. verifier/critic role - **COMPLETE**
-9. synthesis - **NEXT**
-10. Worker cleanup - remaining beyond terminal expiry foundation already implemented
+9. synthesis - **COMPLETE**
+10. Worker cleanup hardening - **NEXT**
 11. adaptive `single Bot vs squad` decision policy - remaining
-12. squad budget/cancellation controls - remaining beyond current Worker, fan-out, aggregate usage, direct-handoff, discussion, disagreement, verifier, cancellation, recovery and CAS foundations
+12. squad budget/cancellation controls - remaining beyond current Worker, fan-out, aggregate usage, direct-handoff, discussion, disagreement, verifier, synthesis, cancellation, recovery and CAS foundations
 
 ### Phase 2 capabilities now implemented
 
@@ -309,6 +309,25 @@ Major slices:
 - verifier execution inherits the leader environment policy and cannot change it through an override
 - verifier Worker creation obeys the existing Team Run `max_workers` ceiling; verification capacity must therefore be budgeted rather than silently exempted
 
+#### Canonical synthesis
+
+- host-neutral `TeamRunSynthesis` makes the durable Team Run leader the final synthesizer instead of consuming another temporary Worker slot
+- synthesis cannot schedule while required verification debt, a live verifier Task, live Team Run Tasks, or active temporary Workers remain
+- manager/fan-out/handoff/discussion Task outputs, candidate Artifacts, disagreement reports, and resolved canonical verification verdicts can be collected into one bounded source set
+- explicit and default source selection is same-workspace/same-TeamRun and fail-closed; poisoned or foreign references cannot be silently skipped
+- raw verifier runtime output cannot bypass the canonical `verification_verdict`, and raw prior synthesis drafts cannot become synthesis sources
+- source count is bounded before lifecycle mutation; synthesis also requires one remaining Team Run Task slot
+- the synthesis Task is a real run-scoped durable-leader Task with capability lease, inherited constraints, budget, cancellation, execution-queue, and recovery semantics
+- synthesis grants cannot expand the durable leader's tool or connection authority
+- runtime synthesis output is untrusted until the package validates the `synthesis-final-v1` contract, source citations, confidence, and Task/run scope
+- canonical immutable `synthesis_final` Artifacts preserve root objective, source Artifacts, disagreement/verifier lineage, raw synthesis draft, and durable leader provenance
+- final Artifact identity is deterministic from canonical settlement material; repeated reconciliation returns the same final instead of duplicating output
+- `final_artifact_ref` and Team Run `completed` status are committed atomically under Team Run compare-and-swap
+- finalization rechecks verification and live-work gates immediately before that commit, so late concurrent Worker creation blocks completion rather than being stranded behind a final result
+- malformed/canceled synthesis creates no canonical final and leaves a nonterminal run retryable in `synthesizing`
+- aggregate budget exhaustion preserves terminal `budget_exhausted` state and cannot be overwritten by synthesis settlement
+- completed-but-unreconciled synthesis survives database reopen and is reconciled by `ExecutionSupervisor`
+
 ### Phase 2.6 acceptance gate
 
 **PASSED.**
@@ -366,15 +385,38 @@ The fourteen verifier acceptance/regression tests prove:
 13. verifier Workers inherit the leader execution environment policy by default
 14. verifier execution overrides cannot switch the leader environment policy
 
-The full package suite now passes **118/118 tests**.
+### Phase 2.9 acceptance gate
+
+**PASSED.**
+
+The sixteen synthesis acceptance/hardening tests prove:
+
+1. the durable leader creates one canonical final synthesis and completes the Team Run without creating another Worker
+2. unresolved verification debt blocks synthesis before executable work is created
+3. active temporary participation blocks final synthesis
+4. cross-TeamRun source references fail before lifecycle mutation
+5. canonical verification verdicts are accepted while raw verifier runtime output is rejected
+6. malformed synthesis runtime output creates no canonical final and leaves the run retryable
+7. synthesis output cannot cite Artifacts outside its selected source set
+8. Team Run `max_tasks` is enforced before a synthesis Task is created
+9. active synthesis cancellation creates no final Artifact and leaves nonterminal state retryable
+10. repeated settlement is idempotent and later scheduling returns the same final Artifact
+11. completed-but-unreconciled synthesis survives database reopen and creates exactly one canonical final
+12. aggregate Team Run budget exhaustion remains terminal and cannot be resurrected by synthesis settlement
+13. default source collection includes completed Team Run Task output
+14. source-count limits fail before synthesis lifecycle mutation
+15. a poisoned final Artifact pointer fails closed instead of silently re-synthesizing
+16. late Worker creation blocks canonical finalization until that work is explicitly closed, after which the same completed synthesis Task settles once
+
+The full package suite now passes **134/134 tests**.
 
 ### Next Phase 2 gate
 
-**2.9 - Synthesis**
+**2.10 - Worker cleanup hardening**
 
-Build the durable leader synthesis layer over bounded candidate Artifacts, disagreement reports, and canonical verification verdicts. Synthesis must preserve source/provenance lineage, refuse to silently ignore unresolved verification debt, produce one bounded canonical result Artifact, and remain restart/idempotency/budget safe without turning the synthesis layer into a second source of truth.
+Harden post-run cleanup across all topologies without deleting the audit/provenance needed to explain the canonical final result. This gate must finish temporary Worker expiry/reaping, stale discussion/setup reservations, run-scoped transient execution/lease/surface cleanup, restart-safe idempotent cleanup, and operator-visible failure handling while preserving final Artifacts and ensuring temporary identities never become durable Bots or durable Room members.
 
-After 2.9, continue through Worker cleanup hardening, adaptive collaboration choice, and final squad-wide budget/cancellation consolidation.
+After 2.10, continue through adaptive collaboration choice and final squad-wide budget/cancellation consolidation.
 
 ## Phase 3 - AI-Verse Native Integration
 
