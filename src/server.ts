@@ -54,6 +54,14 @@ function optionalApproval(value: unknown): ApprovalRequirement | undefined {
   };
 }
 
+function optionalReturnPolicy(value: unknown): "stay_with_target" | "return_on_completion" | "return_on_block" | "explicit_only" | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (value === "stay_with_target" || value === "return_on_completion" || value === "return_on_block" || value === "explicit_only") {
+    return value;
+  }
+  throw new Error(`Invalid returnPolicy ${String(value)}`);
+}
+
 export function createGatewayServer(options: GatewayServerOptions = {}) {
   const store = new CoordinationStore(options.dbPath ?? "runtime/ai-verse-bots/coordination.db");
   const executionQueue = new ExecutionQueue(store.dbPath);
@@ -282,7 +290,7 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
           reason: requiredString(body, "reason"),
           requiredConstraints: Array.isArray(body.requiredConstraints) ? body.requiredConstraints.map(String) : [],
           artifactRefs: Array.isArray(body.artifactRefs) ? body.artifactRefs.map(String) : [],
-          returnPolicy: typeof body.returnPolicy === "string" ? body.returnPolicy : undefined
+          returnPolicy: optionalReturnPolicy(body.returnPolicy)
         }));
         return;
       }
@@ -293,6 +301,17 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
         json(res, 200, gateway.acceptHandoff(
           decodeURIComponent(handoffAcceptMatch[1] as string),
           requiredString(body, "actorId")
+        ));
+        return;
+      }
+
+      const handoffRejectMatch = url.pathname.match(/^\/v1\/handoffs\/([^/]+)\/reject$/);
+      if (method === "POST" && handoffRejectMatch) {
+        const body = await readJson(req);
+        json(res, 200, gateway.rejectHandoff(
+          decodeURIComponent(handoffRejectMatch[1] as string),
+          requiredString(body, "actorId"),
+          typeof body.reason === "string" ? body.reason : "Handoff rejected"
         ));
         return;
       }
