@@ -15,13 +15,13 @@ The target is an installable persistent-teammate layer that can run standalone o
 ```text
 Phase 0  Research + Architecture        [COMPLETE]    100%
 Phase 1  Runnable Coordination Core     [COMPLETE]    100%
-Phase 2  Dynamic Multi-Agent Squads     [IN PROGRESS] ~72%
+Phase 2  Dynamic Multi-Agent Squads     [IN PROGRESS] ~80%
 Phase 3  AI-Verse Native Integration    [NOT STARTED]
 Phase 4  Runtime / A2A Interoperability [NOT STARTED]
 Phase 5  Product + Install + Dashboard  [NOT STARTED]
 ```
 
-**Directional overall first-release progress:** roughly 57% complete.
+**Directional overall first-release progress:** roughly 59% complete.
 
 That overall figure is intentionally approximate because later phases contain different amounts of work. Passed phase gates, not percentages, are authoritative.
 
@@ -165,9 +165,9 @@ None.
 
 **Status:** IN PROGRESS
 
-**Current phase progress:** approximately 72%.
+**Current phase progress:** approximately 80%.
 
-**Current verification:** GitHub Actions run 173 on 2026-09-09 passed **104/104 tests** at commit `57fd202688def83af84d455edee60ea9e9782ee8`.
+**Current verification:** GitHub Actions run 180 on 2026-09-09 passed **118/118 tests** at commit `ac785919a549c36ff882788cc6f362a9e4085120`.
 
 Goal: a durable Bot decides whether to work alone or create bounded temporary Workers, coordinates them through the topology justified by the work, and returns a bounded, auditable result without turning temporary helpers into durable identities.
 
@@ -180,11 +180,11 @@ Major slices:
 5. direct handoff topology - **COMPLETE**
 6. bounded group/discussion topology where justified - **COMPLETE**
 7. disagreement detection - **COMPLETE**
-8. verifier/critic role - **NEXT**
-9. synthesis - remaining
+8. verifier/critic role - **COMPLETE**
+9. synthesis - **NEXT**
 10. Worker cleanup - remaining beyond terminal expiry foundation already implemented
 11. adaptive `single Bot vs squad` decision policy - remaining
-12. squad budget/cancellation controls - remaining beyond current Worker, fan-out, aggregate usage, direct-handoff, discussion, disagreement, cancellation, recovery and CAS foundations
+12. squad budget/cancellation controls - remaining beyond current Worker, fan-out, aggregate usage, direct-handoff, discussion, disagreement, verifier, cancellation, recovery and CAS foundations
 
 ### Phase 2 capabilities now implemented
 
@@ -282,9 +282,32 @@ Major slices:
 - Artifact/claim ceilings keep comparison bounded
 - Team Run disagreement state is persisted with `updatedAt` compare-and-swap retry
 - hard conflict creates persistent verification debt through `verification_required_report_refs`
-- later compatible subset analysis cannot clear unresolved Team Run verification debt; only the future verifier/critic stage may explicitly resolve it
+- later compatible subset analysis cannot clear unresolved Team Run verification debt
 - report lookup/listing ignores cross-run or cross-workspace poisoned references
 - report history and latest report survive database reopen
+
+#### Verifier / critic role
+
+- host-neutral `TeamRunVerifier` consumes explicit unresolved `disagreement_report` debt rather than rediscovering conflict
+- compatible/no-debt runs skip verifier Worker creation by default
+- one bounded temporary Verifier/Critic Worker can evaluate multiple selected pending reports in one Task
+- verifier Task input includes the disagreement reports and their scoped candidate Artifacts
+- verifier inherits candidate Task constraints and stays inside the original root objective
+- runtime verifier output is untrusted until it passes the `verifier-verdict-v1` contract and lineage checks
+- every hard disagreement finding must receive exactly one structured status: resolved, unresolved, or insufficient evidence
+- resolved findings must cite same-workspace/same-TeamRun Artifact evidence
+- foreign/cross-run evidence fails closed and produces canonical `verifier_failed` settlement without clearing debt
+- canonical immutable `verification_verdict` Artifacts preserve disagreement report, candidate evidence, raw verifier output, and actual verifier provenance
+- only report IDs validated as resolved are removed from `verification_required_report_refs`; unrelated debt is retained
+- `requires_verification` clears only when no unresolved debt refs remain
+- all-debt-resolved success moves the Team Run to `synthesizing`; unresolved/insufficient/failure/cancel stays `verifying`
+- malformed runtime output becomes visible `verifier_failed` state rather than mutating debt
+- cancellation preserves unresolved debt and records a canonical canceled verdict
+- verifier Task settlement is idempotent and completed-but-unreconciled verification survives database reopen
+- startup and stale-recovery reconciliation are integrated with `ExecutionSupervisor`
+- verifier tool/connection grants cannot expand durable leader authority
+- verifier execution inherits the leader environment policy and cannot change it through an override
+- verifier Worker creation obeys the existing Team Run `max_workers` ceiling; verification capacity must therefore be budgeted rather than silently exempted
 
 ### Phase 2.6 acceptance gate
 
@@ -322,15 +345,36 @@ The eleven disagreement acceptance/regression tests prove:
 10. a later compatible subset cannot clear unresolved Team Run verification debt from an earlier conflict
 11. `latest`/`list` ignore disagreement-report references that belong to another Team Run
 
-The full package suite now passes **104/104 tests**.
+### Phase 2.8 acceptance gate
+
+**PASSED.**
+
+The fourteen verifier acceptance/regression tests prove:
+
+1. resolved verifier work clears only the verified report debt, creates a canonical verdict, and moves an all-resolved run to synthesis
+2. unresolved verifier work preserves debt and keeps the Team Run verifying
+3. insufficient verifier evidence preserves debt
+4. no pending verification debt skips verifier scheduling without creating Worker or Task records
+5. malformed completed verifier output becomes `verifier_failed` and cannot clear debt
+6. one verifier Task can resolve one report while preserving unrelated unresolved report debt
+7. verifier tool grants cannot expand durable leader authority
+8. active verifier cancellation preserves debt and creates a canceled canonical verdict
+9. repeat reconciliation of the same completed verifier Task is idempotent
+10. completed-but-unreconciled verifier work settles after database reopen without duplicate verdicts
+11. cross-TeamRun resolution evidence fails closed and cannot clear verification debt
+12. exhausted Team Run Worker capacity blocks verifier scheduling before verifier records are created
+13. verifier Workers inherit the leader execution environment policy by default
+14. verifier execution overrides cannot switch the leader environment policy
+
+The full package suite now passes **118/118 tests**.
 
 ### Next Phase 2 gate
 
-**2.8 - Verifier/critic role**
+**2.9 - Synthesis**
 
-Consume structured disagreement reports only when verification is justified. The verifier must evaluate the explicit conflict evidence, preserve source/provenance lineage, produce a structured verdict Artifact, and explicitly resolve or retain entries in `verification_required_report_refs`. It must not clear verification debt merely because a later candidate subset looks compatible, and it must remain bounded by Team Run authority, budget, cancellation, and restart rules.
+Build the durable leader synthesis layer over bounded candidate Artifacts, disagreement reports, and canonical verification verdicts. Synthesis must preserve source/provenance lineage, refuse to silently ignore unresolved verification debt, produce one bounded canonical result Artifact, and remain restart/idempotency/budget safe without turning the synthesis layer into a second source of truth.
 
-After 2.8, continue through synthesis, Worker cleanup hardening, adaptive collaboration choice, and final squad-wide budget/cancellation consolidation.
+After 2.9, continue through Worker cleanup hardening, adaptive collaboration choice, and final squad-wide budget/cancellation consolidation.
 
 ## Phase 3 - AI-Verse Native Integration
 
