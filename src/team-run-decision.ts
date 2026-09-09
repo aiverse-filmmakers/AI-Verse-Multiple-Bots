@@ -749,6 +749,9 @@ export class TeamRunDecisionPolicy {
       throw new Error(`Existing Team Run ${run.id} does not preserve all current required connections`);
     }
     const existingBudget = normalizeBudget(run.payload.budget);
+    if (typeof existingBudget.max_workers !== "number" || existingBudget.max_workers < 1) {
+      throw new Error(`Existing Team Run ${run.id} has no explicit bounded max_workers ceiling for adaptive reuse`);
+    }
     for (const key of BUDGET_KEYS) {
       const requested = requestedBudget[key];
       if (typeof requested !== "number") continue;
@@ -838,6 +841,8 @@ export class TeamRunDecisionPolicy {
       problems.push("provenance does not match the decision policy and input digest");
     }
     const constraints = normalizedStoredStrings(payload.required_constraints);
+    const requiredTools = normalizedStoredStrings(payload.required_tools);
+    const requiredConnections = normalizedStoredStrings(payload.required_connections);
     if (payload.constraints_digest !== constraintsDigest(constraints)) problems.push("constraints_digest does not match required_constraints");
 
     let inputBudget: BudgetEnvelope = {};
@@ -847,6 +852,27 @@ export class TeamRunDecisionPolicy {
       effectiveBudget = normalizeBudget(payload.effective_budget);
     } catch (error) {
       problems.push(`budget is invalid: ${error instanceof Error ? error.message : String(error)}`);
+    }
+
+    if (/^[a-f0-9]{64}$/.test(inputDigest)) {
+      const recomputedDigest = digest({
+        policy_version: POLICY_VERSION,
+        leader_id: typeof payload.created_by === "string" ? payload.created_by : "",
+        workspace_id: typeof payload.workspace_id === "string" ? payload.workspace_id : "",
+        root_objective_id: typeof payload.root_objective_id === "string" ? payload.root_objective_id : "",
+        objective: typeof payload.objective === "string" ? payload.objective.trim() : "",
+        work: asObject(payload.work_signals),
+        required_constraints: constraints,
+        required_tools: requiredTools,
+        required_connections: requiredConnections,
+        approval_required: payload.approval_required === true,
+        budget: inputBudget
+      });
+      if (recomputedDigest !== inputDigest) problems.push("input_digest does not match stored decision inputs");
+      const expectedArtifactId = `artifact_collaboration_decision_${inputDigest.slice(0, 32)}`;
+      if (artifact.id !== expectedArtifactId || payload.id !== expectedArtifactId) {
+        problems.push("artifact ID does not match input_digest");
+      }
     }
 
     const decision = asObject(payload.decision);
@@ -874,6 +900,10 @@ export class TeamRunDecisionPolicy {
       if (effectiveBudget.max_workers !== workerCount) problems.push("effective max_workers must equal suggested_worker_count");
       if (typeof inputBudget.max_workers === "number" && typeof workerCount === "number" && workerCount > inputBudget.max_workers) {
         problems.push("suggested_worker_count exceeds input max_workers");
+      }
+      if (decision.existing_run_reused !== true && /^[a-f0-9]{64}$/.test(inputDigest)) {
+        const expectedRunId = `run_adaptive_${inputDigest.slice(0, 32)}`;
+        if (selectedRunId !== expectedRunId) problems.push("selected_run_id does not match deterministic input_digest run ID");
       }
     }
     if (executionStatus === "blocked" && mode !== "single") problems.push("blocked execution must remain single");
