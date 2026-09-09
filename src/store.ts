@@ -56,6 +56,21 @@ export interface AtomicQueueRetarget {
   required?: boolean;
 }
 
+export interface AtomicQueueInsert {
+  id: string;
+  itemKind: "task" | "message";
+  itemId: string;
+  targetId: string;
+  workspaceId: string;
+  state: "queued";
+  attempts: number;
+  maxAttempts: number;
+  recoveryPolicy: "manual" | "retry_safe";
+  createdAt: string;
+  updatedAt: string;
+  required?: boolean;
+}
+
 export interface AtomicQueueTransition {
   itemId: string;
   fromStates: string[];
@@ -79,6 +94,7 @@ export interface AtomicMutationInput {
   preconditions?: AtomicMutationPrecondition[];
   objects: AtomicMutationObject[];
   events: CoordinationEvent[];
+  queueInsert?: AtomicQueueInsert;
   queueRetarget?: AtomicQueueRetarget;
   queueTransition?: AtomicQueueTransition;
   deliveryInsert?: DeliveryRecord;
@@ -215,6 +231,7 @@ export class CoordinationStore {
         }
       }
 
+      if (input.queueInsert) this.insertQueueInTransaction(input.queueInsert);
       if (input.queueRetarget) this.retargetQueueInTransaction(input.queueRetarget);
       if (input.queueTransition) this.transitionQueueInTransaction(input.queueTransition);
       if (input.deliveryInsert) this.insertDeliveryInTransaction(input.deliveryInsert);
@@ -396,6 +413,36 @@ export class CoordinationStore {
   private queueTableAvailable(): boolean {
     const table = this.db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'execution_queue'").get() as { name: string } | undefined;
     return Boolean(table);
+  }
+
+  private insertQueueInTransaction(input: AtomicQueueInsert): void {
+    if (!this.queueTableAvailable()) {
+      if (input.required) throw new Error("Atomic queue insert required but execution_queue table is not available in this database connection");
+      return;
+    }
+    const existing = this.db.prepare("SELECT target_id, state FROM execution_queue WHERE item_id = ?").get(input.itemId) as any;
+    if (existing) {
+      if (String(existing.target_id) === input.targetId && String(existing.state) === input.state) return;
+      throw new Error(`Execution queue item ${input.itemId} already exists for ${String(existing.target_id)} in state ${String(existing.state)}`);
+    }
+    this.db.prepare(`
+      INSERT INTO execution_queue(
+        id, item_kind, item_id, target_id, workspace_id, state, attempts, max_attempts, recovery_policy,
+        claimed_by, claimed_at, heartbeat_at, lease_expires_at, last_error, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, NULL, ?, ?)
+    `).run(
+      input.id,
+      input.itemKind,
+      input.itemId,
+      input.targetId,
+      input.workspaceId,
+      input.state,
+      input.attempts,
+      input.maxAttempts,
+      input.recoveryPolicy,
+      input.createdAt,
+      input.updatedAt
+    );
   }
 
   private retargetQueueInTransaction(input: AtomicQueueRetarget): void {

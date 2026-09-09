@@ -315,11 +315,19 @@ Goal: a durable Bot decides whether to work alone or create bounded temporary Wo
    - `max_workers` plus leader `max_parallel_workers` enforcement
    - explicit Worker lifecycle and terminal Task coupling
    - no durable Bot registration, Room membership or automatic long-term memory authority
-   - no execution queue exposure until a later topology/execution slice schedules the Worker Task
+   - no execution queue exposure until an explicit topology schedules the Worker Task
+3. **Manager/supervisor topology - COMPLETE**
+   - explicit `manager` Team Run strategy with the durable leader retaining final/root ownership
+   - one active specialist at a time; no parallel fan-out hidden inside manager mode
+   - manager scheduling atomically binds Worker/Task/run state to a durable execution queue entry on file-backed stores
+   - temporary Workers execute through the same runtime/queue path as durable Bots without entering the Bot registry
+   - Worker runtime configuration inherits safe adapter handles while raw credentials remain forbidden
+   - canonical Task events reconcile Worker lifecycle and manager active-slot state
+   - startup reconciliation restores missing queued execution and settles stale manager projections
+   - manager scheduling and state inspection exposed through the localhost Gateway
 
 ### Remaining major slices
 
-3. manager/supervisor topology
 4. parallel fan-out
 5. direct handoff topology
 6. group/discussion topology where justified

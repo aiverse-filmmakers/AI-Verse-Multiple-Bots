@@ -5,6 +5,7 @@ import type { BudgetEnvelope } from "./budget.js";
 import type { BotManifest, DeliveryState, JsonObject } from "./types.js";
 import { ExecutionQueue, type RecoveryPolicy } from "./execution-queue.js";
 import { CoordinationGateway, type ApprovalRequirement } from "./gateway.js";
+import { ManagerTopologyCoordinator } from "./manager-topology.js";
 import { OpenAICompatibleRuntimeAdapter } from "./openai-compatible-runtime.js";
 import { CoordinationPolicy } from "./policy.js";
 import { RoomCoordinator } from "./rooms.js";
@@ -82,11 +83,12 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
   const gateway = new CoordinationGateway(store, executionQueue, policy);
   const rooms = new RoomCoordinator(store, gateway);
   const teamRuns = new TeamRunCoordinator(store, gateway, policy);
+  const managerTopology = new ManagerTopologyCoordinator(store, gateway, teamRuns, executionQueue);
   const runtimes = new RuntimeRegistry()
     .register(new DeterministicRuntimeAdapter())
     .register(new OpenAICompatibleRuntimeAdapter());
   const runner = new BotRunner(store, gateway, executionQueue, runtimes);
-  const supervisor = new ExecutionSupervisor(gateway, executionQueue, runner);
+  const supervisor = new ExecutionSupervisor(gateway, executionQueue, runner, 5000, managerTopology);
   supervisor.start();
 
   const server = createServer(async (req: any, res: any) => {
@@ -328,6 +330,23 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
           environmentPolicy: typeof body.environmentPolicy === "string" ? body.environmentPolicy as any : undefined,
           environmentRef: typeof body.environmentRef === "string" ? body.environmentRef : undefined
         }));
+        return;
+      }
+
+      const managerScheduleMatch = url.pathname.match(/^\/v1\/team-runs\/([^/]+)\/manager\/schedule$/);
+      if (method === "POST" && managerScheduleMatch) {
+        const body = await readJson(req);
+        json(res, 202, managerTopology.schedule({
+          runId: decodeURIComponent(managerScheduleMatch[1] as string),
+          workerId: requiredString(body, "workerId"),
+          actorId: requiredString(body, "actorId")
+        }));
+        return;
+      }
+
+      const managerStateMatch = url.pathname.match(/^\/v1\/team-runs\/([^/]+)\/manager$/);
+      if (method === "GET" && managerStateMatch) {
+        json(res, 200, { state: managerTopology.getState(decodeURIComponent(managerStateMatch[1] as string)) });
         return;
       }
 
@@ -591,6 +610,7 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
     gateway,
     rooms,
     teamRuns,
+    managerTopology,
     runtimes,
     runner,
     supervisor,

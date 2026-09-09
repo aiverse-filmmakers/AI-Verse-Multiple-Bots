@@ -194,6 +194,17 @@ export class TeamRunCoordinator {
       topology,
       status: "created",
       budget,
+      ...(topology === "manager" ? {
+        manager_state: {
+          supervisor_id: leader.id,
+          sequence: 0,
+          active_worker_id: null,
+          active_task_id: null,
+          completed_worker_ids: [],
+          failed_worker_ids: [],
+          canceled_worker_ids: []
+        }
+      } : {}),
       reason: input.reason?.trim() || "Temporary multi-agent collaboration",
       created_at: nowIso()
     }, "team_run");
@@ -398,6 +409,7 @@ export class TeamRunCoordinator {
       created_by: leaderId,
       parent_owner_id: leaderId,
       workspace_id: workspaceId,
+      name: roleTitle,
       role: { title: roleTitle, objective },
       runtime,
       execution,
@@ -636,11 +648,20 @@ export class TeamRunCoordinator {
 
   private resolveWorkerRuntime(leader: StoredObject<BotManifest>, input: SpawnWorkerInput): JsonObject {
     const leaderRuntime = asObject(leader.payload.runtime);
-    const adapter = input.runtimeAdapter?.trim() || (typeof leaderRuntime.adapter === "string" ? leaderRuntime.adapter : "");
+    for (const key of ["api_key", "token", "authorization"]) {
+      if (typeof leaderRuntime[key] === "string") {
+        throw new Error(`Raw runtime credential ${key} is forbidden when creating temporary Workers`);
+      }
+    }
+    const leaderAdapter = typeof leaderRuntime.adapter === "string" ? leaderRuntime.adapter : "";
+    const adapter = input.runtimeAdapter?.trim() || leaderAdapter;
     if (!adapter) throw new Error(`Worker runtime adapter is required`);
     const leaderProfile = typeof leaderRuntime.profile_ref === "string" ? leaderRuntime.profile_ref : null;
     const profileRef = input.runtimeProfileRef === undefined ? leaderProfile : input.runtimeProfileRef;
-    return { adapter, profile_ref: profileRef };
+    const inherited = adapter === leaderAdapter
+      ? Object.fromEntries(Object.entries(leaderRuntime).filter(([key]) => !["api_key", "token", "authorization"].includes(key)))
+      : {};
+    return { ...inherited, adapter, profile_ref: profileRef };
   }
 
   private resolveWorkerExecution(leader: StoredObject<BotManifest>, workspaceId: string, input: SpawnWorkerInput): JsonObject {

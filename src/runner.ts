@@ -5,7 +5,7 @@ import { CoordinationGateway } from "./gateway.js";
 import { CoordinationLoopError, progressFingerprint } from "./loop-guard.js";
 import { RuntimeRegistry, type RuntimeAdapter, type RuntimeExecutionContext, type RuntimeExecutionResult } from "./runtime.js";
 import { CoordinationStore } from "./store.js";
-import type { AppendedEvent, JsonObject, StoredObject } from "./types.js";
+import type { AppendedEvent, BotManifest, JsonObject, StoredObject } from "./types.js";
 import { validateProtocolObject } from "./validator.js";
 
 function nowIso(): string {
@@ -71,15 +71,14 @@ export class BotRunner {
     return { tasks, events };
   }
 
-  async runNext(botId: string): Promise<RunResult | null> {
-    const bot = this.gateway.getBot(botId);
-    if (!bot) throw new Error(`Bot ${botId} not found`);
-    if (bot.payload.status !== "active") throw new Error(`Bot ${botId} is not active`);
-
-    const adapterId = String(bot.payload.runtime.adapter);
+  async runNext(principalId: string): Promise<RunResult | null> {
+    if (this.queue.list(principalId, ["queued"]).length === 0) return null;
+    const principal = this.resolveExecutionPrincipal(principalId);
+    const adapterId = String(asObject(principal.payload.runtime)?.adapter ?? "");
+    if (!adapterId) throw new Error(`Execution principal ${principalId} has no runtime adapter`);
     if (!this.runtimes.has(adapterId)) throw new Error(`Runtime adapter ${adapterId} is not registered`);
 
-    const claimed = this.queue.claimNext(botId, this.runnerId, this.executionLeaseSeconds);
+    const claimed = this.queue.claimNext(principalId, this.runnerId, this.executionLeaseSeconds);
     if (!claimed) return null;
 
     if (claimed.itemKind !== "task") {
@@ -94,8 +93,8 @@ export class BotRunner {
     }
 
     try {
-      if (task.payload.assignee_id !== botId) throw new Error(`Task ${task.id} is assigned to ${String(task.payload.assignee_id)}, not ${botId}`);
-      if (task.payload.owner_id !== botId) throw new Error(`Task ${task.id} is owned by ${String(task.payload.owner_id)}, not ${botId}`);
+      if (task.payload.assignee_id !== principalId) throw new Error(`Task ${task.id} is assigned to ${String(task.payload.assignee_id)}, not ${principalId}`);
+      if (task.payload.owner_id !== principalId) throw new Error(`Task ${task.id} is owned by ${String(task.payload.owner_id)}, not ${principalId}`);
       if (task.payload.status !== "assigned") throw new Error(`Task ${task.id} is not executable from status ${String(task.payload.status)}`);
 
       const explicitDeadlineAt = typeof task.payload.deadline_at === "string" ? task.payload.deadline_at : null;
@@ -107,7 +106,7 @@ export class BotRunner {
       const leaseId = String(task.payload.lease_id);
       const lease = this.store.getObject(leaseId);
       if (!lease || lease.kind !== "capability_lease") throw new Error(`Capability lease ${leaseId} not found`);
-      if (lease.payload.issued_to !== botId) throw new Error(`Capability lease ${leaseId} is not issued to ${botId}`);
+      if (lease.payload.issued_to !== principalId) throw new Error(`Capability lease ${leaseId} is not issued to ${principalId}`);
       if (lease.payload.task_id !== task.id) throw new Error(`Capability lease ${leaseId} is not scoped to task ${task.id}`);
       const expiresAt = Date.parse(String(lease.payload.expires_at));
       if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) throw new Error(`Capability lease ${leaseId} is expired`);
@@ -118,8 +117,8 @@ export class BotRunner {
         if (!environmentLease || environmentLease.kind !== "environment_lease") {
           throw new Error(`Environment lease ${String(task.payload.environment_lease_id)} not found`);
         }
-        if (environmentLease.payload.issued_to !== botId) {
-          throw new Error(`Environment lease ${environmentLease.id} is not issued to ${botId}`);
+        if (environmentLease.payload.issued_to !== principalId) {
+          throw new Error(`Environment lease ${environmentLease.id} is not issued to ${principalId}`);
         }
         if (environmentLease.payload.task_id !== task.id) {
           throw new Error(`Environment lease ${environmentLease.id} is not scoped to task ${task.id}`);
@@ -131,7 +130,7 @@ export class BotRunner {
         if (!Number.isFinite(environmentExpiresAt) || environmentExpiresAt <= Date.now()) {
           throw new Error(`Environment lease ${environmentLease.id} is expired`);
         }
-        const botExecution = asObject(bot.payload.execution);
+        const botExecution = asObject(principal.payload.execution);
         const botEnvironmentPolicy = typeof botExecution?.environment_policy === "string" ? botExecution.environment_policy : null;
         if (botEnvironmentPolicy && environmentLease.payload.environment_policy !== botEnvironmentPolicy) {
           throw new Error(
@@ -156,17 +155,17 @@ export class BotRunner {
       const runningTask = this.store.putObject("task", validateProtocolObject(runningTaskPayload, "task"));
       this.gateway.emit({
         type: "task.started",
-        actorId: botId,
+        actorId: principalId,
         workspaceId: claimed.workspaceId,
         taskId: task.id,
         correlationId: String(task.payload.root_objective_id),
-        summary: `${botId} started ${task.id}`
+        summary: `${principalId} started ${task.id}`
       });
 
       const adapter = this.runtimes.get(adapterId);
       const controller = new AbortController();
       this.active.set(task.id, { controller, adapter, executionId: claimed.id });
-      const context: RuntimeExecutionContext = { bot, task: runningTask, capabilityLease: lease, environmentLease, inputArtifacts, signal: controller.signal };
+      const context: RuntimeExecutionContext = { bot: principal as unknown as StoredObject<BotManifest>, principal, task: runningTask, capabilityLease: lease, environmentLease, inputArtifacts, signal: controller.signal };
       const deadlineAt = effectiveDeadline(explicitDeadlineAt, startedAtMs, task.payload.budget);
       const result = await this.executeWithControls(adapter, context, deadlineAt, claimed.id);
 
@@ -188,7 +187,7 @@ export class BotRunner {
         id: artifactId,
         type: "artifact",
         workspace_id: claimed.workspaceId,
-        created_by: botId,
+        created_by: principalId,
         task_id: task.id,
         kind: result.artifactKind,
         version: 1,
@@ -197,7 +196,7 @@ export class BotRunner {
         runtime_receipts: result.receipts ?? [],
         usage,
         progress_fingerprint: fingerprint,
-        provenance: { origin: "bot_generated", trusted_instruction: false, source_refs: stringArray(task.payload.input_artifact_refs) }
+        provenance: { origin: principal.kind === "worker" ? "worker_generated" : "bot_generated", trusted_instruction: false, source_refs: stringArray(task.payload.input_artifact_refs) }
       }, "artifact");
       const completedTaskPayload: JsonObject = validateProtocolObject({
         ...runningTask.payload,
@@ -209,7 +208,7 @@ export class BotRunner {
       }, "task");
 
       const completionBase = {
-        preconditions: [{ id: task.id, kind: "task" as const, status: "running", ownerId: botId }],
+        preconditions: [{ id: task.id, kind: "task" as const, status: "running", ownerId: principalId }],
         objects: [
           { kind: "artifact" as const, payload: artifactPayload },
           { kind: "task" as const, payload: completedTaskPayload }
@@ -239,7 +238,7 @@ export class BotRunner {
 
       this.gateway.emit({
         type: "artifact.published",
-        actorId: botId,
+        actorId: principalId,
         workspaceId: claimed.workspaceId,
         taskId: task.id,
         correlationId: String(task.payload.root_objective_id),
@@ -247,14 +246,14 @@ export class BotRunner {
       });
       this.gateway.emit({
         type: "task.completed",
-        actorId: botId,
+        actorId: principalId,
         workspaceId: claimed.workspaceId,
         taskId: task.id,
         correlationId: String(task.payload.root_objective_id),
         summary: result.summary,
         attentionState: "unread_result"
       });
-      const completionSettlement = this.gateway.settleHandoffForTask(task.id, "completed", botId);
+      const completionSettlement = this.gateway.settleHandoffForTask(task.id, "completed", principalId);
       const finalCompletedTask = completionSettlement?.task ?? completedTask;
 
       const responseTarget = asObject(task.payload.response_target);
@@ -270,14 +269,14 @@ export class BotRunner {
           }
           if (!roomId && responseTarget.kind === "room") roomId = responseTarget.id;
           if (!roomId) throw new Error(`Response target ${responseTarget.kind}:${responseTarget.id} has no Room`);
-          this.gateway.publishRoomMessage({ senderId: botId, roomId, workspaceId: claimed.workspaceId, threadId, text: result.summary, artifactRefs: [artifactId], correlationId: String(task.payload.root_objective_id) });
+          this.gateway.publishRoomMessage({ senderId: principalId, roomId, workspaceId: claimed.workspaceId, threadId, text: result.summary, artifactRefs: [artifactId], correlationId: String(task.payload.root_objective_id) });
         } else {
-          this.gateway.sendMessage({ senderId: botId, targetKind: responseTarget.kind === "operator" ? "operator" : "bot", targetId: responseTarget.id, workspaceId: claimed.workspaceId, text: `Task ${task.id} completed. Artifact: ${artifactId}. ${result.summary}`, correlationId: String(task.payload.root_objective_id) });
+          this.gateway.sendMessage({ senderId: principalId, targetKind: responseTarget.kind === "operator" ? "operator" : "bot", targetId: responseTarget.id, workspaceId: claimed.workspaceId, text: `Task ${task.id} completed. Artifact: ${artifactId}. ${result.summary}`, correlationId: String(task.payload.root_objective_id) });
         }
       } else {
         const creatorId = String(task.payload.created_by);
-        if (creatorId !== botId) {
-          this.gateway.sendMessage({ senderId: botId, targetKind: this.gateway.getBot(creatorId) ? "bot" : "operator", targetId: creatorId, workspaceId: claimed.workspaceId, text: `Task ${task.id} completed. Artifact: ${artifactId}. ${result.summary}`, correlationId: String(task.payload.root_objective_id) });
+        if (creatorId !== principalId) {
+          this.gateway.sendMessage({ senderId: principalId, targetKind: this.gateway.getBot(creatorId) ? "bot" : "operator", targetId: creatorId, workspaceId: claimed.workspaceId, text: `Task ${task.id} completed. Artifact: ${artifactId}. ${result.summary}`, correlationId: String(task.payload.root_objective_id) });
         }
       }
 
@@ -309,7 +308,7 @@ export class BotRunner {
             cancellation_code: cancelError.code
           }, "task");
           const cancelBase = {
-            preconditions: [{ id: task.id, kind: "task" as const, status: String(canceledTask.payload.status), ownerId: botId }],
+            preconditions: [{ id: task.id, kind: "task" as const, status: String(canceledTask.payload.status), ownerId: principalId }],
             objects: [{ kind: "task" as const, payload: canceledPayload }],
             events: []
           };
@@ -332,11 +331,11 @@ export class BotRunner {
           canceledTask = mutation.objects[0] ?? canceledTask;
           canceledExecution = this.queue.getByItem(task.id) ?? canceledExecution;
           if (cancelError.code === "DEADLINE_EXCEEDED") {
-            this.gateway.emit({ type: "task.deadline_exceeded", actorId: botId, workspaceId: claimed.workspaceId, taskId: task.id, correlationId: String(task.payload.root_objective_id), summary: cancelError.message, attentionState: "failed" });
+            this.gateway.emit({ type: "task.deadline_exceeded", actorId: principalId, workspaceId: claimed.workspaceId, taskId: task.id, correlationId: String(task.payload.root_objective_id), summary: cancelError.message, attentionState: "failed" });
           }
-          this.gateway.emit({ type: "task.canceled", actorId: botId, workspaceId: claimed.workspaceId, taskId: task.id, correlationId: String(task.payload.root_objective_id), summary: cancelError.message, attentionState: "canceled" });
+          this.gateway.emit({ type: "task.canceled", actorId: principalId, workspaceId: claimed.workspaceId, taskId: task.id, correlationId: String(task.payload.root_objective_id), summary: cancelError.message, attentionState: "canceled" });
         }
-        const cancellationSettlement = this.gateway.settleHandoffForTask(task.id, "canceled", botId);
+        const cancellationSettlement = this.gateway.settleHandoffForTask(task.id, "canceled", principalId);
         canceledTask = cancellationSettlement?.task ?? canceledTask;
         return { execution: canceledExecution, task: canceledTask, artifact: null, status: "canceled" };
       }
@@ -350,7 +349,7 @@ export class BotRunner {
       const failureBase = latestTask?.kind === "task" ? latestTask : task;
       const failedTaskPayload: JsonObject = validateProtocolObject({ ...failureBase.payload, status: "failed", failed_at: nowIso(), failure_reason: message, failure_code: failureCode }, "task");
       const failureBaseMutation = {
-        preconditions: [{ id: task.id, kind: "task" as const, status: String(failureBase.payload.status), ownerId: botId }],
+        preconditions: [{ id: task.id, kind: "task" as const, status: String(failureBase.payload.status), ownerId: principalId }],
         objects: [{ kind: "task" as const, payload: failedTaskPayload }],
         events: []
       };
@@ -372,15 +371,36 @@ export class BotRunner {
       if (this.store.dbPath === ":memory:") this.queue.finishOwned(claimed.id, this.runnerId, "failed", message);
       let failedTask = failureMutation.objects[0] ?? failureBase;
       const failedExecution = this.queue.getByItem(task.id) ?? currentExecution;
-      if (error instanceof BudgetError) this.gateway.emit({ type: "task.budget_exceeded", actorId: botId, workspaceId: claimed.workspaceId, taskId: task.id, correlationId: String(task.payload.root_objective_id), summary: message, attentionState: "failed" });
-      if (error instanceof CoordinationLoopError) this.gateway.emit({ type: "task.no_progress", actorId: botId, workspaceId: claimed.workspaceId, taskId: task.id, correlationId: String(task.payload.root_objective_id), summary: message, attentionState: "failed" });
-      this.gateway.emit({ type: "task.failed", actorId: botId, workspaceId: claimed.workspaceId, taskId: task.id, correlationId: String(task.payload.root_objective_id), summary: message, attentionState: "failed" });
-      const failureSettlement = this.gateway.settleHandoffForTask(task.id, "failed", botId);
+      if (error instanceof BudgetError) this.gateway.emit({ type: "task.budget_exceeded", actorId: principalId, workspaceId: claimed.workspaceId, taskId: task.id, correlationId: String(task.payload.root_objective_id), summary: message, attentionState: "failed" });
+      if (error instanceof CoordinationLoopError) this.gateway.emit({ type: "task.no_progress", actorId: principalId, workspaceId: claimed.workspaceId, taskId: task.id, correlationId: String(task.payload.root_objective_id), summary: message, attentionState: "failed" });
+      this.gateway.emit({ type: "task.failed", actorId: principalId, workspaceId: claimed.workspaceId, taskId: task.id, correlationId: String(task.payload.root_objective_id), summary: message, attentionState: "failed" });
+      const failureSettlement = this.gateway.settleHandoffForTask(task.id, "failed", principalId);
       failedTask = failureSettlement?.task ?? failedTask;
       return { execution: failedExecution, task: failedTask, artifact: null, status: "failed" };
     } finally {
       this.active.delete(task.id);
     }
+  }
+
+  private resolveExecutionPrincipal(principalId: string): StoredObject {
+    const bot = this.gateway.getBot(principalId);
+    if (bot) {
+      if (bot.payload.status !== "active") throw new Error(`Bot ${principalId} is not active`);
+      return bot;
+    }
+
+    const worker = this.store.getObject(principalId);
+    if (!worker || worker.kind !== "worker") throw new Error(`Execution principal ${principalId} not found`);
+    if (!new Set(["ready", "running"]).has(String(worker.payload.status))) {
+      throw new Error(`Worker ${principalId} is not executable from status ${String(worker.payload.status)}`);
+    }
+    const run = this.store.getObject(String(worker.payload.run_id ?? ""));
+    if (!run || run.kind !== "team_run") throw new Error(`Worker ${principalId} Team Run was not found`);
+    if (run.workspaceId !== worker.workspaceId) throw new Error(`Worker ${principalId} is outside its Team Run workspace`);
+    if (new Set(["completed", "failed", "canceled", "budget_exhausted"]).has(String(run.payload.status))) {
+      throw new Error(`Worker ${principalId} cannot execute because Team Run ${run.id} is terminal`);
+    }
+    return worker;
   }
 
   private async executeWithControls(adapter: RuntimeAdapter, context: RuntimeExecutionContext, deadlineAt: number | null, executionId: string): Promise<RuntimeExecutionResult> {

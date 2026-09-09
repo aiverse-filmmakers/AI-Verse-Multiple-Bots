@@ -2,7 +2,10 @@ import type { RuntimeUsage } from "./budget.js";
 import type { BotManifest, JsonObject, StoredObject } from "./types.js";
 
 export interface RuntimeExecutionContext {
+  /** Legacy compatibility view. For temporary Workers this is the Worker cast through the old Bot slot. */
   bot: StoredObject<BotManifest>;
+  /** Canonical actor for this execution. New adapters should use this field. */
+  principal?: StoredObject;
   task: StoredObject;
   capabilityLease: StoredObject;
   environmentLease: StoredObject | null;
@@ -49,6 +52,7 @@ export class DeterministicRuntimeAdapter implements RuntimeAdapter {
 
   async execute(context: RuntimeExecutionContext): Promise<RuntimeExecutionResult> {
     if (context.signal.aborted) throw context.signal.reason ?? new Error("Task canceled");
+    const principal = context.principal ?? context.bot;
     const objective = String(context.task.payload.objective ?? "");
     const constraints = Array.isArray(context.task.payload.required_constraints)
       ? context.task.payload.required_constraints.map(String)
@@ -60,7 +64,8 @@ export class DeterministicRuntimeAdapter implements RuntimeAdapter {
       output: {
         objective,
         required_constraints: constraints,
-        executed_by: context.bot.id,
+        executed_by: principal.id,
+        execution_principal_kind: principal.kind,
         runtime_adapter: this.id,
         lease_id: context.capabilityLease.id,
         environment_lease_id: context.environmentLease?.id ?? null,

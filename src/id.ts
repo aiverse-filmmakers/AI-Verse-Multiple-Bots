@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 
 const PREFIXES = new Set([
   "bot", "worker", "room", "thread", "conv", "run", "runner", "task", "msg", "evt",
-  "art", "obj", "handoff", "lease", "envlease", "approval", "corr", "trace", "delivery"
+  "art", "obj", "handoff", "lease", "envlease", "approval", "corr", "trace", "delivery", "exec"
 ]);
 
 export function createId(prefix: string): string {
