@@ -3,6 +3,7 @@ import { ExecutionOwnershipError, ExecutionQueue } from "./execution-queue.js";
 import { CoordinationGateway } from "./gateway.js";
 import { RecoveryCoordinator, type RecoveryDecision } from "./recovery.js";
 import { BotRunner } from "./runner.js";
+import { TeamRunCleanup } from "./team-run-cleanup.js";
 import { TeamRunDiscussion } from "./team-run-discussion.js";
 import { TeamRunFanout } from "./team-run-fanout.js";
 import { TeamRunCoordinator } from "./team-runs.js";
@@ -22,6 +23,7 @@ export class ExecutionSupervisor {
   private readonly inFlight = new Map<string, Promise<void>>();
   private startupFanoutReconcile: Promise<void> | null = null;
   readonly recovery: RecoveryCoordinator;
+  readonly cleanup: TeamRunCleanup;
   readonly fanout: TeamRunFanout;
   readonly discussion: TeamRunDiscussion;
   readonly verifier: TeamRunVerifier;
@@ -35,6 +37,7 @@ export class ExecutionSupervisor {
   ) {
     this.recovery = new RecoveryCoordinator(gateway.store, queue, gateway);
     const teams = new TeamRunCoordinator(gateway.store);
+    this.cleanup = new TeamRunCleanup(teams, gateway, queue);
     this.fanout = new TeamRunFanout(teams, gateway, queue, runner);
     this.discussion = new TeamRunDiscussion(teams, gateway, queue, runner);
     this.verifier = new TeamRunVerifier(teams, gateway, queue, runner);
@@ -44,6 +47,7 @@ export class ExecutionSupervisor {
   start(): void {
     if (this.unsubscribe) return;
     this.unsubscribe = this.gateway.subscribeEvents((event) => this.onEvent(event));
+    this.cleanup.reapStaleDiscussionOpenings();
     this.fanout.recoverPreparedFanouts();
     const startup = this.fanout.reconcileOpenFanouts();
     this.startupFanoutReconcile = startup;
@@ -53,6 +57,7 @@ export class ExecutionSupervisor {
     this.discussion.recoverOpenDiscussions();
     this.verifier.recoverPendingVerifications();
     this.synthesis.recoverPendingSyntheses();
+    this.cleanup.recoverTerminalRuns();
     this.sweepRecovery();
     for (const targetId of this.queue.listQueuedTargets()) this.trigger(targetId);
     if (this.recoverySweepMs > 0) this.recoveryTimer = setInterval(() => this.sweepRecovery(), this.recoverySweepMs);
@@ -89,17 +94,22 @@ export class ExecutionSupervisor {
   }
 
   sweepRecovery(now = Date.now()): RecoveryDecision[] {
+    this.cleanup.reapStaleDiscussionOpenings({ now });
     let decisions: RecoveryDecision[] = [];
     try {
       decisions = this.recovery.recoverStale(now);
     } catch (error) {
-      if (error instanceof ExecutionOwnershipError) return decisions;
+      if (error instanceof ExecutionOwnershipError) {
+        this.cleanup.recoverTerminalRuns();
+        return decisions;
+      }
       this.gateway.emit({
         type: "execution.recovery_failed",
         actorId: "system_recovery",
         summary: error instanceof Error ? error.message : String(error),
         attentionState: "failed"
       });
+      this.cleanup.recoverTerminalRuns();
       return decisions;
     }
     for (const decision of decisions) {
@@ -112,6 +122,7 @@ export class ExecutionSupervisor {
         this.synthesis.reconcileTask(decision.task.id);
       }
     }
+    this.cleanup.recoverTerminalRuns();
     return decisions;
   }
 

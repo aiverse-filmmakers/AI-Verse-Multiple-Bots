@@ -6,7 +6,7 @@
 
 **Overall status:** IN PROGRESS
 
-**Directional phase progress:** approximately 88%
+**Directional phase progress:** approximately 93%
 
 This file is the implementation ledger for Phase 2. The canonical product roadmap remains `BUILD-MAP.md`.
 
@@ -18,11 +18,11 @@ The package remains host-neutral. Phase 2 coordination primitives may be embedde
 
 ## Current verification
 
-Phase 2.9 merged to `main` as `b8e9e090f55cb2e8c185c4e539266290262f325d`.
+Phase 2.10 is complete on PR #26 after the audited PR-head package suite passed **147/147 tests** with 0 failures, 0 canceled, and 0 skipped.
 
-GitHub Actions post-merge **run 193** passed the full package suite at **134/134 tests**, with 0 failures, 0 canceled, and 0 skipped.
+The cleanup gate now covers terminal Worker expiry, transient authority and execution cleanup, stale discussion-setup reaping, restart recovery, unresolved-state blockers, and preservation of the canonical audit/provenance graph.
 
-The canonical roadmap and implementation ledger now agree that Phase 2.9 is complete and Phase 2.10 is next.
+The next Phase 2 slice is 2.11 adaptive single-Bot-vs-squad decision policy.
 
 ## Slice status
 
@@ -35,8 +35,8 @@ The canonical roadmap and implementation ledger now agree that Phase 2.9 is comp
 7. Structured disagreement detection — **COMPLETE**
 8. Bounded verifier/critic role — **COMPLETE**
 9. Canonical synthesis — **COMPLETE**
-10. Worker cleanup hardening — **NEXT**
-11. Adaptive single-Bot-vs-squad decision policy — remaining
+10. Worker cleanup hardening — **COMPLETE**
+11. Adaptive single-Bot-vs-squad decision policy — **NEXT**
 12. Squad-wide budget/cancellation consolidation — remaining beyond the substantial controls already implemented
 
 ## Implemented foundation
@@ -50,7 +50,7 @@ The canonical roadmap and implementation ledger now agree that Phase 2.9 is comp
 - leader-only Worker lifecycle control and `can_create_workers` enforcement
 - Team Run `max_workers` and Worker budget-boundary enforcement
 - Worker Task binding before ready/running execution states
-- terminal Worker expiry foundation with retained audit records
+- terminal Worker expiry with retained audit records
 - restart-persistent Team Run and Worker state
 
 ### Worker execution + manager topology
@@ -108,6 +108,7 @@ The canonical roadmap and implementation ledger now agree that Phase 2.9 is comp
 - Worker Room publication is restricted to the exact temporary discussion and the Worker's own scoped candidate Artifact
 - deterministic kickoff/thread/turn records make restart reconciliation idempotent
 - completed-but-unreconciled turns resume without duplicated completed work
+- discussion-created setup Workers carry explicit lifecycle tags for precise stale-reservation cleanup; unrelated Workers are never inferred into that setup
 
 ### Structured disagreement detection
 
@@ -203,7 +204,73 @@ The sixteen synthesis acceptance/hardening tests prove:
 15. a poisoned final Artifact pointer fails closed instead of silently re-synthesizing
 16. late Worker creation blocks canonical finalization until that work is closed, after which the same completed synthesis Task settles once
 
-**Verified package suite:** 134 passed, 0 failed, 0 canceled, 0 skipped. PR-head run 192 and post-merge `main` run 193 both succeeded.
+## Slice 2.10 - Worker cleanup hardening
+
+**COMPLETE**
+
+Phase 2.10 adds a host-neutral maintenance/recovery cleanup lifecycle without deleting canonical evidence. Execution settlement remains observable first; terminal cleanup happens later through explicit cleanup or supervisor maintenance/recovery.
+
+Implemented:
+
+### Terminal cleanup boundary
+
+- public `TeamRunCleanup` coordinator
+- cleanup only accepts terminal Team Runs and fails closed on inconsistent live Tasks or live Workers
+- unresolved `requested`/`accepted` Handoffs block cleanup rather than being silently rewritten
+- terminal temporary Workers are expired without deleting their Worker records
+- durable Bots are never changed or promoted/demoted by cleanup
+- cleanup is maintenance/recovery work, not an immediate side effect of Task settlement
+
+### Transient authority and execution cleanup
+
+- run Task capability leases are expired/revoked with cleanup audit metadata
+- run-exclusive environment leases are revoked; environment leases still referenced by another Team Run are preserved
+- residual queued/claimed/running/dead-letter execution records are canceled
+- stale pending Approvals attached to already-terminal run Tasks are canceled while their audit objects remain
+- actionable mailbox deliveries targeting run Workers are canceled while Message records remain
+- queue/mailbox side effects are accumulated across optimistic retries so the persisted cleanup summary does not lose already-applied cleanup evidence
+
+### Temporary coordination surfaces and evidence preservation
+
+- temporary Team Run Rooms and their Threads are closed
+- Room/Thread/Message/Task/Handoff/Approval/Worker/event records remain available for audit
+- canonical Artifacts and provenance edges are retained, including final synthesis, disagreement and verifier evidence
+- cleanup persists a structured summary and emits idempotent audit events
+
+### Stale discussion setup reaping
+
+- discussion setup reserves a Team Run opening before Worker creation
+- only Workers explicitly tagged by `TeamRunDiscussion` with that opening ID are eligible for deterministic stale setup reaping
+- unrelated Workers created during the same reservation are not tagged or reaped
+- task-bound/active or ambiguous legacy setup state blocks fail closed
+- stale reservation cleanup releases Worker capacity without deleting evidence
+- fresh reservations are left untouched
+
+### Restart and idempotency
+
+- `ExecutionSupervisor` reaps stale discussion openings and recovers terminal Team Run cleanup on startup/recovery sweeps
+- repeated cleanup returns an already-clean result and reuses idempotent audit keys
+- file-backed restart tests prove terminal cleanup and stale setup reaping resume safely
+
+## Phase 2.10 acceptance proof
+
+The cleanup acceptance/hardening tests prove:
+
+1. terminal Worker identity, capability authority and residual execution are cleaned while Artifacts and the durable leader remain intact
+2. run-exclusive environment leases are revoked while shared environment leases remain usable by other Team Runs
+3. temporary Rooms/Threads close while Messages and Artifacts remain auditable
+4. cleanup is idempotent and emits one canonical completion event
+5. nonterminal Team Runs cannot be cleaned
+6. inconsistent terminal state with live Workers blocks visibly
+7. stale explicitly tagged discussion setup is reaped, unrelated Workers survive, and Worker capacity is released
+8. fresh setup reservations are not reaped
+9. task-bound stale setup participants block reaping instead of losing live work
+10. supervisor restart recovers terminal cleanup and stale setup state
+11. unresolved Handoffs block cleanup
+12. stale pending Approvals become non-actionable without deleting their audit record
+13. Worker-target mailbox deliveries are canceled while their Messages are preserved
+
+**Verified package suite:** 147 passed, 0 failed, 0 canceled, 0 skipped on the final audited PR-head gate.
 
 ## Reusability boundary
 
@@ -211,7 +278,7 @@ Phase 2 remains package-owned and host-neutral:
 
 ```text
 TeamRunManager / TeamRunFanout / TeamRunHandoff / TeamRunDiscussion
-TeamRunDisagreementDetector / TeamRunVerifier / TeamRunSynthesis
+TeamRunDisagreementDetector / TeamRunVerifier / TeamRunSynthesis / TeamRunCleanup
 PrincipalRunner / ExecutionSupervisor
   -> CoordinationStore + ExecutionQueue
   -> RuntimeAdapter contract
@@ -225,17 +292,17 @@ AI-Verse native integration remains Phase 3 and must arrive through adapters and
 
 ## Next slice
 
-### 2.10 - Worker cleanup hardening
+### 2.11 - Adaptive single-Bot-vs-squad decision policy
 
 Required next work:
 
-1. finish post-run Worker expiry/reaping across manager, fan-out, handoff, discussion and verifier paths
-2. reap stale discussion/setup reservations without creating duplicate squads or losing audit evidence
-3. clean run-scoped transient execution, lease, queue and temporary Room/Thread surfaces only when their authoritative work is terminal
-4. preserve canonical final Artifacts, disagreement/verifier/synthesis provenance and audit history
-5. make cleanup idempotent, restart-safe and compare-and-swap protected
-6. expose cleanup failures visibly instead of silently abandoning temporary state
-7. ensure cleanup never promotes a Worker to a durable Bot or leaves a Worker as durable Room membership
-8. add database-reopen and repeated-cleanup acceptance coverage
+1. define an explicit, inspectable decision contract for when a durable Bot should stay single vs open a Team Run
+2. base the decision on work shape, uncertainty, independence, verification need, cost/latency budget, and available authority rather than vague model preference
+3. choose only among already-supported bounded topologies and fail closed to a simpler path when requirements are not met
+4. preserve root objective, workspace, immutable constraints, budget and approval boundaries through the decision
+5. prevent repeated squad creation or decision loops for the same objective
+6. record why collaboration was or was not justified without storing hidden chain-of-thought
+7. make the policy deterministic/idempotent where inputs are equivalent and restart-safe where state is persisted
+8. add acceptance coverage proving simple work remains single and genuinely parallel/verification-heavy work selects the minimum justified squad shape
 
-After 2.10, continue through adaptive single-Bot-vs-squad selection and final squad-wide budget/cancellation consolidation.
+After 2.11, finish Phase 2 with squad-wide budget/cancellation consolidation.

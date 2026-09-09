@@ -74,6 +74,7 @@ export interface CreateWorkerInput {
   taskId?: string | null;
   runtime?: JsonObject;
   execution?: JsonObject;
+  lifecycle?: JsonObject;
   capabilityLeaseId?: string | null;
   environmentLeaseId?: string | null;
   budget?: BudgetEnvelope;
@@ -225,6 +226,7 @@ export class TeamRunCoordinator {
       status: task ? "ready" : "created",
       created_at: timestamp,
       updated_at: timestamp,
+      ...(input.lifecycle ? { lifecycle: input.lifecycle } : {}),
       ...(input.execution ? { execution: input.execution } : {})
     };
     const updatedRun: JsonObject = {
