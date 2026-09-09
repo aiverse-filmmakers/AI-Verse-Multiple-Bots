@@ -167,7 +167,7 @@ None.
 
 **Current phase progress:** approximately 55%.
 
-**Current verification:** GitHub Actions run 139 on 2026-09-09 passed **82/82 tests** at commit `308d8737a4bc4c1c0c96bf0064f8dc47d0fcd4a5`.
+**Current verification:** GitHub Actions run 147 on 2026-09-09 passed **82/82 tests** at commit `83e2fbb99c378c0aea47b415e64780a57a5ec4f9`.
 
 Goal: a durable Bot decides whether to work alone or create bounded temporary Workers, coordinates them through the topology justified by the work, and returns a bounded, auditable result without turning temporary helpers into durable identities.
 
@@ -244,6 +244,8 @@ Major slices:
 - public `PrincipalRunner` enforces active Team Run scope for run-scoped durable Bot execution
 - durable Bot Team Run output counts toward the same aggregate run budget as Worker output
 - aggregate run usage persistence protected by compare-and-swap
+- default completion returns final Task ownership to the active durable Team Run leader without reviving a terminated Worker
+- explicit `stay_with_target` retains the accepted target as final owner
 - file-backed Worker handoff survives database reopen and executes under the accepted target
 - Artifact provenance continues to identify the actual producing principal
 
