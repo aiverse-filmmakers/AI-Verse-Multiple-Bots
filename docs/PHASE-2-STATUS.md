@@ -18,7 +18,7 @@ The package must remain host-neutral. Phase 2 coordination primitives may be emb
 
 ## Current verification
 
-GitHub Actions run 146 on 2026-09-09 passed **82/82 tests**, with 0 failures, 0 canceled, and 0 skipped, at commit `3cc9dcea454fc3441543e17bba57407aa93380bc`.
+GitHub Actions run 149 on 2026-09-09 passed **82/82 tests**, with 0 failures, 0 canceled, and 0 skipped, at commit `29155d1ffc64b911308b98d76aa7441806e1a48a`.
 
 The eight Phase 2.5 acceptance tests pass alongside the previous 74-test suite.
 
@@ -252,7 +252,7 @@ The eight new tests prove:
 7. canceling a handoff Team Run cancels durable-Bot-owned queued work and settles the Handoff
 8. accepted Worker handoff survives database reopen, executes under the target Worker, settles, and returns final ownership to the durable leader
 
-**Verified suite:** 82 passed, 0 failed, 0 canceled, 0 skipped in GitHub Actions run 146.
+**Verified suite:** 82 passed, 0 failed, 0 canceled, 0 skipped in GitHub Actions run 149.
 
 ## Reusability boundary
 
