@@ -3,7 +3,7 @@ import { URL } from "node:url";
 import type { BudgetEnvelope } from "./budget.js";
 import type { BotManifest, JsonObject } from "./types.js";
 import { ExecutionQueue } from "./execution-queue.js";
-import { CoordinationGateway } from "./gateway.js";
+import { CoordinationGateway, type ApprovalRequirement } from "./gateway.js";
 import { CoordinationPolicy } from "./policy.js";
 import { RoomCoordinator } from "./rooms.js";
 import { BotRunner } from "./runner.js";
@@ -40,6 +40,18 @@ function errorResponse(res: any, error: unknown): void {
 function requiredString(body: JsonObject, key: string): string {
   if (typeof body[key] !== "string" || String(body[key]).length === 0) throw new Error(`${key} is required`);
   return String(body[key]);
+}
+
+function optionalApproval(value: unknown): ApprovalRequirement | undefined {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
+  const approval = value as JsonObject;
+  return {
+    required: approval.required === true,
+    reason: typeof approval.reason === "string" ? approval.reason : undefined,
+    action: typeof approval.action === "object" && approval.action !== null && !Array.isArray(approval.action)
+      ? approval.action as JsonObject
+      : undefined
+  };
 }
 
 export function createGatewayServer(options: GatewayServerOptions = {}) {
@@ -190,6 +202,37 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
         return;
       }
 
+      if (method === "GET" && url.pathname === "/v1/approvals") {
+        json(res, 200, {
+          approvals: gateway.listApprovals(
+            url.searchParams.get("workspace") ?? undefined,
+            url.searchParams.get("status") ?? undefined
+          )
+        });
+        return;
+      }
+
+      const approvalApproveMatch = url.pathname.match(/^\/v1\/approvals\/([^/]+)\/approve$/);
+      if (method === "POST" && approvalApproveMatch) {
+        const body = await readJson(req);
+        json(res, 200, gateway.approve(
+          decodeURIComponent(approvalApproveMatch[1] as string),
+          requiredString(body, "actorId")
+        ));
+        return;
+      }
+
+      const approvalDenyMatch = url.pathname.match(/^\/v1\/approvals\/([^/]+)\/deny$/);
+      if (method === "POST" && approvalDenyMatch) {
+        const body = await readJson(req);
+        json(res, 200, gateway.rejectApproval(
+          decodeURIComponent(approvalDenyMatch[1] as string),
+          requiredString(body, "actorId"),
+          typeof body.reason === "string" ? body.reason : "Denied by operator"
+        ));
+        return;
+      }
+
       const taskCancelMatch = url.pathname.match(/^\/v1\/tasks\/([^/]+)\/cancel$/);
       if (method === "POST" && taskCancelMatch) {
         const body = await readJson(req);
@@ -222,7 +265,8 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
           deadlineAt: typeof body.deadlineAt === "string" ? body.deadlineAt : undefined,
           budget: typeof body.budget === "object" && body.budget !== null && !Array.isArray(body.budget)
             ? body.budget as BudgetEnvelope
-            : undefined
+            : undefined,
+          approval: optionalApproval(body.approval)
         }));
         return;
       }
