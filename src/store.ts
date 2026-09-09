@@ -213,11 +213,23 @@ export class CoordinationStore {
   listEventsAfter(sequence = 0, limit = 100): AppendedEvent[] {
     const rows = this.db.prepare("SELECT sequence, room_sequence, payload FROM events WHERE sequence > ? ORDER BY sequence LIMIT ?")
       .all(sequence, limit) as any[];
-    return rows.map((row) => ({
-      sequence: Number(row.sequence),
-      roomSequence: row.room_sequence === null ? null : Number(row.room_sequence),
-      event: parseObject(row.payload) as CoordinationEvent
-    }));
+    return rows.map((row) => this.rowToEvent(row));
+  }
+
+  listRoomEvents(roomId: string, afterRoomSequence = 0, limit = 100, threadId?: string): AppendedEvent[] {
+    let sql = `
+      SELECT sequence, room_sequence, payload FROM events
+      WHERE room_id = ? AND room_sequence > ?
+    `;
+    const args: unknown[] = [roomId, afterRoomSequence];
+    if (threadId) {
+      sql += " AND thread_id = ?";
+      args.push(threadId);
+    }
+    sql += " ORDER BY room_sequence LIMIT ?";
+    args.push(limit);
+    const rows = this.db.prepare(sql).all(...args) as any[];
+    return rows.map((row) => this.rowToEvent(row));
   }
 
   enqueueDelivery(delivery: DeliveryRecord): DeliveryRecord {
@@ -278,6 +290,14 @@ export class CoordinationStore {
       payload: parseObject(String(row.payload)),
       createdAt: String(row.created_at),
       updatedAt: String(row.updated_at)
+    };
+  }
+
+  private rowToEvent(row: any): AppendedEvent {
+    return {
+      sequence: Number(row.sequence),
+      roomSequence: row.room_sequence === null ? null : Number(row.room_sequence),
+      event: parseObject(String(row.payload)) as CoordinationEvent
     };
   }
 
