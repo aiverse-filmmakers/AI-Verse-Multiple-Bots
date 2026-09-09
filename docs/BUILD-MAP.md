@@ -14,14 +14,14 @@ The target is an installable persistent-teammate layer that can run standalone o
 
 ```text
 Phase 0  Research + Architecture        [COMPLETE]  100%
-Phase 1  Runnable Coordination Core     [ACTIVE]     ~88%
+Phase 1  Runnable Coordination Core     [ACTIVE]     ~92%
 Phase 2  Dynamic Multi-Agent Squads     [NOT STARTED]
 Phase 3  AI-Verse Native Integration    [NOT STARTED]
 Phase 4  Runtime / A2A Interoperability [NOT STARTED]
 Phase 5  Product + Install + Dashboard  [NOT STARTED]
 ```
 
-**Directional overall first-release progress:** roughly 35% complete.
+**Directional overall first-release progress:** roughly 37% complete.
 
 That overall figure is intentionally approximate because later phases contain different amounts of work. Passed phase gates, not percentages, are authoritative.
 
@@ -42,7 +42,7 @@ That overall figure is intentionally approximate because later phases contain di
 
 ## Phase 1 - Runnable Coordination Core
 
-**Status:** ACTIVE, approximately 88%
+**Status:** ACTIVE, approximately 92%
 
 ### 1.1 Repository/runtime skeleton
 
@@ -65,6 +65,7 @@ That overall figure is intentionally approximate because later phases contain di
 - execution queue
 - idempotency
 - restart persistence
+- reusable atomic multi-object/event/queue mutation primitive
 
 ### 1.3 Event substrate
 
@@ -129,12 +130,14 @@ Remaining before Phase 1 closes:
 - recursive parent -> child cancellation
 - deadline enforcement
 - budget enforcement before Artifact acceptance
+- Handoff settlement on completion/failure/cancellation
 - canceled/failed/over-budget Tasks publish no successful Artifact
 
 Remaining:
 - retry/dead-letter policy
 - stale-claim recovery
-- multi-process execution ownership/heartbeat hardening
+- execution heartbeat/lease
+- multi-process execution ownership hardening
 
 ### 1.7 Delegation
 
@@ -145,6 +148,7 @@ Remaining:
 - scoped capability lease
 - parent lineage
 - inherited constraints
+- immutable constraint digest
 - hop metadata/ceilings
 - response target
 - Task-backed Room work
@@ -157,23 +161,28 @@ Remaining:
 
 ### 1.8 Handoffs
 
-**PARTIAL - NEXT MAIN GATE**
+**PHASE-1 HARDENING COMPLETE**
 
-Complete:
-- request
+- canonical Protocol v1.1 fields: `target_bot_id` and `task_id`
+- source ownership/root/workspace/status validation before request
+- only one active Handoff per Task
 - target-only acceptance
-- ownership mutation after acceptance
-- ownership events
-
-Remaining:
-- align implementation with canonical protocol field names
-- atomic transaction across handoff + ownership + events + execution queue
-- reject flow
-- queue retargeting
-- capability lease intersection/reissue
-- environment lease safety/transfer rules
-- immutable-constraint digest verification
-- return-policy execution
+- explicit target/operator rejection path
+- atomic Handoff + Task ownership + lease + approval + queue + event mutation
+- queued execution retargeting
+- claimed/running execution fails closed rather than moving underneath a runner
+- capability authority reissued to the target instead of reusing source authority
+- target capability compatibility validation
+- shared-workspace environment lease reissue
+- isolated/external environment transfers fail closed until an adapter-specific secure transfer exists
+- pending Approval actor retargeting without prematurely queueing work
+- immutable constraint digest verification and stricter-constraint preservation
+- `stay_with_target`, `return_on_completion`, `return_on_block`, and `explicit_only` policy contract
+- automatic Handoff settlement on Task completion/failure/cancellation
+- completion ownership return where configured
+- `handoff.requested`, `handoff.accepted`, `handoff.rejected`, `handoff.completed`, terminal failure/cancel events and ownership audit events
+- HTTP request/accept/reject endpoints
+- JSON Schema/runtime validator contract alignment
 
 ### 1.9 Rooms + Threads
 
@@ -227,6 +236,7 @@ Implemented and enforced:
 - approval-required Tasks remain outside the execution queue
 - denied approval cancels work and produces no Artifact
 - attention event for pending approval
+- machine-readable schema regression tests for Safety II and Handoff contracts
 
 Remaining integration item:
 - enforce Room `max_messages` / `max_rounds` budget envelopes across complete multi-turn runs. Core Room scheduling already has bounded per-turn speaker/message settings.
@@ -239,11 +249,10 @@ Phase 1 is complete only when all of the following pass together:
 
 ### Phase 1 major slices still left
 
-1. **Handoff hardening:** atomic transfer, rejection, constraint/lease/queue handling and protocol alignment
-2. **Execution recovery:** stale claim/heartbeat/retry/dead-letter rules
-3. **Bot registry hardening:** lifecycle and collision/relationship rules
-4. **First real runtime adapter + Phase-1 end-to-end acceptance test**
-5. **Final Phase-1 contract pass:** schema sync, Room aggregate limits and release-level conformance tests
+1. **Execution recovery:** stale claim/heartbeat/retry/dead-letter and multi-process ownership rules
+2. **Bot registry hardening:** lifecycle and collision/relationship rules
+3. **First real runtime adapter + Phase-1 end-to-end acceptance test**
+4. **Final Phase-1 contract pass:** Room aggregate limits and release-level conformance/restart scenarios
 
 ## Phase 2 - Dynamic Multi-Agent Squads
 
