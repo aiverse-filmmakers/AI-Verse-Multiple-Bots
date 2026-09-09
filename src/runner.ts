@@ -12,6 +12,7 @@ export type { RunResult, CancelResult } from "./principal-runner.js";
 
 const EXECUTABLE_RUN_STATES = new Set(["running", "synthesizing", "verifying"]);
 const TERMINAL_TASK_STATES = new Set(["completed", "failed", "canceled"]);
+const OPTIMISTIC_RETRY_LIMIT = 4;
 
 function stringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.map(String) : [];
@@ -192,40 +193,48 @@ export class PrincipalRunner extends BasePrincipalRunner {
    * `stay_with_target` and record an additive TeamRun return-to-leader contract.
    */
   private prepareTeamRunHandoffSettlement(targetId: string): void {
-    const execution = this.queue.list(targetId, ["queued"])[0];
-    if (!execution || execution.itemKind !== "task") return;
-    const task = this.store.getObject(execution.itemId);
-    if (!task || task.kind !== "task" || typeof task.payload.run_id !== "string") return;
-    const handoffId = typeof task.payload.handoff_id === "string" ? task.payload.handoff_id : null;
-    if (!handoffId) return;
-    const handoff = this.store.getObject(handoffId);
-    if (!handoff || handoff.kind !== "handoff" || handoff.payload.status !== "accepted") return;
-    if (String(handoff.payload.run_id ?? "") !== String(task.payload.run_id)) return;
-    if (String(handoff.payload.return_policy ?? "") !== "return_on_completion") return;
-    if (handoff.payload.team_run_return_policy !== undefined) return;
-    if (String(task.payload.owner_id ?? "") !== targetId || String(task.payload.assignee_id ?? "") !== targetId) return;
+    for (let attempt = 0; attempt < OPTIMISTIC_RETRY_LIMIT; attempt += 1) {
+      const execution = this.queue.list(targetId, ["queued"])[0];
+      if (!execution || execution.itemKind !== "task") return;
+      const task = this.store.getObject(execution.itemId);
+      if (!task || task.kind !== "task" || typeof task.payload.run_id !== "string") return;
+      const handoffId = typeof task.payload.handoff_id === "string" ? task.payload.handoff_id : null;
+      if (!handoffId) return;
+      const handoff = this.store.getObject(handoffId);
+      if (!handoff || handoff.kind !== "handoff" || handoff.payload.status !== "accepted") return;
+      if (String(handoff.payload.run_id ?? "") !== String(task.payload.run_id)) return;
+      if (String(handoff.payload.return_policy ?? "") !== "return_on_completion") return;
+      if (handoff.payload.team_run_return_policy !== undefined) return;
+      if (String(task.payload.owner_id ?? "") !== targetId || String(task.payload.assignee_id ?? "") !== targetId) return;
 
-    const run = this.store.getObject(String(task.payload.run_id));
-    if (!run || run.kind !== "team_run") return;
-    const leaderId = String(run.payload.leader_id ?? "");
-    if (!leaderId) return;
-    const timestamp = new Date().toISOString();
-    const updatedHandoff = validateProtocolObject({
-      ...handoff.payload,
-      return_policy: "stay_with_target",
-      team_run_return_policy: "return_to_leader",
-      return_owner_id: leaderId,
-      team_run_return_normalized_at: timestamp
-    }, "handoff");
-    this.store.atomicMutation({
-      preconditions: [
-        { id: handoff.id, kind: "handoff", status: "accepted" },
-        { id: task.id, kind: "task", status: "assigned", ownerId: targetId },
-        { id: run.id, kind: "team_run", status: String(run.payload.status), updatedAt: run.updatedAt }
-      ],
-      objects: [{ kind: "handoff", payload: updatedHandoff }],
-      events: []
-    });
+      const run = this.store.getObject(String(task.payload.run_id));
+      if (!run || run.kind !== "team_run") return;
+      const leaderId = String(run.payload.leader_id ?? "");
+      if (!leaderId) return;
+      const timestamp = new Date().toISOString();
+      const updatedHandoff = validateProtocolObject({
+        ...handoff.payload,
+        return_policy: "stay_with_target",
+        team_run_return_policy: "return_to_leader",
+        return_owner_id: leaderId,
+        team_run_return_normalized_at: timestamp
+      }, "handoff");
+      try {
+        this.store.atomicMutation({
+          preconditions: [
+            { id: handoff.id, kind: "handoff", status: "accepted" },
+            { id: task.id, kind: "task", status: "assigned", ownerId: targetId },
+            { id: run.id, kind: "team_run", status: String(run.payload.status), updatedAt: run.updatedAt }
+          ],
+          objects: [{ kind: "handoff", payload: updatedHandoff }],
+          events: []
+        });
+        return;
+      } catch (error) {
+        const optimisticConflict = error instanceof Error && error.message.includes("changed since it was read");
+        if (!optimisticConflict || attempt === OPTIMISTIC_RETRY_LIMIT - 1) throw error;
+      }
+    }
   }
 
   private normalizeTeamRunCompletionOwner(
@@ -328,7 +337,7 @@ export class PrincipalRunner extends BasePrincipalRunner {
   }
 
   private persistRunUsage(runId: string): void {
-    for (let attempt = 0; attempt < 4; attempt += 1) {
+    for (let attempt = 0; attempt < OPTIMISTIC_RETRY_LIMIT; attempt += 1) {
       const run = this.store.getObject(runId);
       if (!run || run.kind !== "team_run") return;
       let aggregate: RuntimeUsage = { input_tokens: 0, output_tokens: 0, cost: 0, actions: 0 };
@@ -345,7 +354,8 @@ export class PrincipalRunner extends BasePrincipalRunner {
         });
         return;
       } catch (error) {
-        if (!(error instanceof Error) || !error.message.includes("changed since it was read") || attempt === 3) throw error;
+        const optimisticConflict = error instanceof Error && error.message.includes("changed since it was read");
+        if (!optimisticConflict || attempt === OPTIMISTIC_RETRY_LIMIT - 1) throw error;
       }
     }
   }
