@@ -13,6 +13,7 @@ import { BotRunner } from "./runner.js";
 import { DeterministicRuntimeAdapter, RuntimeRegistry } from "./runtime.js";
 import { CoordinationStore } from "./store.js";
 import { ExecutionSupervisor } from "./supervisor.js";
+import { TeamRunFanout } from "./team-run-fanout.js";
 import { TeamRunCoordinator, type TeamRunStatus, type TeamRunTopology, type WorkerStatus } from "./team-runs.js";
 
 export interface GatewayServerOptions {
@@ -88,7 +89,8 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
     .register(new DeterministicRuntimeAdapter())
     .register(new OpenAICompatibleRuntimeAdapter());
   const runner = new BotRunner(store, gateway, executionQueue, runtimes);
-  const supervisor = new ExecutionSupervisor(gateway, executionQueue, runner, 5000, managerTopology);
+  const fanout = new TeamRunFanout(teamRuns, gateway, executionQueue, runner);
+  const supervisor = new ExecutionSupervisor(gateway, executionQueue, runner, 5000, managerTopology, fanout);
   supervisor.start();
 
   const server = createServer(async (req: any, res: any) => {
@@ -611,6 +613,7 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
     rooms,
     teamRuns,
     managerTopology,
+    fanout,
     runtimes,
     runner,
     supervisor,

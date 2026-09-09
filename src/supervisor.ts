@@ -4,11 +4,13 @@ import { CoordinationGateway } from "./gateway.js";
 import { RecoveryCoordinator, type RecoveryDecision } from "./recovery.js";
 import { BotRunner } from "./runner.js";
 import type { ManagerTopologyCoordinator } from "./manager-topology.js";
+import type { TeamRunFanout } from "./team-run-fanout.js";
 
 export class ExecutionSupervisor {
   private unsubscribe: (() => void) | null = null;
   private recoveryTimer: ReturnType<typeof setInterval> | null = null;
   private readonly inFlight = new Map<string, Promise<void>>();
+  private startupFanoutReconcile: Promise<void> | null = null;
   readonly recovery: RecoveryCoordinator;
 
   constructor(
@@ -16,7 +18,8 @@ export class ExecutionSupervisor {
     readonly queue: ExecutionQueue,
     readonly runner: BotRunner,
     readonly recoverySweepMs = 5000,
-    readonly managerTopology?: ManagerTopologyCoordinator
+    readonly managerTopology?: ManagerTopologyCoordinator,
+    readonly fanout?: TeamRunFanout
   ) {
     this.recovery = new RecoveryCoordinator(gateway.store, queue, gateway);
   }
@@ -25,6 +28,14 @@ export class ExecutionSupervisor {
     if (this.unsubscribe) return;
     this.unsubscribe = this.gateway.subscribeEvents((event) => this.onEvent(event));
     this.managerTopology?.reconcileAll();
+    this.fanout?.recoverPreparedFanouts();
+    if (this.fanout) {
+      const startup = this.fanout.reconcileOpenFanouts();
+      this.startupFanoutReconcile = startup;
+      void startup.finally(() => {
+        if (this.startupFanoutReconcile === startup) this.startupFanoutReconcile = null;
+      });
+    }
     this.sweepRecovery();
     for (const targetId of this.queue.listQueuedTargets()) this.trigger(targetId);
     if (this.recoverySweepMs > 0) this.recoveryTimer = setInterval(() => this.sweepRecovery(), this.recoverySweepMs);
@@ -39,7 +50,13 @@ export class ExecutionSupervisor {
   }
 
   async waitForIdle(): Promise<void> {
-    while (this.inFlight.size > 0) await Promise.all([...this.inFlight.values()]);
+    while (true) {
+      const startup = this.startupFanoutReconcile;
+      if (startup) await startup;
+      if (this.inFlight.size > 0) await Promise.all([...this.inFlight.values()]);
+      if (this.fanout) await this.fanout.waitForIdle();
+      if (this.inFlight.size === 0 && this.startupFanoutReconcile === null && (!this.fanout || this.fanout.isIdle())) return;
+    }
   }
 
   trigger(principalId: string): void {
@@ -77,7 +94,10 @@ export class ExecutionSupervisor {
       });
       return decisions;
     }
-    for (const decision of decisions) if (decision.action === "requeued") this.trigger(decision.execution.targetId);
+    for (const decision of decisions) {
+      if (decision.action === "requeued") this.trigger(decision.execution.targetId);
+      if (decision.task && decision.action === "reconciled") void this.reconcileFanoutTask(decision.task.id);
+    }
     return decisions;
   }
 
@@ -122,10 +142,31 @@ export class ExecutionSupervisor {
       try {
         const result = await this.runner.runNext(principalId);
         if (!result) return;
+        await this.reconcileFanoutTask(result.task.id);
       } catch (error) {
         if (error instanceof ExecutionOwnershipError) return;
         throw error;
       }
+    }
+  }
+
+  private async reconcileFanoutTask(taskId: string): Promise<void> {
+    if (!this.fanout) return;
+    try {
+      await this.fanout.reconcileTask(taskId);
+    } catch (error) {
+      const task = this.gateway.store.getObject(taskId);
+      this.gateway.emit({
+        type: "fanout.reconciliation_failed",
+        actorId: "system_supervisor",
+        workspaceId: task?.workspaceId ?? null,
+        runId: typeof task?.payload.run_id === "string" ? task.payload.run_id : null,
+        taskId,
+        correlationId: typeof task?.payload.root_objective_id === "string" ? task.payload.root_objective_id : null,
+        summary: error instanceof Error ? error.message : String(error),
+        attentionState: "failed"
+      });
+      throw error;
     }
   }
 }

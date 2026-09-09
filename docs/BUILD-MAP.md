@@ -21,7 +21,7 @@ Phase 4  Runtime / A2A Interoperability [NOT STARTED]
 Phase 5  Product + Install + Dashboard  [NOT STARTED]
 ```
 
-**Directional overall first-release progress:** roughly 40% complete.
+**Directional overall first-release progress:** roughly 45% complete.
 
 That overall figure is intentionally approximate because later phases contain different amounts of work. Passed phase gates, not percentages, are authoritative.
 
@@ -326,9 +326,20 @@ Goal: a durable Bot decides whether to work alone or create bounded temporary Wo
    - startup reconciliation restores missing queued execution and settles stale manager projections
    - manager scheduling and state inspection exposed through the localhost Gateway
 
+4. **Parallel fan-out - COMPLETE**
+   - bounded concurrent Worker scheduling for `parallel_panel`, `dynamic_squad`, and `hybrid` Team Runs
+   - central concurrency ceiling from leader `max_parallel_workers`, Team Run `max_workers`, and per-fan-out `maxConcurrency`
+   - reservation-safe aggregate token/cost/action budgets before Worker Tasks become executable
+   - two-stage `preparing` -> `running` activation so interrupted queue exposure can recover safely
+   - `all`, `first_success`, and quorum join contracts with optional remainder cancellation
+   - partial-failure collection preserves successful sibling Artifacts
+   - explicit fan-out cancellation propagates to queued/running Worker Tasks
+   - restart recovery and optimistic Team Run compare-and-swap settlement
+   - Artifact collection API is available for the later synthesis slice
+   - leader remains root owner; Worker capability/environment authority stays Task-scoped
+
 ### Remaining major slices
 
-4. parallel fan-out
 5. direct handoff topology
 6. group/discussion topology where justified
 7. disagreement detection

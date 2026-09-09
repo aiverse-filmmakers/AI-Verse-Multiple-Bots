@@ -47,6 +47,7 @@ export interface AtomicMutationPrecondition {
   kind: ProtocolKind;
   status?: string;
   ownerId?: string;
+  updatedAt?: string;
 }
 
 export interface AtomicQueueRetarget {
@@ -215,13 +216,16 @@ export class CoordinationStore {
     this.db.exec("BEGIN IMMEDIATE;");
     try {
       for (const precondition of input.preconditions ?? []) {
-        const row = this.db.prepare("SELECT kind, status, payload FROM objects WHERE id = ?").get(precondition.id) as any;
+        const row = this.db.prepare("SELECT kind, status, payload, updated_at FROM objects WHERE id = ?").get(precondition.id) as any;
         if (!row) throw new Error(`Atomic precondition failed: object ${precondition.id} not found`);
         if (String(row.kind) !== precondition.kind) {
           throw new Error(`Atomic precondition failed: ${precondition.id} is ${String(row.kind)}, expected ${precondition.kind}`);
         }
         if (precondition.status !== undefined && String(row.status) !== precondition.status) {
           throw new Error(`Atomic precondition failed: ${precondition.id} status is ${String(row.status)}, expected ${precondition.status}`);
+        }
+        if (precondition.updatedAt !== undefined && String(row.updated_at) !== precondition.updatedAt) {
+          throw new Error(`Atomic precondition failed: ${precondition.id} changed since it was read`);
         }
         if (precondition.ownerId !== undefined) {
           const payload = parseObject(String(row.payload));

@@ -19,6 +19,7 @@ export * from "./runner.js";
 export * from "./runtime.js";
 export * from "./store.js";
 export * from "./supervisor.js";
+export * from "./team-run-fanout.js";
 export * from "./team-runs.js";
 export * from "./types.js";
 export * from "./validator.js";
