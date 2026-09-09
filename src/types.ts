@@ -46,6 +46,7 @@ export interface CoordinationEvent extends JsonObject {
 export interface AppendedEvent {
   sequence: number;
   roomSequence: number | null;
+  runSequence: number | null;
   event: CoordinationEvent;
 }
 

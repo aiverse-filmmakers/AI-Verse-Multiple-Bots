@@ -3,6 +3,7 @@ import { BotRegistryRules, type BotLifecycleStatus } from "./bot-registry.js";
 import { constraintsDigest, normalizeConstraints } from "./constraints.js";
 import { createId } from "./id.js";
 import { ExecutionQueue } from "./execution-queue.js";
+import { CanonicalEventBus } from "./event-bus.js";
 import { CoordinationPolicy } from "./policy.js";
 import { CoordinationStore } from "./store.js";
 import type { AppendedEvent, BotManifest, CoordinationEvent, DeliveryRecord, JsonObject, StoredObject } from "./types.js";
@@ -107,20 +108,20 @@ interface EmitInput {
 }
 
 export class CoordinationGateway {
-  private readonly subscribers = new Set<(event: AppendedEvent) => void>();
   readonly registry: BotRegistryRules;
+  readonly events: CanonicalEventBus;
 
   constructor(
     readonly store: CoordinationStore,
     readonly executionQueue?: ExecutionQueue,
     readonly policy?: CoordinationPolicy
   ) {
+    this.events = new CanonicalEventBus(store);
     this.registry = new BotRegistryRules(store);
   }
 
   subscribeEvents(listener: (event: AppendedEvent) => void): () => void {
-    this.subscribers.add(listener);
-    return () => this.subscribers.delete(listener);
+    return this.events.subscribe(listener);
   }
 
   createBot(manifest: BotManifest): StoredObject<BotManifest> {
@@ -921,13 +922,11 @@ export class CoordinationGateway {
   }
 
   emit(input: EmitInput): AppendedEvent {
-    const appended = this.store.appendEvent(this.buildEvent(input), input.idempotencyKey);
-    this.publishCommitted([appended]);
-    return appended;
+    return this.events.publish(this.buildEvent(input), { idempotencyKey: input.idempotencyKey });
   }
 
   private buildEvent(input: EmitInput): CoordinationEvent {
-    return {
+    return this.events.prepare({
       schema_version: "1.0",
       id: createId("evt"),
       type: input.type,
@@ -943,13 +942,11 @@ export class CoordinationGateway {
       trace_id: input.traceId ?? null,
       summary: input.summary ?? null,
       ...(input.attentionState ? { attention_state: input.attentionState } : {})
-    };
+    });
   }
 
   private publishCommitted(events: AppendedEvent[]): void {
-    for (const event of events) {
-      for (const listener of this.subscribers) listener(event);
-    }
+    this.events.publishCommitted(events);
   }
 
   private requireApproval(approvalId: string): StoredObject {

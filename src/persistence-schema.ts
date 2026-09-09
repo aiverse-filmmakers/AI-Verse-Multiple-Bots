@@ -1,6 +1,6 @@
 import { DatabaseSync } from "node:sqlite";
 
-export const PERSISTENCE_SCHEMA_VERSION = 2;
+export const PERSISTENCE_SCHEMA_VERSION = 3;
 
 export interface SchemaMigrationRecord {
   version: number;
@@ -108,6 +108,34 @@ const MIGRATIONS: Migration[] = [
         SELECT id, workspace_id, status, payload, created_at, updated_at FROM objects WHERE kind = 'environment_lease';
       CREATE VIEW IF NOT EXISTS delivery_queue AS
         SELECT id, message_id, sender_id, target_kind, target_id, workspace_id, state, created_at, updated_at FROM deliveries;
+    `
+  },
+  {
+    version: 3,
+    name: "canonical-event-bus",
+    sql: `
+      ALTER TABLE events ADD COLUMN run_sequence INTEGER;
+
+      CREATE TABLE IF NOT EXISTS run_sequences (
+        run_id TEXT PRIMARY KEY,
+        last_sequence INTEGER NOT NULL DEFAULT 0
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_events_run_run_sequence ON events(run_id, run_sequence);
+      CREATE INDEX IF NOT EXISTS idx_events_correlation_sequence ON events(correlation_id, sequence);
+      CREATE INDEX IF NOT EXISTS idx_events_causation ON events(causation_id);
+
+      CREATE TRIGGER IF NOT EXISTS events_append_only_update
+      BEFORE UPDATE ON events
+      BEGIN
+        SELECT RAISE(ABORT, 'coordination events are append-only');
+      END;
+
+      CREATE TRIGGER IF NOT EXISTS events_append_only_delete
+      BEFORE DELETE ON events
+      BEGIN
+        SELECT RAISE(ABORT, 'coordination events are append-only');
+      END;
     `
   }
 ];

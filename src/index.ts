@@ -3,6 +3,7 @@ export * from "./bot-registry.js";
 export * from "./budget.js";
 export * from "./constraints.js";
 export * from "./execution-queue.js";
+export * from "./event-bus.js";
 export * from "./gateway.js";
 export * from "./id.js";
 export * from "./loop-guard.js";

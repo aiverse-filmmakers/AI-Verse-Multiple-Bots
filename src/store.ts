@@ -20,6 +20,19 @@ function json(value: unknown): string {
   return JSON.stringify(value);
 }
 
+function stableValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(stableValue);
+  if (typeof value === "object" && value !== null) {
+    const object = value as Record<string, unknown>;
+    return Object.fromEntries(Object.keys(object).sort().map((key) => [key, stableValue(object[key])]));
+  }
+  return value;
+}
+
+function stableJson(value: unknown): string {
+  return JSON.stringify(stableValue(value));
+}
+
 function parseObject(value: string): JsonObject {
   return JSON.parse(value) as JsonObject;
 }
@@ -111,6 +124,11 @@ export class CoordinationStore {
     return row ? this.rowToObject(row) : null;
   }
 
+  getEventById(id: string): AppendedEvent | null {
+    const row = this.db.prepare("SELECT sequence, room_sequence, run_sequence, payload FROM events WHERE id = ?").get(id) as any;
+    return row ? this.rowToEvent(row) : null;
+  }
+
   listObjects(kind?: ProtocolKind, workspaceId?: string): StoredObject[] {
     let sql = "SELECT * FROM objects";
     const where: string[] = [];
@@ -131,9 +149,22 @@ export class CoordinationStore {
 
   appendEvent(event: CoordinationEvent, idempotencyKey?: string): AppendedEvent {
     validateProtocolObject(event, "event");
+
+    const existingById = this.getEventById(event.id);
+    if (existingById) {
+      if (stableJson(existingById.event) !== stableJson(event)) {
+        throw new Error(`Event ID ${event.id} already exists with different payload`);
+      }
+      return existingById;
+    }
+
     if (idempotencyKey) {
       const prior = this.db.prepare("SELECT result_json FROM idempotency WHERE key = ?").get(idempotencyKey) as { result_json: string } | undefined;
-      if (prior) return JSON.parse(prior.result_json) as AppendedEvent;
+      if (prior) {
+        const replay = JSON.parse(prior.result_json) as AppendedEvent;
+        const stored = replay.event?.id ? this.getEventById(replay.event.id) : null;
+        return stored ?? { ...replay, runSequence: replay.runSequence ?? null };
+      }
     }
 
     this.db.exec("BEGIN IMMEDIATE;");
@@ -193,14 +224,14 @@ export class CoordinationStore {
   }
 
   listEventsAfter(sequence = 0, limit = 100): AppendedEvent[] {
-    const rows = this.db.prepare("SELECT sequence, room_sequence, payload FROM events WHERE sequence > ? ORDER BY sequence LIMIT ?")
+    const rows = this.db.prepare("SELECT sequence, room_sequence, run_sequence, payload FROM events WHERE sequence > ? ORDER BY sequence LIMIT ?")
       .all(sequence, limit) as any[];
     return rows.map((row) => this.rowToEvent(row));
   }
 
   listRoomEvents(roomId: string, afterRoomSequence = 0, limit = 100, threadId?: string): AppendedEvent[] {
     let sql = `
-      SELECT sequence, room_sequence, payload FROM events
+      SELECT sequence, room_sequence, run_sequence, payload FROM events
       WHERE room_id = ? AND room_sequence > ?
     `;
     const args: unknown[] = [roomId, afterRoomSequence];
@@ -211,6 +242,24 @@ export class CoordinationStore {
     sql += " ORDER BY room_sequence LIMIT ?";
     args.push(limit);
     const rows = this.db.prepare(sql).all(...args) as any[];
+    return rows.map((row) => this.rowToEvent(row));
+  }
+
+  listRunEvents(runId: string, afterRunSequence = 0, limit = 100): AppendedEvent[] {
+    const rows = this.db.prepare(`
+      SELECT sequence, room_sequence, run_sequence, payload FROM events
+      WHERE run_id = ? AND run_sequence > ?
+      ORDER BY run_sequence LIMIT ?
+    `).all(runId, afterRunSequence, limit) as any[];
+    return rows.map((row) => this.rowToEvent(row));
+  }
+
+  listCorrelationEvents(correlationId: string, afterSequence = 0, limit = 100): AppendedEvent[] {
+    const rows = this.db.prepare(`
+      SELECT sequence, room_sequence, run_sequence, payload FROM events
+      WHERE correlation_id = ? AND sequence > ?
+      ORDER BY sequence LIMIT ?
+    `).all(correlationId, afterSequence, limit) as any[];
     return rows.map((row) => this.rowToEvent(row));
   }
 
@@ -281,6 +330,7 @@ export class CoordinationStore {
 
   private writeEvent(event: CoordinationEvent): AppendedEvent {
     let roomSequence: number | null = null;
+    let runSequence: number | null = null;
     if (event.room_id) {
       this.db.prepare("INSERT OR IGNORE INTO room_sequences(room_id, last_sequence) VALUES (?, 0)").run(event.room_id);
       this.db.prepare("UPDATE room_sequences SET last_sequence = last_sequence + 1 WHERE room_id = ?").run(event.room_id);
@@ -288,11 +338,18 @@ export class CoordinationStore {
       roomSequence = Number(seqRow.last_sequence);
     }
 
+    if (event.run_id) {
+      this.db.prepare("INSERT OR IGNORE INTO run_sequences(run_id, last_sequence) VALUES (?, 0)").run(event.run_id);
+      this.db.prepare("UPDATE run_sequences SET last_sequence = last_sequence + 1 WHERE run_id = ?").run(event.run_id);
+      const seqRow = this.db.prepare("SELECT last_sequence FROM run_sequences WHERE run_id = ?").get(event.run_id) as { last_sequence: number };
+      runSequence = Number(seqRow.last_sequence);
+    }
+
     const result = this.db.prepare(`
       INSERT INTO events(
         id, type, timestamp, actor_id, workspace_id, run_id, task_id, room_id, thread_id,
-        correlation_id, causation_id, trace_id, room_sequence, payload
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        correlation_id, causation_id, trace_id, room_sequence, run_sequence, payload
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       event.id,
       event.type,
@@ -307,12 +364,14 @@ export class CoordinationStore {
       event.causation_id ?? null,
       event.trace_id ?? null,
       roomSequence,
+      runSequence,
       json(event)
     ) as { lastInsertRowid: number | bigint };
 
     return {
       sequence: Number(result.lastInsertRowid),
       roomSequence,
+      runSequence,
       event
     };
   }
@@ -427,6 +486,7 @@ export class CoordinationStore {
     return {
       sequence: Number(row.sequence),
       roomSequence: row.room_sequence === null ? null : Number(row.room_sequence),
+      runSequence: row.run_sequence === null || row.run_sequence === undefined ? null : Number(row.run_sequence),
       event: parseObject(String(row.payload)) as CoordinationEvent
     };
   }

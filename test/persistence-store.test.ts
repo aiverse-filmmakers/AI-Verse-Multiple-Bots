@@ -32,7 +32,7 @@ test("persistent coordination schema exposes versioned relations and repository 
   const store = new CoordinationStore(":memory:");
   try {
     assert.equal(store.schemaVersion(), String(PERSISTENCE_SCHEMA_VERSION));
-    assert.deepEqual(store.schemaMigrations().map((migration) => migration.version), [1, 2]);
+    assert.deepEqual(store.schemaMigrations().map((migration) => migration.version), [1, 2, 3]);
     const relations = new Set(store.schemaRelations());
     for (const relation of PERSISTENCE_RELATIONS) assert.ok(relations.has(relation), `missing relation ${relation}`);
     assert.equal(store.doctor().ok, true);
@@ -167,8 +167,8 @@ test("legacy schema v1 migrates in place without losing stored coordination stat
 
   const store = new CoordinationStore(path);
   try {
-    assert.equal(store.schemaVersion(), "2");
-    assert.deepEqual(store.schemaMigrations().map((migration) => migration.version), [1, 2]);
+    assert.equal(store.schemaVersion(), "3");
+    assert.deepEqual(store.schemaMigrations().map((migration) => migration.version), [1, 2, 3]);
     assert.equal(store.getObject("bot_legacy")?.payload.name, "Legacy Bot");
     assert.ok(store.schemaRelations().includes("bots"));
   } finally {
