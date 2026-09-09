@@ -9,6 +9,13 @@ function pairKey(a: string, b: string): string {
   return [a, b].sort().join("::");
 }
 
+function stableStringify(value: unknown): string {
+  if (value === null || typeof value !== "object") return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map((item) => stableStringify(item)).join(",")}]`;
+  const record = value as Record<string, unknown>;
+  return `{${Object.keys(record).sort().map((key) => `${JSON.stringify(key)}:${stableStringify(record[key])}`).join(",")}}`;
+}
+
 export class CoordinationLoopError extends Error {
   constructor(readonly code: "LOOP_DETECTED" | "PING_PONG_DETECTED" | "NO_PROGRESS_DETECTED", message: string) {
     super(message);
@@ -123,7 +130,7 @@ export class CoordinationLoopGuard {
 }
 
 export function progressFingerprint(value: unknown): string {
-  const text = JSON.stringify(value, Object.keys((value && typeof value === "object" && !Array.isArray(value)) ? value as Record<string, unknown> : {}).sort());
+  const text = stableStringify(value);
   let hash = 2166136261;
   for (let i = 0; i < text.length; i += 1) {
     hash ^= text.charCodeAt(i);
