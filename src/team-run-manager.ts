@@ -53,9 +53,9 @@ export interface ManagedWorkerTaskResult {
 /**
  * Host-neutral manager/supervisor topology for a durable Team Run leader.
  *
- * It creates one bounded Worker Task at a time. Parallel fan-out remains the
- * next topology slice, but the execution records created here are already safe
- * to run concurrently once that scheduler is added.
+ * Manager topology deliberately permits only one live Worker Task at a time.
+ * Parallel execution is reserved for the dedicated fan-out topology so its
+ * concurrency, aggregate budgets and join semantics can be enforced centrally.
  */
 export class TeamRunManager {
   constructor(
@@ -72,6 +72,7 @@ export class TeamRunManager {
     const leader = this.gateway.getBot(leaderId);
     if (!leader || leader.payload.status !== "active") throw new Error(`Team Run leader ${leaderId} is not active`);
 
+    this.assertNoLiveManagedWorker(run.id);
     this.assertLeaderAuthority(leader, input.tools ?? [], input.connections ?? []);
     const effectiveBudget = inheritBudget(run.payload.budget, input.budget);
     const workerCreated = this.teams.createWorker({
@@ -258,6 +259,17 @@ export class TeamRunManager {
       throw new Error(`Team Run ${runId} cannot create managed Worker work from status ${status}`);
     }
     return run;
+  }
+
+  private assertNoLiveManagedWorker(runId: string): void {
+    for (const worker of this.teams.listWorkers(runId)) {
+      const taskId = typeof worker.payload.task_id === "string" ? worker.payload.task_id : null;
+      if (!taskId) continue;
+      const task = this.gateway.store.getObject(taskId);
+      if (task?.kind === "task" && !TERMINAL_TASK_STATES.has(String(task.payload.status))) {
+        throw new Error(`Manager topology permits one active Worker Task at a time; ${task.id} is still ${String(task.payload.status)}`);
+      }
+    }
   }
 
   private assertLeaderAuthority(leader: StoredObject, tools: string[], connections: string[]): void {
