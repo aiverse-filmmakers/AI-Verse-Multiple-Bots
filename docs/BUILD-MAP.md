@@ -15,13 +15,13 @@ The target is an installable persistent-teammate layer that can run standalone o
 ```text
 Phase 0  Research + Architecture        [COMPLETE]    100%
 Phase 1  Runnable Coordination Core     [COMPLETE]    100%
-Phase 2  Dynamic Multi-Agent Squads     [IN PROGRESS] ~45%
+Phase 2  Dynamic Multi-Agent Squads     [IN PROGRESS] ~55%
 Phase 3  AI-Verse Native Integration    [NOT STARTED]
 Phase 4  Runtime / A2A Interoperability [NOT STARTED]
 Phase 5  Product + Install + Dashboard  [NOT STARTED]
 ```
 
-**Directional overall first-release progress:** roughly 49% complete.
+**Directional overall first-release progress:** roughly 52% complete.
 
 That overall figure is intentionally approximate because later phases contain different amounts of work. Passed phase gates, not percentages, are authoritative.
 
@@ -29,13 +29,14 @@ That overall figure is intentionally approximate because later phases contain di
 
 **Status:** COMPLETE
 
-- Grok Bot deep dive
-- Grok Multi-Agent distinction
+Completed:
+
+- Grok Bot and Grok Multi-Agent architecture research
 - Hermes Bot Mode study
 - Microsoft Agent Framework orchestration patterns
 - A2A / OpenAI Agents / OpenClaw / AgentScope / Pydantic AI and related benchmark research
 - canonical persistent-teammate architecture
-- protocol v1.1
+- Coordination Protocol v1.1
 - AI-Verse layer boundaries
 - schemas and Bot/Room templates
 - implementation roadmap
@@ -46,246 +47,113 @@ That overall figure is intentionally approximate because later phases contain di
 
 **Completion evidence:** GitHub Actions run 102 on 2026-09-09 passed **54/54 tests** at commit `73706c40ddc6249a755655b889aff68240d016aa`.
 
-### 1.1 Repository/runtime skeleton
-
-**COMPLETE**
+### 1.1 Repository/runtime skeleton - COMPLETE
 
 - Node.js + TypeScript core
-- CLI
-- localhost Gateway
-- build/test scripts
-- GitHub Actions CI
+- CLI and localhost Gateway
+- build/test scripts and GitHub Actions CI
 
-### 1.2 Persistent coordination store
+### 1.2 Persistent coordination store - COMPLETE
 
-**COMPLETE**
-
-- SQLite coordination state
-- protocol object store
+- SQLite protocol/object store
 - Bots, Messages, Tasks, Handoffs, Artifacts, Approvals and leases
-- async mailboxes
-- execution queue
-- idempotency
-- restart persistence
-- reusable atomic multi-object/event/queue mutation primitive
+- async mailboxes and persistent execution queue
+- idempotency and restart persistence
+- atomic multi-object/event/queue mutation primitive
 
-### 1.3 Event substrate
+### 1.3 Event substrate - COMPLETE
 
-**COMPLETE**
-
-- append-only events
-- global sequence
-- per-Room sequence
+- append-only globally ordered events
+- per-Room ordering
 - correlation/causation/trace fields
-- global replay
-- Room/Thread replay
-- SSE
-- HTTP Room replay endpoint
+- global and Room/Thread replay
+- SSE and HTTP replay surfaces
 
-### 1.4 Bot registry
+### 1.4 Bot registry - PHASE-1 HARDENING COMPLETE
 
-**PHASE-1 HARDENING COMPLETE**
+- immutable durable Bot identity and lifecycle
+- workspace/operator registry namespaces
+- collision-safe addresses/aliases
+- manager/peer validation and cycle protection
+- active-work and Room dependency lifecycle guards
+- disabled/archived availability enforcement
 
-- create/get/list
-- immutable durable Bot IDs
-- duplicate ID protection
-- active/disabled/archived lifecycle
-- archived status is terminal
-- operator-audited activate/disable/archive transitions
-- workspace-scoped and operator-scoped registry namespaces
-- normalized identity addresses from Bot ID, shorthand ID, roster name, explicit aliases and UI handle
-- role titles are descriptive and never implicit addresses
-- same-scope address collision prevention
-- archived addresses stay reserved to protect stale automations from silent retargeting
-- explicit address resolution API
-- manager existence/scope/availability validation
-- self-manager rejection
-- manager-cycle detection
-- manager dependency guards during disable/archive
-- explicit peer validation
-- safe forward peer declaration
-- cross-scope peer rejection
-- lifecycle transition blocked while a Bot owns or is assigned live work
-- archive blocked while active Rooms still reference the Bot
-- disabled Room members cannot speak, resolve as active mentions, receive speaker scheduling or own Room work
+### 1.5 Runtime adapter contract - PHASE-1 COMPLETE
 
-### 1.5 Runtime adapter contract
-
-**PHASE-1 COMPLETE**
-
-- runtime-neutral adapter interface
-- structured invocation/result
-- runtime registry
+- runtime-neutral adapter/registry
 - deterministic reference adapter
-- zero-dependency OpenAI-compatible HTTP model adapter
-- provider-neutral endpoint and model configuration
-- environment-handle credentials instead of raw manifest secrets
-- raw credential rejection before network execution
-- normalized input/output token usage
-- provider request/model/finish receipts
-- secret-safe receipt URLs
-- abort signal and adapter cancellation hook
-- execution deadline integration
-- runtime usage and action receipt surfaces
-- installable Gateway registers both deterministic and OpenAI-compatible runtimes
-- real two-Bot HTTP model collaboration proven in CI without a paid-provider dependency
+- zero-dependency OpenAI-compatible HTTP adapter
+- environment-handle credentials; raw manifest secrets rejected
+- structured usage/receipts, cancellation, deadlines and abort signals
+- real two-Bot HTTP model collaboration proven in CI
 
-### 1.6 Persistent Task execution and recovery
+### 1.6 Persistent Task execution and recovery - PHASE-1 HARDENING COMPLETE
 
-**PHASE-1 HARDENING COMPLETE**
-
-- persistent execution queue
-- atomic claim
-- event-driven Bot wake-up
+- event-driven execution
 - Task -> runtime -> Artifact -> completion
-- owner notification
-- capability lease validation
-- expired lease rejection
-- explicit cancellation
-- cancellation of running runtime
-- recursive parent -> child cancellation
-- deadline enforcement
+- capability/environment authority checks
+- cancellation, recursive cancellation and deadlines
 - budget enforcement before Artifact acceptance
-- Handoff settlement on completion/failure/cancellation
-- unique runner identity
-- runner-owned execution claims
-- execution lease expiry
-- continuous heartbeat
-- ownership-checked state transitions
-- atomic file-backed Task/Artifact/queue finalization
-- late runner cannot overwrite recovered work
-- startup and periodic stale execution sweep
-- conservative recovery policies: `manual` and `retry_safe`
-- replay-safe stale work can be requeued only while attempts remain
-- unknown/consequential work dead-letters instead of being blindly replayed
-- retry-safe work dead-letters after attempt exhaustion
-- terminal Task state reconciles stale queue state without replay
-- dead-letter Task becomes visibly blocked with recovery metadata
-- operator-only dead-letter retry
-- HTTP dead-letter inspection/retry
-- live long-running runtime heartbeat proven in CI
-- canceled/failed/over-budget Tasks publish no successful Artifact
+- atomic file-backed finalization
+- execution leases/heartbeats and stale recovery
+- `manual` and `retry_safe` recovery policies
+- dead-letter inspection/retry with operator authority
+- late runners cannot overwrite recovered work
 
-### 1.7 Delegation
+### 1.7 Delegation - PHASE-1 COMPLETE
 
-**PHASE-1 COMPLETE**
-
-- explicit owner
-- root objective
+- explicit ownership and root objective
 - scoped capability lease
-- parent lineage
-- inherited constraints
-- immutable constraint digest
-- hop metadata/ceilings
-- response target
-- Task-backed Room work
-- strict policy enabled by default in installable Gateway
-- cancellation propagation
-- deadline propagation
-- inherited budget envelopes
-- child Tasks cannot expand parent limits
-- root Task-count ceiling
-- optional persistent execution recovery policy and max-attempt ceiling
-- validated same-workspace input Artifact references
-- Artifact A can become structured input to Bot B without bypassing the Task contract
-- input attachment is visible in the coordination event stream
+- parent lineage, inherited immutable constraints and hop ceilings
+- response targets, deadlines and inherited budgets
+- root Task-count limit
+- recovery policy/max attempts
+- validated same-workspace Artifact inputs
 
-### 1.8 Handoffs
+### 1.8 Handoffs - PHASE-1 HARDENING COMPLETE
 
-**PHASE-1 HARDENING COMPLETE**
+- canonical Protocol v1.1 Handoff fields
+- source/root/workspace/status validation
+- one active Handoff per Task
+- target-only acceptance and explicit rejection
+- atomic ownership + lease + Approval + queue + event mutation
+- claimed/running fail-closed behavior
+- capability/shared-environment authority reissue
+- immutable constraint preservation
+- return/stay policies and automatic settlement
 
-- canonical Protocol v1.1 fields: `target_bot_id` and `task_id`
-- source ownership/root/workspace/status validation before request
-- only one active Handoff per Task
-- target-only acceptance
-- explicit target/operator rejection path
-- atomic Handoff + Task ownership + lease + Approval + queue + event mutation
-- queued execution retargeting
-- claimed/running execution fails closed rather than moving underneath a runner
-- capability authority reissued to target
-- target capability compatibility validation
-- shared-workspace environment lease reissue
-- isolated/external environment transfers fail closed until a secure adapter exists
-- pending Approval actor retargeting without prematurely queueing work
-- immutable constraint digest verification and stricter-constraint preservation
-- `stay_with_target`, `return_on_completion`, `return_on_block`, and `explicit_only` policy contract
-- automatic Handoff settlement on Task completion/failure/cancellation
-- completion ownership return where configured
-- Handoff lifecycle and ownership audit events
-- HTTP request/accept/reject endpoints
-- JSON Schema/runtime validator contract alignment
+### 1.9 Rooms + Threads - PHASE-1 COMPLETE
 
-### 1.9 Rooms + Threads
-
-**PHASE-1 COMPLETE**
-
-- Room creation and membership
-- same-workspace validation
-- leaders
-- registry-backed aliases and `@mentions`
-- visible unresolved/ambiguous mention errors
-- Threads
-- pass
-- bounded selective speaker scheduling
-- active work owner/collaborators
-- Room work creates real Tasks
-- Bot Artifact/result publishes back into Room/Thread
-- Room event ordering/replay storage
-- Room replay HTTP API
-- disabled Bots remain durable members but are unavailable for active Room work
-- durable correlation IDs for multi-call Room turns
-- aggregate `max_messages` enforcement across a complete turn
-- aggregate `max_rounds` enforcement across a complete turn
-- visible `room.round_scheduled` and `room.budget_exhausted` events
+- Room membership and leaders
+- registry-backed aliases/mentions
+- Threads and bounded selective scheduling
+- Room work backed by real Tasks
+- result/Artifact publication back to Room/Thread
+- replay and aggregate message/round budgets
 
 Advanced squad/topology behavior belongs in Phase 2.
 
-### 1.10 Safety substrate
-
-**PHASE-1 COMPLETE**
+### 1.10 Safety substrate - PHASE-1 COMPLETE
 
 Implemented and enforced:
 
-- workspace enforcement
+- workspace isolation
 - registered/active Bot checks
-- peer allowlists
-- tool/connection grant checks
-- inherited constraints
-- root-objective preservation
-- hop ceilings
-- duplicate active-Task prevention
-- strict policy active by default in localhost/installable Gateway
-- explicit Task cancellation
-- recursive cancellation propagation
-- runtime abort signaling
-- wall-clock Task deadlines
-- token budgets
-- cost budgets
-- action budgets
-- root Task-count budgets
-- Room message/round budgets
-- child budget inheritance without privilege expansion
-- delegation-loop detection
-- Bot ping-pong detection
-- repeated-result/no-progress detection
-- first-class Approval objects
-- approval queue
-- operator-only approval decisions
-- approval-required Tasks remain outside execution queue
-- denied approval cancels work and produces no Artifact
-- fail-safe crash recovery that never auto-replays work unless explicitly declared replay-safe
-- Bot identity/lifecycle rules that prevent silent retargeting or disabling a live owner
-- raw runtime secret rejection and secret non-persistence checks
+- peer/tool/connection authority
+- inherited constraints and root-objective preservation
+- hop, Task, token, cost, action, message and round ceilings
+- cancellation/deadline enforcement
+- delegation-loop/ping-pong/no-progress detection
+- first-class Approval objects and operator-only decisions
+- conservative crash recovery
+- identity/lifecycle rules that prevent silent retargeting
+- raw runtime secret rejection
 
 ### Phase 1 completion gate
 
 **PASSED.**
 
-The required gate was:
-
-> Two persistent Bots independently exist, communicate asynchronously, delegate actual work, transfer responsibility safely, collaborate in a Room/Thread, execute through a real runtime adapter, respect enforced policy/limits/approvals, recover from Gateway restart, and cancel/fail without losing coordination integrity.
-
-The final release-level conformance scenario proves these behaviors together against one file-backed coordination database across a real Gateway close/reopen cycle. It also proves Handoff and Approval state survives that restart, runtime execution resumes only after approval, ownership return semantics settle correctly, Room/Thread work still executes, Room aggregate limits stop additional rounds, denied work produces no Artifact, and runtime secrets are not persisted.
+Two persistent Bots independently exist, communicate asynchronously, delegate actual work, transfer responsibility safely, collaborate in a Room/Thread, execute through a real runtime adapter, respect policy/limits/approvals, recover from Gateway restart, and cancel/fail without losing coordination integrity.
 
 **Verified suite:** 54 tests passed, 0 failed, 0 canceled, 0 skipped.
 
@@ -297,63 +165,112 @@ None.
 
 **Status:** IN PROGRESS
 
-**Current phase progress:** approximately 45%.
+**Current phase progress:** approximately 55%.
 
-**Current verification:** GitHub Actions run 127 on 2026-09-09 passed **74/74 tests** at commit `daa9693d14114d01b2a97d6e3b830d7ea2ad735b`.
+**Current verification:** GitHub Actions run 139 on 2026-09-09 passed **82/82 tests** at commit `308d8737a4bc4c1c0c96bf0064f8dc47d0fcd4a5`.
 
-Goal: a durable Bot decides whether to work alone or create bounded temporary Workers.
+Goal: a durable Bot decides whether to work alone or create bounded temporary Workers, coordinates them through the topology justified by the work, and returns a bounded, auditable result without turning temporary helpers into durable identities.
 
 Major slices:
 
 1. Team Run object and lifecycle - **COMPLETE**
 2. temporary Worker identities and bounded lifecycle - **COMPLETE**
 3. Worker execution + manager/supervisor topology - **COMPLETE**
-4. parallel fan-out - **COMPLETE**
-5. direct handoff topology - **NEXT**
-6. group/discussion topology where justified - remaining
+4. bounded parallel fan-out - **COMPLETE**
+5. direct handoff topology - **COMPLETE**
+6. group/discussion topology where justified - **NEXT**
 7. disagreement detection - remaining
 8. verifier/critic role - remaining
 9. synthesis - remaining
 10. Worker cleanup - remaining beyond terminal expiry foundation already implemented
 11. adaptive `single Bot vs squad` decision policy - remaining
-12. squad budget/cancellation controls - remaining beyond current Worker, fan-out, aggregate usage, cancellation, recovery, and CAS foundation
+12. squad budget/cancellation controls - remaining beyond current Worker, fan-out, aggregate usage, direct-handoff cancellation, recovery and CAS foundations
 
 ### Phase 2 capabilities now implemented
 
+#### Team Run + temporary identity
+
 - canonical Team Run records and explicit lifecycle
 - active durable Bot leader and same-workspace enforcement
-- run-scoped `worker_*` identities that never enter durable Bot registry
+- run-scoped `worker_*` identities that never enter the durable Bot registry
 - no default Worker Room membership or long-term memory authority
 - leader-only Worker lifecycle control and `can_create_workers` enforcement
 - Team Run `max_workers` and Worker budget-boundary enforcement
 - Worker Task binding before ready/running execution states
-- terminal Run transitions refuse to strand live Worker Tasks
 - terminal Worker expiry cleanup with retained audit records
-- restart-persistent Team Run and Worker audit state
+- restart-persistent Team Run and Worker state
+
+#### Worker execution + manager topology
+
 - common execution-principal runtime contract for Bots and Workers
-- Worker-aware event-driven execution supervisor
+- Worker-aware event-driven supervisor
 - Worker runtime inheritance from durable leader with run-scoped overrides
-- Worker capability/environment lease validation
-- successful Worker Artifact publication with `worker_generated` provenance
-- manager topology with race-safe Worker + lease + Task preparation before execution wake-up
+- capability/environment lease validation
+- `worker_generated` Artifact provenance
+- race-safe Worker + lease + Task preparation before execution wake-up
 - leader authority cannot be expanded through managed Worker grants
 - aggregate Team Run usage enforcement before Artifact acceptance
-- live Team Run cancellation aborts Worker Tasks and runtime execution
+- live Team Run cancellation aborts Worker execution
 - retry-safe Worker execution recovery across restart
-- bounded parallel fan-out under one Team Run
-- central fan-out concurrency ceiling and scheduling-time Worker/Task limits
-- reservation-safe Team Run token/cost/action allocation before parallel execution
-- independent Worker Tasks, leases, contexts, and Artifacts
-- `all`, `first_success`, and bounded quorum join semantics
-- partial failure preserves successful sibling Artifacts
-- fan-out cancellation across queued/running Workers
-- two-stage durable fan-out activation with prepared-run recovery
-- multi-Worker restart/recovery proof
-- leader Artifact collection for later synthesis
-- cross-process Team Run compare-and-swap hardening for fan-out creation/settlement
-- package-level implementation with no AI-Verse OS-specific dependency
 
-The next gate is direct handoff topology for TeamRun work: safe principal-to-principal ownership transfer across durable Bots and temporary Workers without identity promotion, scope expansion, or unsafe queue movement.
+#### Parallel fan-out
+
+- bounded fan-out under `parallel_panel`, `dynamic_squad`, and `hybrid`
+- central concurrency ceiling and scheduling-time Worker/Task limits
+- reservation-safe Team Run token/cost/action allocation before parallel execution
+- independent Worker Tasks, leases, contexts and Artifacts
+- `all`, `first_success`, and bounded quorum joins
+- partial failure preserves successful sibling Artifacts
+- explicit/remainder cancellation
+- two-stage durable fan-out activation/recovery
+- multi-Worker restart proof
+- leader Artifact collection for later synthesis
+- cross-process Team Run compare-and-swap hardening
+
+#### Direct handoff topology
+
+- host-neutral `TeamRunHandoff` built around the canonical Handoff object instead of a duplicate transfer protocol
+- queued Worker -> Worker and Worker -> durable Bot ownership transfer
+- target Worker binding without Bot promotion
+- source Worker lifecycle termination after accepted transfer
+- durable Bot Team Run participant tracking without registry mutation
+- workspace/run/root-objective and immutable-constraint preservation
+- capability and shared-environment authority reissue
+- pending Approval actor retargeting
+- claimed/running execution fails closed
+- mixed Bot/Worker hop and ownership-loop bounds
+- run-wide cancellation reaches durable-Bot-owned handed-off work
+- accepted Handoffs settle on completion/failure/cancellation regardless of Bot or Worker target
+- public `PrincipalRunner` enforces active Team Run scope for run-scoped durable Bot execution
+- durable Bot Team Run output counts toward the same aggregate run budget as Worker output
+- aggregate run usage persistence protected by compare-and-swap
+- file-backed Worker handoff survives database reopen and executes under the accepted target
+- Artifact provenance continues to identify the actual producing principal
+
+### Phase 2.5 acceptance gate
+
+**PASSED.**
+
+The eight direct-handoff acceptance tests prove:
+
+1. Worker -> Worker moves queued ownership, preserves temporary identity, executes and settles
+2. Worker -> durable Bot keeps the Bot durable, enforces Team Run scope and persists usage
+3. run-scoped durable Bot execution cannot bypass aggregate Team Run budget
+4. claimed execution cannot be moved underneath a runner
+5. target Worker cannot cross Team Run boundaries
+6. combined delegation/Handoff hop ceilings and ownership history stop runaway chains
+7. Team Run cancellation reaches durable-Bot-owned handed-off work and settles the Handoff
+8. accepted Worker handoff survives database reopen, executes under the target Worker and settles
+
+The full package suite now passes **82/82 tests**.
+
+### Next Phase 2 gate
+
+**2.6 - Group/discussion topology where justified**
+
+The implementation should reuse existing Room/Thread/event primitives where possible while preserving the temporary nature of Workers. It must provide bounded selective discussion rather than free-form all-to-all chatter, enforce Team Run/message/round budgets, retain workspace/root/constraint/Artifact lineage, recover safely after restart, and settle/clean temporary participants when discussion ends.
+
+After 2.6, continue through disagreement detection, verifier/critic, synthesis, Worker cleanup hardening, adaptive collaboration choice, and final squad-wide budget/cancellation consolidation.
 
 ## Phase 3 - AI-Verse Native Integration
 
