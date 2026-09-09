@@ -1,6 +1,6 @@
 import { assertUsageWithinBudget, BudgetError, effectiveDeadline } from "./budget.js";
 import { createId } from "./id.js";
-import { ExecutionQueue, type ExecutionRecord } from "./execution-queue.js";
+import { ExecutionOwnershipError, ExecutionQueue, type ExecutionRecord } from "./execution-queue.js";
 import { CoordinationGateway } from "./gateway.js";
 import { CoordinationLoopError, progressFingerprint } from "./loop-guard.js";
 import { RuntimeRegistry, type RuntimeAdapter, type RuntimeExecutionContext, type RuntimeExecutionResult } from "./runtime.js";
@@ -44,6 +44,7 @@ export interface CancelResult {
 interface ActiveExecution {
   controller: AbortController;
   adapter: RuntimeAdapter;
+  executionId: string;
 }
 
 export class BotRunner {
@@ -54,7 +55,9 @@ export class BotRunner {
     readonly gateway: CoordinationGateway,
     readonly queue: ExecutionQueue,
     readonly runtimes: RuntimeRegistry,
-    readonly runnerId = "runner_local"
+    readonly runnerId = createId("runner"),
+    readonly executionLeaseSeconds = 30,
+    readonly heartbeatIntervalMs = Math.max(100, Math.floor(executionLeaseSeconds * 1000 / 3))
   ) {}
 
   async cancelTask(taskId: string, actorId: string, reason = "Canceled by operator or owner"): Promise<CancelResult> {
@@ -78,17 +81,17 @@ export class BotRunner {
       throw new Error(`Runtime adapter ${adapterId} is not registered`);
     }
 
-    const claimed = this.queue.claimNext(botId, this.runnerId);
+    const claimed = this.queue.claimNext(botId, this.runnerId, this.executionLeaseSeconds);
     if (!claimed) return null;
 
     if (claimed.itemKind !== "task") {
-      this.queue.updateState(claimed.id, "failed", `Unsupported execution kind ${claimed.itemKind}`);
+      this.queue.finishOwned(claimed.id, this.runnerId, "failed", `Unsupported execution kind ${claimed.itemKind}`);
       throw new Error(`Unsupported execution kind ${claimed.itemKind}`);
     }
 
     const task = this.store.getObject(claimed.itemId);
     if (!task || task.kind !== "task") {
-      this.queue.updateState(claimed.id, "failed", `Task ${claimed.itemId} not found`);
+      this.queue.finishOwned(claimed.id, this.runnerId, "failed", `Task ${claimed.itemId} not found`);
       throw new Error(`Task ${claimed.itemId} not found`);
     }
 
@@ -129,14 +132,16 @@ export class BotRunner {
         .map((id) => this.store.getObject(id))
         .filter((item): item is StoredObject => Boolean(item && item.kind === "artifact"));
 
+      this.queue.markRunning(claimed.id, this.runnerId, this.executionLeaseSeconds);
       const startedAtMs = Date.now();
       const runningTaskPayload: JsonObject = {
         ...task.payload,
         status: "running",
-        started_at: new Date(startedAtMs).toISOString()
+        started_at: new Date(startedAtMs).toISOString(),
+        execution_runner_id: this.runnerId,
+        execution_attempt: claimed.attempts
       };
       const runningTask = this.store.putObject("task", validateProtocolObject(runningTaskPayload, "task"));
-      this.queue.updateState(claimed.id, "running");
       this.gateway.emit({
         type: "task.started",
         actorId: botId,
@@ -148,7 +153,7 @@ export class BotRunner {
 
       const adapter = this.runtimes.get(adapterId);
       const controller = new AbortController();
-      this.active.set(task.id, { controller, adapter });
+      this.active.set(task.id, { controller, adapter, executionId: claimed.id });
       const context: RuntimeExecutionContext = {
         bot,
         task: runningTask,
@@ -158,17 +163,18 @@ export class BotRunner {
         signal: controller.signal
       };
       const deadlineAt = effectiveDeadline(explicitDeadlineAt, startedAtMs, task.payload.budget);
-      const result = await this.executeWithControls(adapter, context, deadlineAt);
+      const result = await this.executeWithControls(adapter, context, deadlineAt, claimed.id);
 
       const latestExecution = this.queue.getByItem(task.id);
       const latestTask = this.store.getObject(task.id);
       if (controller.signal.aborted || latestExecution?.state === "canceled" || latestTask?.payload.status === "canceled") {
         const reasonValue = controller.signal.reason;
-        throw reasonValue instanceof TaskCancellationError
+        throw reasonValue instanceof Error
           ? reasonValue
-          : new TaskCancellationError("CANCELED", reasonValue instanceof Error ? reasonValue.message : "Task canceled");
+          : new TaskCancellationError("CANCELED", "Task canceled");
       }
 
+      const ownedExecution = this.queue.heartbeat(claimed.id, this.runnerId, this.executionLeaseSeconds);
       const usage = assertUsageWithinBudget(task.payload.budget, result.usage ?? {});
       const fingerprint = progressFingerprint(result.output);
       this.gateway.policy?.loopGuard.assertProgress({ task: runningTask, fingerprint });
@@ -194,15 +200,7 @@ export class BotRunner {
           source_refs: stringArray(task.payload.input_artifact_refs)
         }
       };
-      const artifact = this.store.putObject("artifact", validateProtocolObject(artifactPayload, "artifact"));
-      this.gateway.emit({
-        type: "artifact.published",
-        actorId: botId,
-        workspaceId: claimed.workspaceId,
-        taskId: task.id,
-        correlationId: String(task.payload.root_objective_id),
-        summary: `Published artifact ${artifactId}`
-      });
+      validateProtocolObject(artifactPayload, "artifact");
 
       const completedTaskPayload: JsonObject = {
         ...runningTask.payload,
@@ -212,8 +210,32 @@ export class BotRunner {
         usage,
         progress_fingerprint: fingerprint
       };
-      const completedTask = this.store.putObject("task", validateProtocolObject(completedTaskPayload, "task"));
-      const completedExecution = this.queue.updateState(claimed.id, "completed");
+      validateProtocolObject(completedTaskPayload, "task");
+
+      const completionMutation = this.store.atomicMutation({
+        preconditions: [{ id: task.id, kind: "task", status: "running", ownerId: botId }],
+        objects: [
+          { kind: "artifact", payload: artifactPayload },
+          { kind: "task", payload: completedTaskPayload }
+        ],
+        events: [],
+        queueTransition: {
+          itemId: task.id,
+          fromStates: ["running"],
+          toState: "completed",
+          expectedClaimedBy: this.runnerId,
+          expectedLeaseExpiresAt: ownedExecution.leaseExpiresAt,
+          clearClaim: true,
+          required: true
+        }
+      });
+      const artifact = completionMutation.objects.find((object) => object.id === artifactId);
+      const completedTask = completionMutation.objects.find((object) => object.id === task.id);
+      const completedExecution = this.queue.getByItem(task.id);
+      if (!artifact || !completedTask || !completedExecution) {
+        throw new Error(`Task ${task.id} completion committed without expected records`);
+      }
+
       this.gateway.emit({
         type: "task.completed",
         actorId: botId,
@@ -279,8 +301,15 @@ export class BotRunner {
         status: "completed"
       };
     } catch (error) {
+      if (error instanceof ExecutionOwnershipError) throw error;
+
       const latestTask = this.store.getObject(task.id);
       const latestExecution = this.queue.getByItem(task.id);
+      if (latestExecution && latestExecution.claimedBy !== null && latestExecution.claimedBy !== this.runnerId
+        && new Set(["claimed", "running"]).has(latestExecution.state)) {
+        throw new ExecutionOwnershipError(claimed.id, `Runner ${this.runnerId} no longer owns Task ${task.id}`);
+      }
+
       const cancellation = error instanceof TaskCancellationError
         || latestTask?.payload.status === "canceled"
         || latestExecution?.state === "canceled";
@@ -292,14 +321,34 @@ export class BotRunner {
         let canceledTask = latestTask ?? task;
         let canceledExecution = latestExecution ?? claimed;
         if (canceledTask.payload.status !== "canceled") {
-          canceledTask = this.store.putObject("task", validateProtocolObject({
+          const currentExecution = this.queue.getByItem(task.id);
+          if (!currentExecution || currentExecution.claimedBy !== this.runnerId || !new Set(["claimed", "running"]).has(currentExecution.state)) {
+            throw new ExecutionOwnershipError(claimed.id, `Runner ${this.runnerId} cannot cancel Task ${task.id} after losing execution ownership`);
+          }
+          const canceledPayload = validateProtocolObject({
             ...canceledTask.payload,
             status: "canceled",
             canceled_at: nowIso(),
             cancellation_reason: cancelError.message,
             cancellation_code: cancelError.code
-          }, "task"));
-          canceledExecution = this.queue.cancelByItem(task.id, cancelError.message) ?? canceledExecution;
+          }, "task");
+          const mutation = this.store.atomicMutation({
+            preconditions: [{ id: task.id, kind: "task", status: String(canceledTask.payload.status), ownerId: botId }],
+            objects: [{ kind: "task", payload: canceledPayload }],
+            events: [],
+            queueTransition: {
+              itemId: task.id,
+              fromStates: [currentExecution.state],
+              toState: "canceled",
+              expectedClaimedBy: this.runnerId,
+              expectedLeaseExpiresAt: currentExecution.leaseExpiresAt,
+              clearClaim: true,
+              lastError: cancelError.message,
+              required: true
+            }
+          });
+          canceledTask = mutation.objects[0] ?? canceledTask;
+          canceledExecution = this.queue.getByItem(task.id) ?? canceledExecution;
           if (cancelError.code === "DEADLINE_EXCEEDED") {
             this.gateway.emit({
               type: "task.deadline_exceeded",
@@ -333,15 +382,35 @@ export class BotRunner {
 
       const message = error instanceof Error ? error.message : String(error);
       const failureCode = error instanceof BudgetError || error instanceof CoordinationLoopError ? error.code : null;
-      const failedTaskPayload: JsonObject = {
-        ...task.payload,
+      const currentExecution = this.queue.getByItem(task.id);
+      if (!currentExecution || currentExecution.claimedBy !== this.runnerId || !new Set(["claimed", "running"]).has(currentExecution.state)) {
+        throw new ExecutionOwnershipError(claimed.id, `Runner ${this.runnerId} cannot fail Task ${task.id} after losing execution ownership`);
+      }
+      const failureBase = latestTask?.kind === "task" ? latestTask : task;
+      const failedTaskPayload: JsonObject = validateProtocolObject({
+        ...failureBase.payload,
         status: "failed",
         failed_at: nowIso(),
         failure_reason: message,
         failure_code: failureCode
-      };
-      let failedTask = this.store.putObject("task", validateProtocolObject(failedTaskPayload, "task"));
-      const failedExecution = this.queue.updateState(claimed.id, "failed", message);
+      }, "task");
+      const failureMutation = this.store.atomicMutation({
+        preconditions: [{ id: task.id, kind: "task", status: String(failureBase.payload.status), ownerId: botId }],
+        objects: [{ kind: "task", payload: failedTaskPayload }],
+        events: [],
+        queueTransition: {
+          itemId: task.id,
+          fromStates: [currentExecution.state],
+          toState: "failed",
+          expectedClaimedBy: this.runnerId,
+          expectedLeaseExpiresAt: currentExecution.leaseExpiresAt,
+          clearClaim: true,
+          lastError: message,
+          required: true
+        }
+      });
+      let failedTask = failureMutation.objects[0] ?? failureBase;
+      const failedExecution = this.queue.getByItem(task.id) ?? currentExecution;
       if (error instanceof BudgetError) {
         this.gateway.emit({
           type: "task.budget_exceeded",
@@ -389,10 +458,12 @@ export class BotRunner {
   private async executeWithControls(
     adapter: RuntimeAdapter,
     context: RuntimeExecutionContext,
-    deadlineAt: number | null
+    deadlineAt: number | null,
+    executionId: string
   ): Promise<RuntimeExecutionResult> {
     const taskId = context.task.id;
     let deadlineTimer: ReturnType<typeof setTimeout> | null = null;
+    let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
     const abortPromise = new Promise<never>((_resolve, reject) => {
       const rejectFromSignal = () => {
         const reason = context.signal.reason;
@@ -401,6 +472,19 @@ export class BotRunner {
       if (context.signal.aborted) rejectFromSignal();
       else context.signal.addEventListener("abort", rejectFromSignal, { once: true });
     });
+
+    heartbeatTimer = setInterval(() => {
+      try {
+        this.queue.heartbeat(executionId, this.runnerId, this.executionLeaseSeconds);
+      } catch (error) {
+        const ownershipError = error instanceof ExecutionOwnershipError
+          ? error
+          : new ExecutionOwnershipError(executionId, error instanceof Error ? error.message : String(error));
+        const active = this.active.get(taskId);
+        if (active && !active.controller.signal.aborted) active.controller.abort(ownershipError);
+        void adapter.cancel?.(taskId);
+      }
+    }, this.heartbeatIntervalMs);
 
     if (deadlineAt !== null) {
       const delay = Math.max(0, deadlineAt - Date.now());
@@ -416,6 +500,7 @@ export class BotRunner {
       return await Promise.race([adapter.execute(context), abortPromise]);
     } finally {
       if (deadlineTimer !== null) clearTimeout(deadlineTimer);
+      if (heartbeatTimer !== null) clearInterval(heartbeatTimer);
     }
   }
 
