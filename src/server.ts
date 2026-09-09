@@ -3,6 +3,7 @@ import { URL } from "node:url";
 import type { BotManifest, JsonObject } from "./types.js";
 import { ExecutionQueue } from "./execution-queue.js";
 import { CoordinationGateway } from "./gateway.js";
+import { CoordinationPolicy } from "./policy.js";
 import { RoomCoordinator } from "./rooms.js";
 import { BotRunner } from "./runner.js";
 import { DeterministicRuntimeAdapter, RuntimeRegistry } from "./runtime.js";
@@ -43,7 +44,8 @@ function requiredString(body: JsonObject, key: string): string {
 export function createGatewayServer(options: GatewayServerOptions = {}) {
   const store = new CoordinationStore(options.dbPath ?? "runtime/ai-verse-bots/coordination.db");
   const executionQueue = new ExecutionQueue(store.dbPath);
-  const gateway = new CoordinationGateway(store, executionQueue);
+  const policy = new CoordinationPolicy(store, { requireRegisteredBots: true });
+  const gateway = new CoordinationGateway(store, executionQueue, policy);
   const rooms = new RoomCoordinator(store, gateway);
   const runtimes = new RuntimeRegistry().register(new DeterministicRuntimeAdapter());
   const runner = new BotRunner(store, gateway, executionQueue, runtimes);
@@ -108,6 +110,16 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
           maxBotMessagesPerUserTurn: typeof body.maxBotMessagesPerUserTurn === "number" ? body.maxBotMessagesPerUserTurn : undefined
         });
         json(res, 201, room);
+        return;
+      }
+
+      const roomEventsMatch = url.pathname.match(/^\/v1\/rooms\/([^/]+)\/events$/);
+      if (method === "GET" && roomEventsMatch) {
+        const roomId = decodeURIComponent(roomEventsMatch[1] as string);
+        const after = Number(url.searchParams.get("after") ?? "0");
+        const limit = Math.min(Number(url.searchParams.get("limit") ?? "100"), 1000);
+        const threadId = url.searchParams.get("thread") ?? undefined;
+        json(res, 200, { events: store.listRoomEvents(roomId, after, limit, threadId) });
         return;
       }
 
@@ -190,6 +202,9 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
           expectedOutput: typeof body.expectedOutput === "object" && body.expectedOutput !== null ? body.expectedOutput as JsonObject : undefined,
           tools: Array.isArray(body.tools) ? body.tools.map(String) : [],
           connections: Array.isArray(body.connections) ? body.connections.map(String) : [],
+          parentTaskId: typeof body.parentTaskId === "string" ? body.parentTaskId : undefined,
+          hop: typeof body.hop === "number" ? body.hop : undefined,
+          maxHops: typeof body.maxHops === "number" ? body.maxHops : undefined,
           leaseExpiresAt: typeof body.leaseExpiresAt === "string" ? body.leaseExpiresAt : undefined
         }));
         return;
@@ -277,6 +292,7 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
   return {
     store,
     executionQueue,
+    policy,
     gateway,
     rooms,
     runtimes,
