@@ -3,6 +3,7 @@ import { URL } from "node:url";
 import type { BotManifest, JsonObject } from "./types.js";
 import { ExecutionQueue } from "./execution-queue.js";
 import { CoordinationGateway } from "./gateway.js";
+import { RoomCoordinator } from "./rooms.js";
 import { BotRunner } from "./runner.js";
 import { DeterministicRuntimeAdapter, RuntimeRegistry } from "./runtime.js";
 import { CoordinationStore } from "./store.js";
@@ -34,10 +35,16 @@ function errorResponse(res: any, error: unknown): void {
   json(res, 400, { error: "BAD_REQUEST", message });
 }
 
+function requiredString(body: JsonObject, key: string): string {
+  if (typeof body[key] !== "string" || String(body[key]).length === 0) throw new Error(`${key} is required`);
+  return String(body[key]);
+}
+
 export function createGatewayServer(options: GatewayServerOptions = {}) {
   const store = new CoordinationStore(options.dbPath ?? "runtime/ai-verse-bots/coordination.db");
   const executionQueue = new ExecutionQueue(store.dbPath);
   const gateway = new CoordinationGateway(store, executionQueue);
+  const rooms = new RoomCoordinator(store, gateway);
   const runtimes = new RuntimeRegistry().register(new DeterministicRuntimeAdapter());
   const runner = new BotRunner(store, gateway, executionQueue, runtimes);
   const supervisor = new ExecutionSupervisor(gateway, executionQueue, runner);
@@ -78,19 +85,107 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
         return;
       }
 
+      if (method === "GET" && url.pathname === "/v1/rooms") {
+        json(res, 200, { rooms: rooms.listRooms(url.searchParams.get("workspace") ?? undefined) });
+        return;
+      }
+
+      if (method === "POST" && url.pathname === "/v1/rooms") {
+        const body = await readJson(req);
+        const name = requiredString(body, "name");
+        const workspaceId = requiredString(body, "workspaceId");
+        if (!Array.isArray(body.memberIds) || body.memberIds.length === 0) throw new Error("memberIds must be a non-empty array");
+        const room = rooms.createRoom({
+          id: typeof body.id === "string" ? body.id : undefined,
+          name,
+          workspaceId,
+          memberIds: body.memberIds.map(String),
+          leaderId: body.leaderId === null ? null : typeof body.leaderId === "string" ? body.leaderId : undefined,
+          mode: typeof body.mode === "string" ? body.mode as any : undefined,
+          speakerPolicy: typeof body.speakerPolicy === "string" ? body.speakerPolicy : undefined,
+          workOwnerPolicy: typeof body.workOwnerPolicy === "string" ? body.workOwnerPolicy as any : undefined,
+          maxRoundsPerUserTurn: typeof body.maxRoundsPerUserTurn === "number" ? body.maxRoundsPerUserTurn : undefined,
+          maxBotMessagesPerUserTurn: typeof body.maxBotMessagesPerUserTurn === "number" ? body.maxBotMessagesPerUserTurn : undefined
+        });
+        json(res, 201, room);
+        return;
+      }
+
+      const roomMessageMatch = url.pathname.match(/^\/v1\/rooms\/([^/]+)\/messages$/);
+      if (method === "POST" && roomMessageMatch) {
+        const body = await readJson(req);
+        const result = rooms.sendMessage({
+          roomId: decodeURIComponent(roomMessageMatch[1] as string),
+          senderId: requiredString(body, "senderId"),
+          text: requiredString(body, "text"),
+          threadId: typeof body.threadId === "string" ? body.threadId : undefined,
+          replyToMessageId: typeof body.replyToMessageId === "string" ? body.replyToMessageId : undefined,
+          correlationId: typeof body.correlationId === "string" ? body.correlationId : undefined,
+          activateSpeakers: typeof body.activateSpeakers === "boolean" ? body.activateSpeakers : undefined
+        });
+        json(res, 202, result);
+        return;
+      }
+
+      const roomThreadMatch = url.pathname.match(/^\/v1\/rooms\/([^/]+)\/threads$/);
+      if (method === "POST" && roomThreadMatch) {
+        const body = await readJson(req);
+        const thread = rooms.createThread(
+          decodeURIComponent(roomThreadMatch[1] as string),
+          requiredString(body, "parentMessageId"),
+          requiredString(body, "createdBy")
+        );
+        json(res, 201, thread);
+        return;
+      }
+
+      const roomPassMatch = url.pathname.match(/^\/v1\/rooms\/([^/]+)\/pass$/);
+      if (method === "POST" && roomPassMatch) {
+        const body = await readJson(req);
+        const event = rooms.pass(
+          decodeURIComponent(roomPassMatch[1] as string),
+          requiredString(body, "botId"),
+          typeof body.reasonCode === "string" ? body.reasonCode : "NO_ADDITIONAL_VALUE",
+          typeof body.threadId === "string" ? body.threadId : undefined
+        );
+        json(res, 200, event);
+        return;
+      }
+
+      const roomOwnerMatch = url.pathname.match(/^\/v1\/rooms\/([^/]+)\/work-owner$/);
+      if (method === "POST" && roomOwnerMatch) {
+        const body = await readJson(req);
+        const room = rooms.setWorkOwner({
+          roomId: decodeURIComponent(roomOwnerMatch[1] as string),
+          actorId: requiredString(body, "actorId"),
+          workItemId: requiredString(body, "workItemId"),
+          ownerId: requiredString(body, "ownerId"),
+          collaboratorIds: Array.isArray(body.collaboratorIds) ? body.collaboratorIds.map(String) : []
+        });
+        json(res, 200, room);
+        return;
+      }
+
+      const roomGetMatch = url.pathname.match(/^\/v1\/rooms\/([^/]+)$/);
+      if (method === "GET" && roomGetMatch) {
+        const room = rooms.getRoom(decodeURIComponent(roomGetMatch[1] as string));
+        if (!room) {
+          json(res, 404, { error: "NOT_FOUND" });
+          return;
+        }
+        json(res, 200, room);
+        return;
+      }
+
       if (method === "POST" && url.pathname === "/v1/delegations") {
         const body = await readJson(req);
-        const required = ["createdBy", "assigneeId", "workspaceId", "rootObjectiveId", "objective", "reason"];
-        for (const key of required) {
-          if (typeof body[key] !== "string" || String(body[key]).length === 0) throw new Error(`${key} is required`);
-        }
         json(res, 201, gateway.delegate({
-          createdBy: String(body.createdBy),
-          assigneeId: String(body.assigneeId),
-          workspaceId: String(body.workspaceId),
-          rootObjectiveId: String(body.rootObjectiveId),
-          objective: String(body.objective),
-          reason: String(body.reason),
+          createdBy: requiredString(body, "createdBy"),
+          assigneeId: requiredString(body, "assigneeId"),
+          workspaceId: requiredString(body, "workspaceId"),
+          rootObjectiveId: requiredString(body, "rootObjectiveId"),
+          objective: requiredString(body, "objective"),
+          reason: requiredString(body, "reason"),
           requiredConstraints: Array.isArray(body.requiredConstraints) ? body.requiredConstraints.map(String) : [],
           expectedOutput: typeof body.expectedOutput === "object" && body.expectedOutput !== null ? body.expectedOutput as JsonObject : undefined,
           tools: Array.isArray(body.tools) ? body.tools.map(String) : [],
@@ -102,17 +197,13 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
 
       if (method === "POST" && url.pathname === "/v1/handoffs") {
         const body = await readJson(req);
-        const required = ["sourceOwnerId", "targetOwnerId", "workspaceId", "workItemId", "rootObjectiveId", "reason"];
-        for (const key of required) {
-          if (typeof body[key] !== "string" || String(body[key]).length === 0) throw new Error(`${key} is required`);
-        }
         json(res, 201, gateway.requestHandoff({
-          sourceOwnerId: String(body.sourceOwnerId),
-          targetOwnerId: String(body.targetOwnerId),
-          workspaceId: String(body.workspaceId),
-          workItemId: String(body.workItemId),
-          rootObjectiveId: String(body.rootObjectiveId),
-          reason: String(body.reason),
+          sourceOwnerId: requiredString(body, "sourceOwnerId"),
+          targetOwnerId: requiredString(body, "targetOwnerId"),
+          workspaceId: requiredString(body, "workspaceId"),
+          workItemId: requiredString(body, "workItemId"),
+          rootObjectiveId: requiredString(body, "rootObjectiveId"),
+          reason: requiredString(body, "reason"),
           requiredConstraints: Array.isArray(body.requiredConstraints) ? body.requiredConstraints.map(String) : [],
           artifactRefs: Array.isArray(body.artifactRefs) ? body.artifactRefs.map(String) : [],
           returnPolicy: typeof body.returnPolicy === "string" ? body.returnPolicy : undefined
@@ -123,23 +214,21 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
       const handoffAcceptMatch = url.pathname.match(/^\/v1\/handoffs\/([^/]+)\/accept$/);
       if (method === "POST" && handoffAcceptMatch) {
         const body = await readJson(req);
-        if (typeof body.actorId !== "string" || body.actorId.length === 0) throw new Error("actorId is required");
-        json(res, 200, gateway.acceptHandoff(decodeURIComponent(handoffAcceptMatch[1] as string), body.actorId));
+        json(res, 200, gateway.acceptHandoff(
+          decodeURIComponent(handoffAcceptMatch[1] as string),
+          requiredString(body, "actorId")
+        ));
         return;
       }
 
       if (method === "POST" && url.pathname === "/v1/messages") {
         const body = await readJson(req);
-        const required = ["senderId", "targetKind", "targetId", "workspaceId", "text"];
-        for (const key of required) {
-          if (typeof body[key] !== "string" || String(body[key]).length === 0) throw new Error(`${key} is required`);
-        }
         const result = gateway.sendMessage({
-          senderId: String(body.senderId),
-          targetKind: String(body.targetKind) as any,
-          targetId: String(body.targetId),
-          workspaceId: String(body.workspaceId),
-          text: String(body.text),
+          senderId: requiredString(body, "senderId"),
+          targetKind: requiredString(body, "targetKind") as any,
+          targetId: requiredString(body, "targetId"),
+          workspaceId: requiredString(body, "workspaceId"),
+          text: requiredString(body, "text"),
           correlationId: typeof body.correlationId === "string" ? body.correlationId : undefined,
           roomId: typeof body.roomId === "string" ? body.roomId : undefined,
           threadId: typeof body.threadId === "string" ? body.threadId : undefined,
@@ -189,6 +278,7 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
     store,
     executionQueue,
     gateway,
+    rooms,
     runtimes,
     runner,
     supervisor,
