@@ -1,6 +1,5 @@
-import { createId } from "./id.js";
 import type { DelegateInput, CoordinationGateway } from "./gateway.js";
-import type { CoordinationEvent, StoredObject } from "./types.js";
+import type { StoredObject } from "./types.js";
 import { validateProtocolObject } from "./validator.js";
 
 export interface ArtifactAwareDelegateInput extends DelegateInput {
@@ -63,18 +62,14 @@ export function delegateWithArtifacts(
     input_artifacts_attached_by: input.createdBy
   }, "task"));
 
-  const coordinationEvent: CoordinationEvent = {
-    schema_version: "1.0",
-    id: createId("evt"),
+  gateway.emit({
     type: "task.inputs_attached",
-    timestamp: new Date().toISOString(),
-    actor_id: input.createdBy,
-    workspace_id: input.workspaceId,
-    task_id: current.id,
-    correlation_id: input.rootObjectiveId,
+    actorId: input.createdBy,
+    workspaceId: input.workspaceId,
+    taskId: current.id,
+    correlationId: input.rootObjectiveId,
     summary: `Attached ${refs.length} input Artifact${refs.length === 1 ? "" : "s"} to ${current.id}`
-  };
-  gateway.store.appendEvent(coordinationEvent);
+  });
 
   return {
     ...delegated,
