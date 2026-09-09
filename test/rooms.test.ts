@@ -60,7 +60,7 @@ test("Room mention schedules bounded Bot work and publishes the result back into
     });
     assert.deepEqual(first.mentions, ["bot_research-lead"]);
     assert.equal(first.scheduledTaskIds.length, 1);
-    assert.match(first.correlationId, /^turn_/);
+    assert.match(first.correlationId, /^corr_/);
 
     await supervisor.waitForIdle();
     const roomMessages = store.listObjects("message", "ws_room")
@@ -159,7 +159,7 @@ test("Room max_messages budget is enforced across repeated scheduling calls in o
       roomId: room.id,
       senderId: "operator_local",
       text: "First bounded dispatch",
-      correlationId: "turn_message_budget"
+      correlationId: "corr_message_budget"
     });
     assert.equal(first.scheduledTaskIds.length, 2);
     assert.equal(first.budgetExhausted, undefined);
@@ -168,12 +168,12 @@ test("Room max_messages budget is enforced across repeated scheduling calls in o
       roomId: room.id,
       senderId: "operator_local",
       text: "Try to schedule more in the same turn",
-      correlationId: "turn_message_budget"
+      correlationId: "corr_message_budget"
     });
     assert.equal(second.scheduledTaskIds.length, 0);
     assert.equal(second.budgetExhausted, "max_messages");
     assert.equal(
-      store.listObjects("task", "ws_room").filter((task) => task.payload.root_objective_id === "turn_message_budget").length,
+      store.listObjects("task", "ws_room").filter((task) => task.payload.root_objective_id === "corr_message_budget").length,
       2
     );
     const exhausted = store.listRoomEvents(room.id, 0, 100)
@@ -206,7 +206,7 @@ test("Room max_rounds budget prevents another scheduling round for the same corr
       roomId: room.id,
       senderId: "operator_local",
       text: "Round one",
-      correlationId: "turn_round_budget"
+      correlationId: "corr_round_budget"
     });
     assert.equal(first.scheduledTaskIds.length, 1);
 
@@ -214,16 +214,16 @@ test("Room max_rounds budget prevents another scheduling round for the same corr
       roomId: room.id,
       senderId: "operator_local",
       text: "Round two should be blocked",
-      correlationId: "turn_round_budget"
+      correlationId: "corr_round_budget"
     });
     assert.equal(second.scheduledTaskIds.length, 0);
     assert.equal(second.budgetExhausted, "max_rounds");
 
     const rounds = store.listRoomEvents(room.id, 0, 100)
-      .filter((entry) => entry.event.type === "room.round_scheduled" && entry.event.correlation_id === "turn_round_budget");
+      .filter((entry) => entry.event.type === "room.round_scheduled" && entry.event.correlation_id === "corr_round_budget");
     assert.equal(rounds.length, 1);
     const exhausted = store.listRoomEvents(room.id, 0, 100)
-      .filter((entry) => entry.event.type === "room.budget_exhausted" && entry.event.correlation_id === "turn_round_budget");
+      .filter((entry) => entry.event.type === "room.budget_exhausted" && entry.event.correlation_id === "corr_round_budget");
     assert.equal(exhausted.length, 1);
     assert.match(String(exhausted[0]?.event.summary), /max_rounds/);
   } finally {
