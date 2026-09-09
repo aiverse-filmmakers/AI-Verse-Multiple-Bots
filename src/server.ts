@@ -2,7 +2,7 @@ import { createServer } from "node:http";
 import { URL } from "node:url";
 import type { BudgetEnvelope } from "./budget.js";
 import type { BotManifest, JsonObject } from "./types.js";
-import { ExecutionQueue } from "./execution-queue.js";
+import { ExecutionQueue, type RecoveryPolicy } from "./execution-queue.js";
 import { CoordinationGateway, type ApprovalRequirement } from "./gateway.js";
 import { CoordinationPolicy } from "./policy.js";
 import { RoomCoordinator } from "./rooms.js";
@@ -56,10 +56,20 @@ function optionalApproval(value: unknown): ApprovalRequirement | undefined {
 
 function optionalReturnPolicy(value: unknown): "stay_with_target" | "return_on_completion" | "return_on_block" | "explicit_only" | undefined {
   if (value === undefined || value === null) return undefined;
-  if (value === "stay_with_target" || value === "return_on_completion" || value === "return_on_block" || value === "explicit_only") {
-    return value;
-  }
+  if (value === "stay_with_target" || value === "return_on_completion" || value === "return_on_block" || value === "explicit_only") return value;
   throw new Error(`Invalid returnPolicy ${String(value)}`);
+}
+
+function optionalRecoveryPolicy(value: unknown): RecoveryPolicy | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (value === "manual" || value === "retry_safe") return value;
+  throw new Error(`Invalid recoveryPolicy ${String(value)}`);
+}
+
+function optionalMaxAttempts(value: unknown): number | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 1) throw new Error("maxAttempts must be a positive integer");
+  return value;
 }
 
 export function createGatewayServer(options: GatewayServerOptions = {}) {
@@ -105,6 +115,11 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
       if (method === "GET" && executionMatch) {
         const targetId = decodeURIComponent(executionMatch[1] as string);
         json(res, 200, { executions: executionQueue.list(targetId) });
+        return;
+      }
+
+      if (method === "GET" && url.pathname === "/v1/recovery/dead-letters") {
+        json(res, 200, { executions: supervisor.recovery.listDeadLetters(url.searchParams.get("workspace") ?? undefined) });
         return;
       }
 
@@ -253,9 +268,21 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
         return;
       }
 
+      const taskRetryMatch = url.pathname.match(/^\/v1\/tasks\/([^/]+)\/retry$/);
+      if (method === "POST" && taskRetryMatch) {
+        const body = await readJson(req);
+        const result = supervisor.retryDeadLetter(
+          decodeURIComponent(taskRetryMatch[1] as string),
+          requiredString(body, "actorId"),
+          typeof body.reason === "string" ? body.reason : undefined
+        );
+        json(res, 200, result);
+        return;
+      }
+
       if (method === "POST" && url.pathname === "/v1/delegations") {
         const body = await readJson(req);
-        json(res, 201, gateway.delegate({
+        const result = gateway.delegate({
           createdBy: requiredString(body, "createdBy"),
           assigneeId: requiredString(body, "assigneeId"),
           workspaceId: requiredString(body, "workspaceId"),
@@ -275,7 +302,13 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
             ? body.budget as BudgetEnvelope
             : undefined,
           approval: optionalApproval(body.approval)
-        }));
+        });
+        const recoveryPolicy = optionalRecoveryPolicy(body.recoveryPolicy);
+        const maxAttempts = optionalMaxAttempts(body.maxAttempts);
+        if (recoveryPolicy !== undefined || maxAttempts !== undefined) {
+          executionQueue.setRecoveryPolicy(result.task.id, recoveryPolicy ?? "manual", maxAttempts);
+        }
+        json(res, 201, result);
         return;
       }
 
@@ -378,6 +411,7 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
     runtimes,
     runner,
     supervisor,
+    recovery: supervisor.recovery,
     server,
     listen(): Promise<{ host: string; port: number }> {
       const host = options.host ?? "127.0.0.1";
