@@ -1,7 +1,10 @@
 import { createServer } from "node:http";
 import { URL } from "node:url";
 import type { BotManifest, JsonObject } from "./types.js";
+import { ExecutionQueue } from "./execution-queue.js";
 import { CoordinationGateway } from "./gateway.js";
+import { BotRunner } from "./runner.js";
+import { DeterministicRuntimeAdapter, RuntimeRegistry } from "./runtime.js";
 import { CoordinationStore } from "./store.js";
 
 export interface GatewayServerOptions {
@@ -32,7 +35,10 @@ function errorResponse(res: any, error: unknown): void {
 
 export function createGatewayServer(options: GatewayServerOptions = {}) {
   const store = new CoordinationStore(options.dbPath ?? "runtime/ai-verse-bots/coordination.db");
-  const gateway = new CoordinationGateway(store);
+  const executionQueue = new ExecutionQueue(store.dbPath);
+  const gateway = new CoordinationGateway(store, executionQueue);
+  const runtimes = new RuntimeRegistry().register(new DeterministicRuntimeAdapter());
+  const runner = new BotRunner(store, gateway, executionQueue, runtimes);
   const server = createServer(async (req: any, res: any) => {
     const url = new URL(req.url ?? "/", `http://${req.headers?.host ?? "127.0.0.1"}`);
     const method = String(req.method ?? "GET").toUpperCase();
@@ -54,6 +60,20 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
         return;
       }
 
+      const runNextMatch = url.pathname.match(/^\/v1\/bots\/([^/]+)\/run-next$/);
+      if (method === "POST" && runNextMatch) {
+        const result = await runner.runNext(decodeURIComponent(runNextMatch[1] as string));
+        json(res, result ? 200 : 204, result ?? {});
+        return;
+      }
+
+      const executionMatch = url.pathname.match(/^\/v1\/execution\/([^/]+)$/);
+      if (method === "GET" && executionMatch) {
+        const targetId = decodeURIComponent(executionMatch[1] as string);
+        json(res, 200, { executions: executionQueue.list(targetId) });
+        return;
+      }
+
       if (method === "POST" && url.pathname === "/v1/delegations") {
         const body = await readJson(req);
         const required = ["createdBy", "assigneeId", "workspaceId", "rootObjectiveId", "objective", "reason"];
@@ -70,7 +90,8 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
           requiredConstraints: Array.isArray(body.requiredConstraints) ? body.requiredConstraints.map(String) : [],
           expectedOutput: typeof body.expectedOutput === "object" && body.expectedOutput !== null ? body.expectedOutput as JsonObject : undefined,
           tools: Array.isArray(body.tools) ? body.tools.map(String) : [],
-          connections: Array.isArray(body.connections) ? body.connections.map(String) : []
+          connections: Array.isArray(body.connections) ? body.connections.map(String) : [],
+          leaseExpiresAt: typeof body.leaseExpiresAt === "string" ? body.leaseExpiresAt : undefined
         }));
         return;
       }
@@ -162,7 +183,10 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
 
   return {
     store,
+    executionQueue,
     gateway,
+    runtimes,
+    runner,
     server,
     listen(): Promise<{ host: string; port: number }> {
       const host = options.host ?? "127.0.0.1";
@@ -178,6 +202,7 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
     close(): Promise<void> {
       return new Promise((resolve, reject) => {
         server.close((error: Error | undefined) => {
+          executionQueue.close();
           store.close();
           if (error) reject(error);
           else resolve();
