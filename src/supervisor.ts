@@ -1,8 +1,11 @@
-import type { AppendedEvent } from "./types.js";
+import type { AppendedEvent, JsonObject } from "./types.js";
 import { ExecutionOwnershipError, ExecutionQueue } from "./execution-queue.js";
 import { CoordinationGateway } from "./gateway.js";
 import { RecoveryCoordinator, type RecoveryDecision } from "./recovery.js";
 import { BotRunner } from "./runner.js";
+import { validateProtocolObject } from "./validator.js";
+
+const TERMINAL_WORKER_STATES = new Set(["completed", "failed", "canceled", "expired"]);
 
 export class ExecutionSupervisor {
   private unsubscribe: (() => void) | null = null;
@@ -39,18 +42,16 @@ export class ExecutionSupervisor {
     while (this.inFlight.size > 0) await Promise.all([...this.inFlight.values()]);
   }
 
-  trigger(botId: string): void {
-    if (this.inFlight.has(botId)) return;
-    const bot = this.gateway.getBot(botId);
-    if (!bot) return;
-    const adapterId = String(bot.payload.runtime.adapter);
-    if (!this.runner.runtimes.has(adapterId)) return;
+  trigger(targetId: string): void {
+    if (this.inFlight.has(targetId)) return;
+    const adapterId = this.runner.runtimeAdapterIdFor(targetId);
+    if (!adapterId || !this.runner.runtimes.has(adapterId)) return;
 
-    const work = Promise.resolve().then(() => this.drain(botId)).finally(() => {
-      this.inFlight.delete(botId);
-      if (this.queue.list(botId, ["queued"]).length > 0) this.trigger(botId);
+    const work = Promise.resolve().then(() => this.drain(targetId)).finally(() => {
+      this.inFlight.delete(targetId);
+      if (this.queue.list(targetId, ["queued"]).length > 0) this.trigger(targetId);
     });
-    this.inFlight.set(botId, work);
+    this.inFlight.set(targetId, work);
   }
 
   sweepRecovery(now = Date.now()): RecoveryDecision[] {
@@ -67,12 +68,19 @@ export class ExecutionSupervisor {
       });
       return decisions;
     }
-    for (const decision of decisions) if (decision.action === "requeued") this.trigger(decision.execution.targetId);
+    for (const decision of decisions) {
+      this.syncWorkerRecovery(decision);
+      if (decision.action === "requeued") this.trigger(decision.execution.targetId);
+    }
     return decisions;
   }
 
   retryDeadLetter(taskId: string, actorId: string, reason?: string) {
     const result = this.recovery.retryDeadLetter(taskId, actorId, reason);
+    const worker = this.gateway.store.getObject(result.execution.targetId);
+    if (worker?.kind === "worker" && !TERMINAL_WORKER_STATES.has(String(worker.payload.status))) {
+      this.setWorkerStatus(worker.id, "ready", `Dead-letter Task ${taskId} was authorized for retry`);
+    }
     this.trigger(result.execution.targetId);
     return result;
   }
@@ -89,10 +97,44 @@ export class ExecutionSupervisor {
     if (typeof assigneeId === "string" && assigneeId.length > 0) this.trigger(assigneeId);
   }
 
-  private async drain(botId: string): Promise<void> {
+  private syncWorkerRecovery(decision: RecoveryDecision): void {
+    const worker = this.gateway.store.getObject(decision.execution.targetId);
+    if (!worker || worker.kind !== "worker" || TERMINAL_WORKER_STATES.has(String(worker.payload.status))) return;
+    if (decision.action === "requeued") this.setWorkerStatus(worker.id, "ready", `Recovered Task ${decision.execution.itemId} was requeued`);
+    if (decision.action === "dead_letter") this.setWorkerStatus(worker.id, "waiting", `Task ${decision.execution.itemId} requires recovery review`);
+    if (decision.action === "reconciled" && decision.task) {
+      const taskStatus = String(decision.task.payload.status);
+      const workerStatus = taskStatus === "completed" ? "completed" : taskStatus === "canceled" ? "canceled" : "failed";
+      this.setWorkerStatus(worker.id, workerStatus, `Recovered execution reconciled to Task ${taskStatus}`);
+    }
+  }
+
+  private setWorkerStatus(workerId: string, status: string, reason: string): void {
+    const worker = this.gateway.store.getObject(workerId);
+    if (!worker || worker.kind !== "worker") return;
+    const payload: JsonObject = validateProtocolObject({
+      ...worker.payload,
+      status,
+      status_reason: reason,
+      updated_at: new Date().toISOString(),
+      ...(TERMINAL_WORKER_STATES.has(status) ? { terminal_at: new Date().toISOString() } : {})
+    }, "worker");
+    this.gateway.store.putObject("worker", payload);
+    this.gateway.emit({
+      type: "worker.recovery_status_changed",
+      actorId: "system_recovery",
+      workspaceId: worker.workspaceId,
+      runId: typeof worker.payload.run_id === "string" ? worker.payload.run_id : null,
+      taskId: typeof worker.payload.task_id === "string" ? worker.payload.task_id : null,
+      summary: `${workerId} -> ${status}: ${reason}`,
+      attentionState: status === "waiting" || status === "failed" ? "failed" : undefined
+    });
+  }
+
+  private async drain(targetId: string): Promise<void> {
     while (true) {
       try {
-        const result = await this.runner.runNext(botId);
+        const result = await this.runner.runNext(targetId);
         if (!result) return;
       } catch (error) {
         if (error instanceof ExecutionOwnershipError) return;
