@@ -1,3 +1,4 @@
+import type { BudgetEnvelope } from "./budget.js";
 import { createId } from "./id.js";
 import { ExecutionQueue } from "./execution-queue.js";
 import { CoordinationPolicy } from "./policy.js";
@@ -44,6 +45,7 @@ export interface DelegateInput {
   hop?: number;
   leaseExpiresAt?: string;
   deadlineAt?: string;
+  budget?: BudgetEnvelope;
   responseTarget?: ResponseTarget;
 }
 
@@ -123,12 +125,15 @@ export class CoordinationGateway {
       parentTaskId: input.parentTaskId,
       hop: input.hop,
       maxHops: input.maxHops,
-      deadlineAt: input.deadlineAt
+      deadlineAt: input.deadlineAt,
+      budget: input.budget
     }) ?? {
       parentTaskId: input.parentTaskId ?? null,
       requiredConstraints: input.requiredConstraints ?? [],
       hop: input.hop ?? 0,
-      maxHops: input.maxHops ?? 6
+      maxHops: input.maxHops ?? 6,
+      deadlineAt: input.deadlineAt ?? null,
+      budget: input.budget ?? {}
     };
 
     const leaseId = createId("lease");
@@ -165,7 +170,8 @@ export class CoordinationGateway {
       lease_id: leaseId,
       environment_lease_id: null,
       response_target: input.responseTarget ?? null,
-      deadline_at: input.deadlineAt ?? null,
+      deadline_at: prepared.deadlineAt,
+      budget: prepared.budget,
       hop: prepared.hop,
       max_hops: prepared.maxHops,
       status: "assigned"
