@@ -2,7 +2,7 @@ import { createServer } from "node:http";
 import { URL } from "node:url";
 import { delegateWithArtifacts } from "./artifact-delegation.js";
 import type { BudgetEnvelope } from "./budget.js";
-import type { BotManifest, JsonObject } from "./types.js";
+import type { BotManifest, DeliveryState, JsonObject } from "./types.js";
 import { ExecutionQueue, type RecoveryPolicy } from "./execution-queue.js";
 import { CoordinationGateway, type ApprovalRequirement } from "./gateway.js";
 import { OpenAICompatibleRuntimeAdapter } from "./openai-compatible-runtime.js";
@@ -404,15 +404,44 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
           correlationId: typeof body.correlationId === "string" ? body.correlationId : undefined,
           roomId: typeof body.roomId === "string" ? body.roomId : undefined,
           threadId: typeof body.threadId === "string" ? body.threadId : undefined,
-          idempotencyKey: typeof body.idempotencyKey === "string" ? body.idempotencyKey : undefined
+          idempotencyKey: typeof body.idempotencyKey === "string" ? body.idempotencyKey : undefined,
+          expiresAt: typeof body.expiresAt === "string" ? body.expiresAt : undefined
         });
         json(res, 202, result);
         return;
       }
 
+      const messageDeliveryMatch = url.pathname.match(/^\/v1\/messages\/([^/]+)\/delivery$/);
+      if (messageDeliveryMatch && method === "GET") {
+        const delivery = gateway.mailbox.getDelivery(decodeURIComponent(messageDeliveryMatch[1] as string));
+        if (!delivery) {
+          json(res, 404, { error: "NOT_FOUND" });
+          return;
+        }
+        json(res, 200, delivery);
+        return;
+      }
+      if (messageDeliveryMatch && method === "POST") {
+        const body = await readJson(req);
+        json(res, 200, gateway.transitionMessageDelivery(
+          decodeURIComponent(messageDeliveryMatch[1] as string),
+          {
+            state: requiredString(body, "state") as DeliveryState,
+            actorId: requiredString(body, "actorId"),
+            reason: typeof body.reason === "string" ? body.reason : undefined,
+            replyMessageId: typeof body.replyMessageId === "string" ? body.replyMessageId : undefined
+          }
+        ));
+        return;
+      }
+
       const mailboxMatch = url.pathname.match(/^\/v1\/mailbox\/([^/]+)$/);
       if (method === "GET" && mailboxMatch) {
-        json(res, 200, { deliveries: store.listMailbox(decodeURIComponent(mailboxMatch[1] as string)) });
+        const requestedStates = url.searchParams.get("states");
+        const states = requestedStates
+          ? requestedStates.split(",").map((item) => item.trim()).filter(Boolean) as DeliveryState[]
+          : undefined;
+        json(res, 200, { deliveries: gateway.mailbox.list(decodeURIComponent(mailboxMatch[1] as string), states) });
         return;
       }
 

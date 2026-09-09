@@ -34,6 +34,8 @@ export interface CoordinationEvent extends JsonObject {
   workspace_id?: string | null;
   run_id?: string | null;
   task_id?: string | null;
+  message_id?: string | null;
+  delivery_id?: string | null;
   room_id?: string | null;
   thread_id?: string | null;
   correlation_id?: string | null;
@@ -80,6 +82,8 @@ export interface BotManifest extends JsonObject {
   coordination: JsonObject;
 }
 
+export type DeliveryState = "queued" | "accepted" | "delivered" | "processing" | "replied" | "expired" | "failed" | "canceled";
+
 export interface DeliveryRecord {
   id: string;
   messageId: string;
@@ -87,7 +91,7 @@ export interface DeliveryRecord {
   targetKind: string;
   targetId: string;
   workspaceId: string;
-  state: "queued" | "accepted" | "delivered" | "processing" | "replied" | "expired" | "failed" | "canceled";
+  state: DeliveryState;
   createdAt: string;
   updatedAt: string;
 }

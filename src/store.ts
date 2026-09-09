@@ -1,7 +1,7 @@
 import { mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import type { AppendedEvent, CoordinationEvent, DeliveryRecord, JsonObject, ProtocolKind, StoredObject } from "./types.js";
+import type { AppendedEvent, CoordinationEvent, DeliveryRecord, DeliveryState, JsonObject, ProtocolKind, StoredObject } from "./types.js";
 import { validateProtocolObject } from "./validator.js";
 import {
   PERSISTENCE_RELATIONS,
@@ -67,12 +67,22 @@ export interface AtomicQueueTransition {
   required?: boolean;
 }
 
+export interface AtomicDeliveryTransition {
+  messageId: string;
+  targetId: string;
+  fromStates: DeliveryState[];
+  toState: DeliveryState;
+  updatedAt: string;
+}
+
 export interface AtomicMutationInput {
   preconditions?: AtomicMutationPrecondition[];
   objects: AtomicMutationObject[];
   events: CoordinationEvent[];
   queueRetarget?: AtomicQueueRetarget;
   queueTransition?: AtomicQueueTransition;
+  deliveryInsert?: DeliveryRecord;
+  deliveryTransition?: AtomicDeliveryTransition;
 }
 
 export interface AtomicMutationResult {
@@ -207,6 +217,8 @@ export class CoordinationStore {
 
       if (input.queueRetarget) this.retargetQueueInTransaction(input.queueRetarget);
       if (input.queueTransition) this.transitionQueueInTransaction(input.queueTransition);
+      if (input.deliveryInsert) this.insertDeliveryInTransaction(input.deliveryInsert);
+      if (input.deliveryTransition) this.transitionDeliveryInTransaction(input.deliveryTransition);
 
       const timestamp = nowIso();
       for (const object of input.objects) this.writeObject(object.kind, object.payload, timestamp);
@@ -274,6 +286,11 @@ export class CoordinationStore {
       delivery.workspaceId, delivery.state, delivery.createdAt, delivery.updatedAt
     );
     return delivery;
+  }
+
+  getDelivery(messageId: string): DeliveryRecord | null {
+    const row = this.db.prepare("SELECT * FROM deliveries WHERE message_id = ?").get(messageId) as any;
+    return row ? this.rowToDelivery(row) : null;
   }
 
   updateDeliveryState(messageId: string, state: DeliveryRecord["state"]): DeliveryRecord {
@@ -458,6 +475,42 @@ export class CoordinationStore {
       currentState
     ) as { changes: number | bigint };
     if (Number(result.changes) !== 1) throw new Error(`Atomic queue transition lost for ${input.itemId}`);
+  }
+
+  private insertDeliveryInTransaction(delivery: DeliveryRecord): void {
+    const existing = this.db.prepare("SELECT id FROM deliveries WHERE message_id = ?").get(delivery.messageId) as any;
+    if (existing) throw new Error(`Delivery already exists for message ${delivery.messageId}`);
+    this.db.prepare(`
+      INSERT INTO deliveries(id, message_id, sender_id, target_kind, target_id, workspace_id, state, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      delivery.id,
+      delivery.messageId,
+      delivery.senderId,
+      delivery.targetKind,
+      delivery.targetId,
+      delivery.workspaceId,
+      delivery.state,
+      delivery.createdAt,
+      delivery.updatedAt
+    );
+  }
+
+  private transitionDeliveryInTransaction(input: AtomicDeliveryTransition): void {
+    if (input.fromStates.length === 0) throw new Error("Atomic delivery transition requires a source state");
+    const row = this.db.prepare("SELECT target_id, state FROM deliveries WHERE message_id = ?").get(input.messageId) as any;
+    if (!row) throw new Error(`Delivery not found for message ${input.messageId}`);
+    const currentState = String(row.state) as DeliveryState;
+    if (String(row.target_id) !== input.targetId) {
+      throw new Error(`Delivery target for ${input.messageId} is ${String(row.target_id)}, expected ${input.targetId}`);
+    }
+    if (!input.fromStates.includes(currentState)) {
+      throw new Error(`Delivery state for ${input.messageId} is ${currentState}, expected one of ${input.fromStates.join(", ")}`);
+    }
+    const result = this.db.prepare(
+      "UPDATE deliveries SET state = ?, updated_at = ? WHERE message_id = ? AND target_id = ? AND state = ?"
+    ).run(input.toState, input.updatedAt, input.messageId, input.targetId, currentState) as { changes: number | bigint };
+    if (Number(result.changes) !== 1) throw new Error(`Atomic delivery transition lost for ${input.messageId}`);
   }
 
   private extractWorkspaceId(payload: JsonObject): string | null {
