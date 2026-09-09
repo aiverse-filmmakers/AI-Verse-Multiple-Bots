@@ -1,17 +1,9 @@
+import { botRegistryAddresses, normalizeBotAddress } from "./bot-registry.js";
 import { createId } from "./id.js";
 import { CoordinationGateway } from "./gateway.js";
 import { CoordinationStore } from "./store.js";
 import type { JsonObject, StoredObject } from "./types.js";
 import { validateProtocolObject } from "./validator.js";
-
-function normalizedAlias(value: string): string {
-  return value
-    .trim()
-    .replace(/^@/, "")
-    .toLowerCase()
-    .replace(/[^a-z0-9_.-]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-}
 
 function stringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.map(String) : [];
@@ -268,8 +260,10 @@ export class RoomCoordinator {
     this.assertSenderAllowed(room, input.actorId);
     const members = stringArray(room.payload.members);
     if (!members.includes(input.ownerId)) throw new Error(`Work owner ${input.ownerId} is not a Room member`);
+    this.requireActiveBot(input.ownerId, `Work owner ${input.ownerId}`);
     for (const collaboratorId of input.collaboratorIds ?? []) {
       if (!members.includes(collaboratorId)) throw new Error(`Collaborator ${collaboratorId} is not a Room member`);
+      this.requireActiveBot(collaboratorId, `Collaborator ${collaboratorId}`);
     }
     const payload: JsonObject = {
       ...room.payload,
@@ -292,21 +286,12 @@ export class RoomCoordinator {
   }
 
   resolveAlias(room: StoredObject, token: string): string[] {
-    const wanted = normalizedAlias(token);
+    const wanted = normalizeBotAddress(token);
     const matches: string[] = [];
     for (const memberId of stringArray(room.payload.members)) {
       const bot = this.gateway.getBot(memberId);
-      if (!bot) continue;
-      const aliases = new Set<string>();
-      aliases.add(normalizedAlias(bot.id));
-      aliases.add(normalizedAlias(bot.id.replace(/^bot_/, "")));
-      aliases.add(normalizedAlias(bot.payload.name));
-      aliases.add(normalizedAlias(String(bot.payload.role.title ?? "")));
-      const coordination = asObject(bot.payload.coordination);
-      for (const alias of stringArray(coordination?.aliases)) aliases.add(normalizedAlias(alias));
-      const ui = asObject(bot.payload.ui);
-      if (typeof ui?.handle === "string") aliases.add(normalizedAlias(ui.handle));
-      if (aliases.has(wanted)) matches.push(memberId);
+      if (!bot || bot.payload.status !== "active") continue;
+      if (botRegistryAddresses(bot.payload).includes(wanted)) matches.push(memberId);
     }
     return [...new Set(matches)];
   }
@@ -321,13 +306,15 @@ export class RoomCoordinator {
   }
 
   private selectSpeakers(room: StoredObject, senderId: string, explicitMentions: string[]): string[] {
-    if (explicitMentions.length > 0) return explicitMentions.filter((id) => id !== senderId);
+    if (explicitMentions.length > 0) return explicitMentions.filter((id) => id !== senderId && this.isActiveBot(id));
     if (senderId.startsWith("bot_") || senderId.startsWith("worker_")) return [];
 
     const orchestration = asObject(room.payload.orchestration);
     const policy = String(orchestration?.speaker_policy ?? "selective");
-    const members = stringArray(room.payload.members).filter((id) => id !== senderId);
-    const leader = typeof orchestration?.leader === "string" ? orchestration.leader : null;
+    const members = stringArray(room.payload.members).filter((id) => id !== senderId && this.isActiveBot(id));
+    const leader = typeof orchestration?.leader === "string" && this.isActiveBot(orchestration.leader)
+      ? orchestration.leader
+      : null;
 
     if ((policy === "selective" || policy === "leader_first") && leader && leader !== senderId) return [leader];
     if (policy === "mentions_only") return [];
@@ -340,7 +327,20 @@ export class RoomCoordinator {
       if (!stringArray(room.payload.members).includes(senderId)) {
         throw new Error(`${senderId} is not a member of Room ${room.id}`);
       }
+      if (senderId.startsWith("bot_")) this.requireActiveBot(senderId, `Room member ${senderId}`);
     }
+  }
+
+  private isActiveBot(botId: string): boolean {
+    const bot = this.gateway.getBot(botId);
+    return Boolean(bot && bot.payload.status === "active");
+  }
+
+  private requireActiveBot(botId: string, label: string): StoredObject {
+    const bot = this.gateway.getBot(botId);
+    if (!bot) throw new Error(`${label} is not a registered Bot`);
+    if (bot.payload.status !== "active") throw new Error(`${label} is not active`);
+    return bot;
   }
 
   private requireRoom(roomId: string): StoredObject {
