@@ -263,6 +263,11 @@ export class PrincipalRunner {
       const aggregateUsage = resolved.run ? this.assertTeamRunAggregateUsage(resolved.run, task.id, usage) : null;
       const fingerprint = progressFingerprint(result.output);
       this.gateway.policy?.loopGuard.assertProgress({ task: runningTask, fingerprint });
+      const expectedOutput = asObject(task.payload.expected_output);
+      const reusableDiscussionWorker = resolved.principalKind === "worker"
+        && expectedOutput?.contract === "discussion-turn-v1"
+        && typeof task.payload.discussion_room_id === "string"
+        && Number.isInteger(Number(task.payload.discussion_turn_index));
 
       const artifactId = createId("art");
       const artifactPayload: JsonObject = validateProtocolObject({
@@ -302,7 +307,18 @@ export class PrincipalRunner {
         const latestWorker = this.requireWorker(targetId);
         completionObjects.push({
           kind: "worker",
-          payload: validateProtocolObject({ ...latestWorker.payload, status: "completed", completed_at: nowIso(), terminal_at: nowIso(), updated_at: nowIso() }, "worker")
+          payload: validateProtocolObject({
+            ...latestWorker.payload,
+            status: reusableDiscussionWorker ? "waiting" : "completed",
+            ...(reusableDiscussionWorker
+              ? {
+                  terminal_at: null,
+                  last_completed_task_id: task.id,
+                  status_reason: `Completed discussion turn ${String(task.payload.discussion_turn_index)}; awaiting explicit next turn`
+                }
+              : { completed_at: nowIso(), terminal_at: nowIso() }),
+            updated_at: nowIso()
+          }, "worker")
         });
         completionPreconditions.push({ id: targetId, kind: "worker", status: String(latestWorker.payload.status) });
         const latestRun = this.requireActiveRun(String(latestWorker.payload.run_id));
@@ -338,7 +354,17 @@ export class PrincipalRunner {
       this.gateway.emit({ type: "artifact.published", actorId: targetId, workspaceId: claimed.workspaceId, runId, taskId: task.id, correlationId: String(task.payload.root_objective_id), summary: `Published artifact ${artifactId}` });
       this.gateway.emit({ type: "task.completed", actorId: targetId, workspaceId: claimed.workspaceId, runId, taskId: task.id, correlationId: String(task.payload.root_objective_id), summary: result.summary, attentionState: "unread_result" });
       if (resolved.principalKind === "worker") {
-        this.gateway.emit({ type: "worker.status_changed", actorId: targetId, workspaceId: claimed.workspaceId, runId, taskId: task.id, correlationId: String(task.payload.root_objective_id), summary: `${targetId} completed ${task.id}` });
+        this.gateway.emit({
+          type: "worker.status_changed",
+          actorId: targetId,
+          workspaceId: claimed.workspaceId,
+          runId,
+          taskId: task.id,
+          correlationId: String(task.payload.root_objective_id),
+          summary: reusableDiscussionWorker
+            ? `${targetId} completed discussion turn ${String(task.payload.discussion_turn_index)} and is waiting for the next explicit turn`
+            : `${targetId} completed ${task.id}`
+        });
       }
       const completionSettlement = resolved.principalKind === "bot" ? this.gateway.settleHandoffForTask(task.id, "completed", targetId) : null;
       const finalCompletedTask = completionSettlement?.task ?? completedTask;
