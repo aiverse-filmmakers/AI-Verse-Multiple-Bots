@@ -3,7 +3,7 @@ import { normalizeBudget, type BudgetEnvelope } from "./budget.js";
 import { constraintsDigest, normalizeConstraints } from "./constraints.js";
 import { CoordinationStore } from "./store.js";
 import type { TeamRunTopology } from "./team-runs.js";
-import type { AppendedEvent, CoordinationEvent, JsonObject, StoredObject } from "./types.js";
+import type { CoordinationEvent, JsonObject, StoredObject } from "./types.js";
 import { validateProtocolObject } from "./validator.js";
 
 export type DecisionLevel = "low" | "medium" | "high";
@@ -81,10 +81,37 @@ interface Selection {
   reasons: CollaborationReason[];
 }
 
+interface AuthorityState {
+  canCreateWorkers: boolean;
+  capabilitiesAvailable: boolean;
+  workerIdentityCapacity: number;
+  parallelCapacity: number;
+}
+
 const POLICY_VERSION = "team-run-decision-v1";
 const DEFAULT_WORKER_CEILING = 4;
 const POLICY_WORKER_CEILING = 8;
 const TERMINAL_RUN_STATES = new Set(["completed", "failed", "canceled", "budget_exhausted"]);
+const ADAPTIVE_TOPOLOGIES = new Set<TeamRunTopology>([
+  "single",
+  "manager",
+  "handoff",
+  "parallel_panel",
+  "group_room",
+  "dynamic_squad",
+  "hybrid"
+]);
+const BUDGET_KEYS = [
+  "token_limit",
+  "cost_limit",
+  "wall_clock_seconds",
+  "max_workers",
+  "max_hops",
+  "max_messages",
+  "max_rounds",
+  "max_tasks",
+  "max_actions"
+] as const;
 
 function asObject(value: unknown): JsonObject {
   return typeof value === "object" && value !== null && !Array.isArray(value) ? value as JsonObject : {};
@@ -96,6 +123,10 @@ function stringArray(value: unknown): string[] {
 
 function uniqueStrings(values: string[] | undefined): string[] {
   return [...new Set((values ?? []).map((value) => String(value).trim()).filter(Boolean))].sort();
+}
+
+function normalizedStoredStrings(value: unknown): string[] {
+  return [...new Set(stringArray(value).map((item) => item.trim()).filter(Boolean))].sort();
 }
 
 function nonNegativeInteger(value: unknown, fallback: number, label: string): number {
@@ -148,6 +179,10 @@ function numberLimit(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
+function containsAll(haystack: string[], needles: string[]): boolean {
+  return needles.every((value) => haystack.includes(value));
+}
+
 /**
  * Host-neutral, inspectable policy for deciding whether one durable Bot is
  * sufficient or whether a bounded Team Run is justified.
@@ -170,6 +205,16 @@ export class TeamRunDecisionPolicy {
     const requiredConnections = uniqueStrings(input.requiredConnections);
     const budget = normalizeBudget(input.budget);
     const existingRun = this.existingObjectiveRun(input.workspaceId, input.rootObjectiveId, input.leaderId);
+    if (existingRun) {
+      this.assertExistingRunCompatible(
+        existingRun,
+        constraints,
+        requiredTools,
+        requiredConnections,
+        input.approvalRequired === true,
+        budget
+      );
+    }
     const authority = this.authorityState(leader, requiredTools, requiredConnections, budget);
 
     const normalizedInput = {
@@ -193,7 +238,14 @@ export class TeamRunDecisionPolicy {
 
     const selection = existingRun
       ? this.selectionForExistingRun(existingRun)
-      : this.select(signals, budget, authority.workerCapacity, authority.canCreateWorkers, authority.capabilitiesAvailable);
+      : this.select(
+        signals,
+        budget,
+        authority.workerIdentityCapacity,
+        authority.parallelCapacity,
+        authority.canCreateWorkers,
+        authority.capabilitiesAvailable
+      );
     const selectedRunId = selection.mode === "squad"
       ? existingRun?.id ?? `run_adaptive_${inputDigest.slice(0, 32)}`
       : null;
@@ -247,7 +299,7 @@ export class TeamRunDecisionPolicy {
       run_id: selectedRunId,
       correlation_id: input.rootObjectiveId,
       summary: selection.mode === "squad"
-        ? `Adaptive policy selected ${selection.topology} with a ceiling of ${selection.workerCount} temporary Workers`
+        ? `Adaptive policy selected ${selection.topology} with a lifetime ceiling of ${selection.workerCount} temporary Worker identities`
         : `Adaptive policy kept objective ${input.rootObjectiveId} with the durable Bot`
     };
     this.store.appendEvent(event, `collaboration-decision:${artifactId}`);
@@ -290,6 +342,8 @@ export class TeamRunDecisionPolicy {
       budget: asObject(decision.payload.effective_budget),
       required_constraints: stringArray(decision.payload.required_constraints),
       constraints_digest: decision.payload.constraints_digest ?? null,
+      required_tools: stringArray(decision.payload.required_tools),
+      required_connections: stringArray(decision.payload.required_connections),
       approval_required: decision.payload.approval_required === true,
       decision_artifact_ref: decision.id,
       created_at: timestamp,
@@ -342,7 +396,8 @@ export class TeamRunDecisionPolicy {
   private select(
     signals: NormalizedSignals,
     budget: BudgetEnvelope,
-    workerCapacity: number,
+    workerIdentityCapacity: number,
+    parallelCapacity: number,
     canCreateWorkers: boolean,
     capabilitiesAvailable: boolean
   ): Selection {
@@ -358,12 +413,12 @@ export class TeamRunDecisionPolicy {
     }
 
     const hasCollaborationNeed = this.hasCollaborationNeed(signals);
-    if (!canCreateWorkers || workerCapacity < 1) {
+    if (!canCreateWorkers || workerIdentityCapacity < 1) {
       reasons.push(reason(
         !canCreateWorkers ? "WORKER_CREATION_NOT_AUTHORIZED" : "WORKER_BUDGET_UNAVAILABLE",
         !canCreateWorkers
           ? "The durable leader is not authorized to create temporary Workers."
-          : "The available budget leaves no temporary Worker capacity."
+          : "The available budget leaves no temporary Worker identity capacity."
       ));
       if (hasCollaborationNeed) reasons.push(reason("SQUAD_NEED_DEGRADED_TO_SINGLE", "Collaboration signals exist, but policy must fail closed to the durable Bot."));
       else reasons.push(reason("SIMPLE_LINEAR_WORK", "The declared work does not justify temporary collaboration."));
@@ -378,44 +433,182 @@ export class TeamRunDecisionPolicy {
     const verificationRecommended = signals.verification_need === "recommended";
     const discussionWanted = signals.discussion_needed;
     const handoffWanted = signals.ownership_transfer_needed;
+    const verifierFeasible = verificationRequired && workerIdentityCapacity >= 1 && maxTasks >= 1;
 
-    const parallelWorkers = Math.min(signals.independent_workstreams, workerCapacity, Math.floor(maxTasks));
-    const parallelFeasible = parallelWanted && parallelWorkers >= 2;
     const discussionTasks = signals.discussion_participants * signals.discussion_rounds;
     const discussionMessages = discussionTasks + 2;
-    const discussionFeasible = discussionWanted
-      && workerCapacity >= signals.discussion_participants
-      && maxTasks >= discussionTasks
-      && maxMessages >= discussionMessages
-      && maxRounds >= signals.discussion_rounds;
-    const verifierFeasible = verificationRequired && maxTasks >= 1;
+    const discussionSurfaceFeasible = maxMessages >= discussionMessages && maxRounds >= signals.discussion_rounds;
+    const discussionOnlyFeasible = discussionWanted
+      && discussionSurfaceFeasible
+      && workerIdentityCapacity >= signals.discussion_participants
+      && maxTasks >= discussionTasks;
 
-    if (discussionWanted && !discussionFeasible) {
-      reasons.push(reason("DISCUSSION_BUDGET_INSUFFICIENT", "Worker, task, message, or round limits cannot support the declared bounded discussion."));
-    }
-    if (parallelWanted && !parallelFeasible) {
-      reasons.push(reason("PARALLEL_CAPACITY_INSUFFICIENT", "Available Worker or task capacity cannot support at least two independent parallel assignments."));
-    }
-
-    if (discussionFeasible && (parallelFeasible || verificationRequired || handoffWanted)) {
-      const workers = Math.max(signals.discussion_participants, parallelFeasible ? parallelWorkers : 1);
-      reasons.push(reason("MULTIPLE_COLLABORATION_MODES", "The work needs more than one bounded collaboration mode, so the combined topology is justified."));
-      if (parallelFeasible) reasons.push(reason("PARALLEL_WORKSTREAMS", "Independent parallel-safe workstreams justify bounded fan-out."));
-      if (verificationRequired) reasons.push(reason("VERIFICATION_REQUIRED", "The declared result requires independent verification before final synthesis."));
-      if (handoffWanted) reasons.push(reason("OWNERSHIP_TRANSFER_REQUIRED", "The work declares an explicit ownership-transfer need."));
-      reasons.push(reason("DISCUSSION_REQUIRED", "The work declares bounded multi-role discussion as necessary."));
-      return { mode: "squad", topology: "hybrid", workerCount: workers, executionStatus: "ready", reasons };
-    }
-
-    if (discussionFeasible) {
-      reasons.push(reason("DISCUSSION_REQUIRED", "The work declares bounded multi-role discussion as necessary."));
+    if (verificationRequired && !verifierFeasible) {
       return {
-        mode: "squad",
-        topology: "group_room",
-        workerCount: signals.discussion_participants,
-        executionStatus: "ready",
-        reasons
+        mode: "single",
+        topology: "single",
+        workerCount: 0,
+        executionStatus: "blocked",
+        reasons: [reason("VERIFICATION_CAPACITY_UNAVAILABLE", "Verification is required but Worker identity or task capacity cannot schedule a verifier.")]
       };
+    }
+
+    if (discussionWanted && !discussionOnlyFeasible) {
+      reasons.push(reason("DISCUSSION_BUDGET_INSUFFICIENT", "Worker identity, task, message, or round limits cannot support the declared bounded discussion."));
+    }
+
+    if (discussionWanted && parallelWanted) {
+      const reservedVerifier = verificationRequired ? 1 : 0;
+      const availableForParallelByWorkers = workerIdentityCapacity - signals.discussion_participants - reservedVerifier;
+      const availableForParallelByTasks = maxTasks - discussionTasks - reservedVerifier;
+      const parallelWorkers = Math.min(
+        signals.independent_workstreams,
+        parallelCapacity,
+        Math.floor(availableForParallelByWorkers),
+        Math.floor(availableForParallelByTasks)
+      );
+      const fullHybridFeasible = discussionSurfaceFeasible && parallelWorkers >= 2;
+      if (fullHybridFeasible) {
+        const workers = signals.discussion_participants + parallelWorkers + reservedVerifier;
+        reasons.push(reason("MULTIPLE_COLLABORATION_MODES", "Separate bounded discussion and parallel participants require cumulative Worker identity capacity, so a combined topology is justified."));
+        reasons.push(reason("DISCUSSION_REQUIRED", "The work declares bounded multi-role discussion as necessary."));
+        reasons.push(reason("PARALLEL_WORKSTREAMS", "Independent parallel-safe workstreams justify bounded fan-out."));
+        if (verificationRequired) reasons.push(reason("VERIFICATION_REQUIRED", "One additional Worker identity is reserved for required verification after candidate work."));
+        if (handoffWanted) reasons.push(reason("OWNERSHIP_TRANSFER_REQUIRED", "The work declares an explicit ownership-transfer need."));
+        return { mode: "squad", topology: "hybrid", workerCount: workers, executionStatus: "ready", reasons };
+      }
+
+      if (verificationRequired && discussionOnlyFeasible
+        && workerIdentityCapacity >= signals.discussion_participants + 1
+        && maxTasks >= discussionTasks + 1) {
+        reasons.push(reason("PARALLEL_DROPPED_FOR_VERIFICATION_CAPACITY", "Parallel fan-out was dropped so the run can preserve required verification capacity after the bounded discussion."));
+        reasons.push(reason("DISCUSSION_REQUIRED", "The work declares bounded multi-role discussion as necessary."));
+        reasons.push(reason("VERIFICATION_REQUIRED", "One additional Worker identity is reserved for required verification."));
+        return {
+          mode: "squad",
+          topology: "hybrid",
+          workerCount: signals.discussion_participants + 1,
+          executionStatus: "degraded",
+          reasons
+        };
+      }
+
+      if (verificationRequired) {
+        const parallelWithVerifier = Math.min(
+          signals.independent_workstreams,
+          parallelCapacity,
+          workerIdentityCapacity - 1,
+          Math.floor(maxTasks - 1)
+        );
+        if (parallelWithVerifier >= 2) {
+          reasons.push(reason("DISCUSSION_DROPPED_FOR_VERIFICATION_CAPACITY", "Bounded discussion was dropped because available capacity can preserve parallel candidate work plus required verification, but not all requested modes."));
+          reasons.push(reason("PARALLEL_WORKSTREAMS", "Independent parallel-safe workstreams remain feasible."));
+          reasons.push(reason("VERIFICATION_REQUIRED", "One additional Worker identity is reserved for required verification."));
+          return {
+            mode: "squad",
+            topology: "dynamic_squad",
+            workerCount: parallelWithVerifier + 1,
+            executionStatus: "degraded",
+            reasons
+          };
+        }
+        reasons.push(reason("COLLABORATION_DROPPED_FOR_VERIFICATION_CAPACITY", "The requested discussion and parallel work cannot fit alongside required verification, so only the verifier is reserved."));
+        reasons.push(reason("VERIFICATION_REQUIRED", "Required verification takes precedence over optional collaboration expansion."));
+        return { mode: "squad", topology: "dynamic_squad", workerCount: 1, executionStatus: "degraded", reasons };
+      }
+
+      if (discussionOnlyFeasible) {
+        reasons.push(reason("PARALLEL_CAPACITY_INSUFFICIENT", "Cumulative Worker or task capacity cannot support separate parallel participants in addition to the bounded discussion."));
+        reasons.push(reason("DISCUSSION_REQUIRED", "The bounded discussion remains feasible and is retained."));
+        return {
+          mode: "squad",
+          topology: handoffWanted ? "hybrid" : "group_room",
+          workerCount: signals.discussion_participants,
+          executionStatus: "degraded",
+          reasons
+        };
+      }
+    }
+
+    if (discussionWanted) {
+      const requiredWorkers = signals.discussion_participants + (verificationRequired ? 1 : 0);
+      const requiredTasks = discussionTasks + (verificationRequired ? 1 : 0);
+      const fullDiscussionFeasible = discussionSurfaceFeasible
+        && workerIdentityCapacity >= requiredWorkers
+        && maxTasks >= requiredTasks;
+      if (fullDiscussionFeasible) {
+        reasons.push(reason("DISCUSSION_REQUIRED", "The work declares bounded multi-role discussion as necessary."));
+        if (verificationRequired) reasons.push(reason("VERIFICATION_REQUIRED", "One additional Worker identity is reserved for required verification after discussion."));
+        if (handoffWanted) reasons.push(reason("OWNERSHIP_TRANSFER_REQUIRED", "The work declares an explicit ownership-transfer need."));
+        return {
+          mode: "squad",
+          topology: verificationRequired || handoffWanted ? "hybrid" : "group_room",
+          workerCount: requiredWorkers,
+          executionStatus: "ready",
+          reasons
+        };
+      }
+      if (verificationRequired) {
+        reasons.push(reason("DISCUSSION_DROPPED_FOR_VERIFICATION_CAPACITY", "The discussion cannot fit without consuming capacity required for independent verification."));
+        reasons.push(reason("VERIFICATION_REQUIRED", "Required verification takes precedence over the larger discussion shape."));
+        return { mode: "squad", topology: "dynamic_squad", workerCount: 1, executionStatus: "degraded", reasons };
+      }
+    }
+
+    if (parallelWanted) {
+      if (verificationRequired) {
+        const parallelWorkers = Math.min(
+          signals.independent_workstreams,
+          parallelCapacity,
+          workerIdentityCapacity - 1,
+          Math.floor(maxTasks - 1)
+        );
+        if (parallelWorkers >= 2) {
+          reasons.push(reason("PARALLEL_WORKSTREAMS", "Independent parallel-safe workstreams justify bounded fan-out."));
+          reasons.push(reason("VERIFICATION_REQUIRED", "One additional Worker identity is reserved for required verification after fan-out."));
+          if (signals.latency_sensitivity === "high") reasons.push(reason("LATENCY_SENSITIVITY_FAVORS_PARALLEL", "High latency sensitivity strengthens the case for safe parallel execution."));
+          if (handoffWanted) reasons.push(reason("OWNERSHIP_TRANSFER_REQUIRED", "The work declares an explicit ownership-transfer need."));
+          return {
+            mode: "squad",
+            topology: handoffWanted ? "hybrid" : "dynamic_squad",
+            workerCount: parallelWorkers + 1,
+            executionStatus: "ready",
+            reasons
+          };
+        }
+        reasons.push(reason("PARALLEL_DROPPED_FOR_VERIFICATION_CAPACITY", "Parallel fan-out would consume Worker or task capacity required for the verifier, so the durable leader keeps primary work."));
+        reasons.push(reason("VERIFICATION_REQUIRED", "Required verification takes precedence over parallel expansion."));
+        return { mode: "squad", topology: "dynamic_squad", workerCount: 1, executionStatus: "degraded", reasons };
+      }
+
+      const parallelWorkers = Math.min(
+        signals.independent_workstreams,
+        parallelCapacity,
+        workerIdentityCapacity,
+        Math.floor(maxTasks)
+      );
+      if (parallelWorkers >= 2) {
+        if (signals.cost_sensitivity === "high" && signals.latency_sensitivity !== "high") {
+          reasons.push(reason("COST_SENSITIVITY_FAVORS_SERIAL", "High cost sensitivity favors one bounded helper over parallel fan-out."));
+          return { mode: "squad", topology: "manager", workerCount: 1, executionStatus: "ready", reasons };
+        }
+        reasons.push(reason("PARALLEL_WORKSTREAMS", "Independent parallel-safe workstreams justify bounded fan-out."));
+        if (signals.latency_sensitivity === "high") reasons.push(reason("LATENCY_SENSITIVITY_FAVORS_PARALLEL", "High latency sensitivity strengthens the case for safe parallel execution."));
+        if (handoffWanted) reasons.push(reason("OWNERSHIP_TRANSFER_REQUIRED", "The work declares an explicit ownership-transfer need."));
+        return {
+          mode: "squad",
+          topology: handoffWanted ? "hybrid" : "parallel_panel",
+          workerCount: parallelWorkers,
+          executionStatus: "ready",
+          reasons
+        };
+      }
+      reasons.push(reason("PARALLEL_CAPACITY_INSUFFICIENT", "Available Worker identity, task, or concurrency capacity cannot support at least two independent parallel assignments."));
+    }
+
+    if (verificationRequired) {
+      reasons.push(reason("VERIFICATION_REQUIRED", "The durable Bot may produce primary work, but a bounded temporary verifier is required."));
+      return { mode: "squad", topology: handoffWanted ? "hybrid" : "dynamic_squad", workerCount: 1, executionStatus: reasons.length > 1 ? "degraded" : "ready", reasons };
     }
 
     if (handoffWanted && maxTasks >= 1) {
@@ -423,43 +616,32 @@ export class TeamRunDecisionPolicy {
       return { mode: "squad", topology: "handoff", workerCount: 1, executionStatus: "ready", reasons };
     }
 
-    if (parallelFeasible) {
-      if (signals.cost_sensitivity === "high" && signals.latency_sensitivity !== "high" && !verificationRequired) {
-        reasons.push(reason("COST_SENSITIVITY_FAVORS_SERIAL", "High cost sensitivity favors one bounded helper over parallel fan-out."));
-        return { mode: "squad", topology: "manager", workerCount: 1, executionStatus: "ready", reasons };
-      }
-      reasons.push(reason("PARALLEL_WORKSTREAMS", "Independent parallel-safe workstreams justify bounded fan-out."));
-      if (signals.latency_sensitivity === "high") reasons.push(reason("LATENCY_SENSITIVITY_FAVORS_PARALLEL", "High latency sensitivity strengthens the case for safe parallel execution."));
-      if (verificationRequired) {
-        reasons.push(reason("VERIFICATION_REQUIRED", "The declared result requires independent verification before final synthesis."));
-        return { mode: "squad", topology: "dynamic_squad", workerCount: parallelWorkers, executionStatus: "ready", reasons };
-      }
-      return { mode: "squad", topology: "parallel_panel", workerCount: parallelWorkers, executionStatus: "ready", reasons };
-    }
-
-    if (verifierFeasible) {
-      reasons.push(reason("VERIFICATION_REQUIRED", "The durable Bot may produce primary work, but a bounded temporary verifier is required."));
-      return { mode: "squad", topology: "dynamic_squad", workerCount: 1, executionStatus: "ready", reasons };
-    }
-
-    if (verificationRequired && !verifierFeasible) {
-      reasons.push(reason("TASK_BUDGET_INSUFFICIENT", "Verification is required but the task budget cannot schedule a verifier."));
-      return { mode: "single", topology: "single", workerCount: 0, executionStatus: "degraded", reasons };
-    }
-
     const managerJustified = signals.specialist_roles >= 1
       || signals.sequential_stages >= 2
       || verificationRecommended
       || signals.uncertainty === "high"
-      || (parallelWanted && !parallelFeasible)
-      || (discussionWanted && !discussionFeasible);
+      || parallelWanted
+      || discussionWanted;
     if (managerJustified && maxTasks >= 1) {
+      const requestedManagerWorkers = Math.max(
+        1,
+        signals.specialist_roles,
+        Math.max(1, signals.sequential_stages - 1)
+      );
+      const managerWorkers = Math.max(1, Math.min(requestedManagerWorkers, workerIdentityCapacity, Math.floor(maxTasks)));
       if (signals.specialist_roles >= 1) reasons.push(reason("SPECIALIST_ROLE_NEEDED", "At least one bounded specialist contribution is declared."));
-      if (signals.sequential_stages >= 2) reasons.push(reason("SEQUENTIAL_STAGES", "The work has multiple sequential stages that do not justify parallel fan-out."));
+      if (signals.sequential_stages >= 2) reasons.push(reason("SEQUENTIAL_STAGES", "Multiple sequential stages may consume distinct temporary Worker identities over the run lifetime."));
       if (verificationRecommended) reasons.push(reason("VERIFICATION_RECOMMENDED", "Independent checking is recommended but not mandatory."));
-      if (signals.uncertainty === "high") reasons.push(reason("HIGH_UNCERTAINTY", "Declared uncertainty justifies one bounded independent contribution."));
-      if (reasons.length === 0) reasons.push(reason("MINIMUM_SQUAD_NOT_AVAILABLE", "The preferred collaboration shape is not feasible, so policy selected one bounded helper."));
-      return { mode: "squad", topology: "manager", workerCount: 1, executionStatus: "ready", reasons };
+      if (signals.uncertainty === "high") reasons.push(reason("HIGH_UNCERTAINTY", "Declared uncertainty justifies bounded independent contribution."));
+      if (managerWorkers < requestedManagerWorkers) reasons.push(reason("MANAGER_CAPACITY_DEGRADED", "The manager topology is retained with fewer lifetime Worker identities than the declared specialist/stage shape would ideally use."));
+      if (reasons.length === 0) reasons.push(reason("MINIMUM_SQUAD_NOT_AVAILABLE", "The preferred collaboration shape is not feasible, so policy selected bounded serial help."));
+      return {
+        mode: "squad",
+        topology: "manager",
+        workerCount: managerWorkers,
+        executionStatus: managerWorkers < requestedManagerWorkers || reasons.some((item) => String(item.code).endsWith("INSUFFICIENT")) ? "degraded" : "ready",
+        reasons
+      };
     }
 
     if (managerJustified && maxTasks < 1) {
@@ -504,7 +686,7 @@ export class TeamRunDecisionPolicy {
     requiredTools: string[],
     requiredConnections: string[],
     budget: BudgetEnvelope
-  ): { canCreateWorkers: boolean; capabilitiesAvailable: boolean; workerCapacity: number } {
+  ): AuthorityState {
     const permissions = asObject(leader.payload.permissions);
     const coordination = asObject(leader.payload.coordination);
     const canCreateWorkers = permissions.can_create_workers !== false;
@@ -512,25 +694,76 @@ export class TeamRunDecisionPolicy {
     const allowedConnections = Array.isArray(permissions.allowed_connections) ? stringArray(permissions.allowed_connections) : null;
     const toolsAvailable = !allowedTools || allowedTools.includes("*") || requiredTools.every((tool) => allowedTools.includes(tool));
     const connectionsAvailable = !allowedConnections || allowedConnections.includes("*") || requiredConnections.every((connection) => allowedConnections.includes(connection));
-    const leaderParallel = numberLimit(coordination.max_parallel_workers) ?? DEFAULT_WORKER_CEILING;
-    const budgetWorkers = numberLimit(budget.max_workers) ?? leaderParallel;
-    const workerCapacity = canCreateWorkers
-      ? Math.max(0, Math.min(POLICY_WORKER_CEILING, Math.floor(leaderParallel), Math.floor(budgetWorkers)))
+    const leaderParallel = Math.max(0, Math.floor(numberLimit(coordination.max_parallel_workers) ?? DEFAULT_WORKER_CEILING));
+    const defaultIdentityCapacity = Math.max(DEFAULT_WORKER_CEILING, leaderParallel);
+    const budgetWorkers = numberLimit(budget.max_workers) ?? defaultIdentityCapacity;
+    const workerIdentityCapacity = canCreateWorkers
+      ? Math.max(0, Math.min(POLICY_WORKER_CEILING, Math.floor(budgetWorkers)))
       : 0;
-    return { canCreateWorkers, capabilitiesAvailable: toolsAvailable && connectionsAvailable, workerCapacity };
+    const parallelCapacity = canCreateWorkers
+      ? Math.max(0, Math.min(workerIdentityCapacity, POLICY_WORKER_CEILING, leaderParallel))
+      : 0;
+    return {
+      canCreateWorkers,
+      capabilitiesAvailable: toolsAvailable && connectionsAvailable,
+      workerIdentityCapacity,
+      parallelCapacity
+    };
   }
 
   private existingObjectiveRun(workspaceId: string, rootObjectiveId: string, leaderId: string): StoredObject | null {
     const matches = this.store.listObjects("team_run", workspaceId)
       .filter((run) => String(run.payload.root_objective_id) === rootObjectiveId);
     if (matches.length === 0) return null;
-    const sameLeader = matches.find((run) => String(run.payload.leader_id ?? "") === leaderId);
-    if (sameLeader) return sameLeader;
-    throw new Error(`Root objective ${rootObjectiveId} already has a Team Run owned by another durable leader`);
+    if (matches.length > 1) {
+      throw new Error(`Root objective ${rootObjectiveId} already has multiple Team Runs; adaptive policy will not create or reuse another`);
+    }
+    const run = matches[0]!;
+    if (String(run.payload.leader_id ?? "") !== leaderId) {
+      throw new Error(`Root objective ${rootObjectiveId} already has a Team Run owned by another durable leader`);
+    }
+    return run;
+  }
+
+  private assertExistingRunCompatible(
+    run: StoredObject,
+    constraints: string[],
+    requiredTools: string[],
+    requiredConnections: string[],
+    approvalRequired: boolean,
+    requestedBudget: BudgetEnvelope
+  ): void {
+    const existingConstraints = normalizedStoredStrings(run.payload.required_constraints);
+    if (!containsAll(existingConstraints, constraints)) {
+      throw new Error(`Existing Team Run ${run.id} does not preserve all current immutable constraints`);
+    }
+    if (approvalRequired && run.payload.approval_required !== true) {
+      throw new Error(`Existing Team Run ${run.id} does not preserve the current approval requirement`);
+    }
+    const existingTools = normalizedStoredStrings(run.payload.required_tools);
+    if (!containsAll(existingTools, requiredTools)) {
+      throw new Error(`Existing Team Run ${run.id} does not preserve all current required tools`);
+    }
+    const existingConnections = normalizedStoredStrings(run.payload.required_connections);
+    if (!containsAll(existingConnections, requiredConnections)) {
+      throw new Error(`Existing Team Run ${run.id} does not preserve all current required connections`);
+    }
+    const existingBudget = normalizeBudget(run.payload.budget);
+    for (const key of BUDGET_KEYS) {
+      const requested = requestedBudget[key];
+      if (typeof requested !== "number") continue;
+      const existing = existingBudget[key];
+      if (typeof existing !== "number" || existing > requested) {
+        throw new Error(`Existing Team Run ${run.id} has a broader ${key} boundary than the current adaptive decision permits`);
+      }
+    }
   }
 
   private selectionForExistingRun(run: StoredObject): Selection {
     const topology = String(run.payload.topology) as TeamRunTopology;
+    if (!ADAPTIVE_TOPOLOGIES.has(topology) || topology === "single") {
+      throw new Error(`Existing Team Run ${run.id} uses unsupported adaptive topology ${topology}`);
+    }
     const runBudget = normalizeBudget(run.payload.budget);
     const workerCount = Math.max(1, Math.floor(numberLimit(runBudget.max_workers) ?? 1));
     return {
@@ -538,7 +771,7 @@ export class TeamRunDecisionPolicy {
       topology,
       workerCount,
       executionStatus: TERMINAL_RUN_STATES.has(String(run.payload.status)) ? "degraded" : "ready",
-      reasons: [reason("EXISTING_OBJECTIVE_RUN_REUSED", "The root objective already has a Team Run, so adaptive policy reuses it instead of creating another squad.")]
+      reasons: [reason("EXISTING_OBJECTIVE_RUN_REUSED", "The root objective already has a compatible Team Run, so adaptive policy reuses it instead of creating another squad.")]
     };
   }
 
@@ -553,6 +786,7 @@ export class TeamRunDecisionPolicy {
   private requireDecision(decisionId: string): StoredObject {
     const decision = this.getDecision(decisionId);
     if (!decision) throw new Error(`Collaboration decision ${decisionId} not found`);
+    this.assertDecisionArtifact(decision);
     return decision;
   }
 
@@ -565,13 +799,104 @@ export class TeamRunDecisionPolicy {
     if (String(run.payload.leader_id ?? "") !== String(decision.payload.created_by)) {
       throw new Error(`Selected run ${run.id} does not preserve durable leader ownership`);
     }
+    const decisionData = asObject(decision.payload.decision);
+    if (String(run.payload.topology) !== String(decisionData.topology)) {
+      throw new Error(`Selected run ${run.id} topology does not match collaboration decision ${decision.id}`);
+    }
+    this.assertExistingRunCompatible(
+      run,
+      normalizedStoredStrings(decision.payload.required_constraints),
+      normalizedStoredStrings(decision.payload.required_tools),
+      normalizedStoredStrings(decision.payload.required_connections),
+      decision.payload.approval_required === true,
+      normalizeBudget(decision.payload.effective_budget)
+    );
+    if (decisionData.existing_run_reused !== true && String(run.payload.decision_artifact_ref ?? "") !== decision.id) {
+      throw new Error(`Selected adaptive run ${run.id} does not reference collaboration decision ${decision.id}`);
+    }
+    const runBudget = normalizeBudget(run.payload.budget);
+    if (typeof runBudget.max_workers !== "number" || runBudget.max_workers !== Number(decisionData.suggested_worker_count)) {
+      throw new Error(`Selected run ${run.id} does not preserve the decision Worker identity ceiling`);
+    }
     return run;
   }
 
-  private view(artifact: StoredObject): CollaborationDecisionView {
+  private assertDecisionArtifact(artifact: StoredObject): void {
+    const problems: string[] = [];
     if (artifact.kind !== "artifact" || artifact.payload.kind !== "collaboration_decision") {
       throw new Error(`Artifact ${artifact.id} is not a collaboration decision`);
     }
+    const payload = artifact.payload;
+    const inputDigest = typeof payload.input_digest === "string" ? payload.input_digest : "";
+    if (payload.policy_version !== POLICY_VERSION) problems.push("unsupported policy_version");
+    if (!/^[a-f0-9]{64}$/.test(inputDigest)) problems.push("input_digest must be a 64-character hex digest");
+    for (const key of ["workspace_id", "created_by", "root_objective_id", "objective"] as const) {
+      if (typeof payload[key] !== "string" || !String(payload[key]).trim()) problems.push(`${key} must be non-empty`);
+    }
+    const provenance = asObject(payload.provenance);
+    if (provenance.type !== "policy_generated" || provenance.policy !== POLICY_VERSION || provenance.input_digest !== inputDigest) {
+      problems.push("provenance does not match the decision policy and input digest");
+    }
+    const constraints = normalizedStoredStrings(payload.required_constraints);
+    if (payload.constraints_digest !== constraintsDigest(constraints)) problems.push("constraints_digest does not match required_constraints");
+
+    let inputBudget: BudgetEnvelope = {};
+    let effectiveBudget: BudgetEnvelope = {};
+    try {
+      inputBudget = normalizeBudget(payload.input_budget);
+      effectiveBudget = normalizeBudget(payload.effective_budget);
+    } catch (error) {
+      problems.push(`budget is invalid: ${error instanceof Error ? error.message : String(error)}`);
+    }
+
+    const decision = asObject(payload.decision);
+    const mode = decision.mode;
+    const topology = decision.topology;
+    const workerCount = decision.suggested_worker_count;
+    const executionStatus = decision.execution_status;
+    const selectedRunId = decision.selected_run_id;
+    if (mode !== "single" && mode !== "squad") problems.push("decision.mode is unsupported");
+    if (typeof topology !== "string" || !ADAPTIVE_TOPOLOGIES.has(topology as TeamRunTopology)) problems.push("decision.topology is unsupported");
+    if (executionStatus !== "ready" && executionStatus !== "degraded" && executionStatus !== "blocked") problems.push("decision.execution_status is unsupported");
+    if (typeof workerCount !== "number" || !Number.isInteger(workerCount) || workerCount < 0) problems.push("suggested_worker_count must be a non-negative integer");
+    if (typeof decision.existing_run_reused !== "boolean") problems.push("existing_run_reused must be boolean");
+
+    if (mode === "single") {
+      if (topology !== "single") problems.push("single mode requires single topology");
+      if (workerCount !== 0) problems.push("single mode requires zero Workers");
+      if (selectedRunId !== null) problems.push("single mode cannot select a Team Run ID");
+    }
+    if (mode === "squad") {
+      if (topology === "single") problems.push("squad mode cannot use single topology");
+      if (typeof workerCount !== "number" || workerCount < 1) problems.push("squad mode requires at least one Worker identity");
+      if (typeof selectedRunId !== "string" || !selectedRunId.trim()) problems.push("squad mode requires a selected Team Run ID");
+      if (executionStatus === "blocked") problems.push("blocked decisions cannot open a squad");
+      if (effectiveBudget.max_workers !== workerCount) problems.push("effective max_workers must equal suggested_worker_count");
+      if (typeof inputBudget.max_workers === "number" && typeof workerCount === "number" && workerCount > inputBudget.max_workers) {
+        problems.push("suggested_worker_count exceeds input max_workers");
+      }
+    }
+    if (executionStatus === "blocked" && mode !== "single") problems.push("blocked execution must remain single");
+
+    if (!Array.isArray(decision.reasons) || decision.reasons.length < 1 || decision.reasons.length > 16) {
+      problems.push("decision.reasons must contain between 1 and 16 entries");
+    } else {
+      for (const item of decision.reasons) {
+        const entry = asObject(item);
+        if (typeof entry.code !== "string" || !entry.code.trim() || typeof entry.summary !== "string" || !entry.summary.trim()) {
+          problems.push("each decision reason requires a non-empty code and summary");
+          break;
+        }
+      }
+    }
+
+    if (problems.length > 0) {
+      throw new Error(`Collaboration decision ${artifact.id} is invalid: ${problems.join("; ")}`);
+    }
+  }
+
+  private view(artifact: StoredObject): CollaborationDecisionView {
+    this.assertDecisionArtifact(artifact);
     const decision = asObject(artifact.payload.decision);
     const mode = String(decision.mode) as CollaborationMode;
     const topology = String(decision.topology) as TeamRunTopology;
