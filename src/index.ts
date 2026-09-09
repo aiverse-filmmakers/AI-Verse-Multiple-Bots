@@ -1,3 +1,4 @@
+export * from "./bot-registry.js";
 export * from "./budget.js";
 export * from "./constraints.js";
 export * from "./execution-queue.js";
