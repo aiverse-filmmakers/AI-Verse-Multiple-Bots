@@ -21,7 +21,7 @@ Phase 4  Runtime / A2A Interoperability [NOT STARTED]
 Phase 5  Product + Install + Dashboard  [NOT STARTED]
 ```
 
-**Directional overall first-release progress:** roughly 45% complete.
+**Directional overall first-release progress:** roughly 47% complete.
 
 That overall figure is intentionally approximate because later phases contain different amounts of work. Passed phase gates, not percentages, are authoritative.
 
@@ -338,9 +338,22 @@ Goal: a durable Bot decides whether to work alone or create bounded temporary Wo
    - Artifact collection API is available for the later synthesis slice
    - leader remains root owner; Worker capability/environment authority stays Task-scoped
 
+5. **Direct handoff topology - COMPLETE**
+   - one active direct owner at a time for `handoff`, `dynamic_squad`, and `hybrid` Team Runs
+   - explicit initial Worker scheduling through the canonical persistent execution queue
+   - Worker -> Worker and Worker/Bot ownership transfer on target acceptance only
+   - durable leader remains immutable root owner while target owns the active Task
+   - Task constraints, selected Artifact inputs, hop ceilings and ownership-loop history survive transfer
+   - capability and shared-workspace environment authority are revoked/reissued to the target
+   - target Worker placeholder Task/leases are atomically retired before rebinding to transferred work
+   - claimed/running execution fails closed instead of moving underneath a runner
+   - target Worker must remain inside the same Team Run; durable Bot targets become explicit run participants
+   - default completion returns final ownership to the durable leader without reviving a terminal source Worker
+   - rejection, run cancellation, restart reconciliation and HTTP controls are explicit
+   - temporary Workers remain temporary and never enter the durable Bot registry
+
 ### Remaining major slices
 
-5. direct handoff topology
 6. group/discussion topology where justified
 7. disagreement detection
 8. verifier/critic role

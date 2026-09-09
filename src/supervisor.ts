@@ -5,6 +5,7 @@ import { RecoveryCoordinator, type RecoveryDecision } from "./recovery.js";
 import { BotRunner } from "./runner.js";
 import type { ManagerTopologyCoordinator } from "./manager-topology.js";
 import type { TeamRunFanout } from "./team-run-fanout.js";
+import type { TeamRunHandoff } from "./team-run-handoff.js";
 
 export class ExecutionSupervisor {
   private unsubscribe: (() => void) | null = null;
@@ -19,7 +20,8 @@ export class ExecutionSupervisor {
     readonly runner: BotRunner,
     readonly recoverySweepMs = 5000,
     readonly managerTopology?: ManagerTopologyCoordinator,
-    readonly fanout?: TeamRunFanout
+    readonly fanout?: TeamRunFanout,
+    readonly handoff?: TeamRunHandoff
   ) {
     this.recovery = new RecoveryCoordinator(gateway.store, queue, gateway);
   }
@@ -28,6 +30,7 @@ export class ExecutionSupervisor {
     if (this.unsubscribe) return;
     this.unsubscribe = this.gateway.subscribeEvents((event) => this.onEvent(event));
     this.managerTopology?.reconcileAll();
+    this.handoff?.reconcileAll();
     this.fanout?.recoverPreparedFanouts();
     if (this.fanout) {
       const startup = this.fanout.reconcileOpenFanouts();
@@ -96,6 +99,7 @@ export class ExecutionSupervisor {
     }
     for (const decision of decisions) {
       if (decision.action === "requeued") this.trigger(decision.execution.targetId);
+      if (decision.task) this.handoff?.reconcileTask(decision.task.id);
       if (decision.task && decision.action === "reconciled") void this.reconcileFanoutTask(decision.task.id);
     }
     return decisions;
@@ -116,6 +120,7 @@ export class ExecutionSupervisor {
     if (appended.event.task_id && new Set(["task.started", "task.completed", "task.failed", "task.canceled"]).has(appended.event.type)) {
       try {
         this.managerTopology?.reconcileTask(appended.event.task_id);
+        this.handoff?.reconcileTask(appended.event.task_id);
       } catch (error) {
         this.gateway.emit({
           type: "manager.reconciliation_failed",
@@ -127,6 +132,14 @@ export class ExecutionSupervisor {
           summary: error instanceof Error ? error.message : String(error),
           attentionState: "failed"
         });
+      }
+    }
+
+    if (appended.event.task_id && appended.event.type.startsWith("handoff.")) {
+      try {
+        this.handoff?.reconcileTask(appended.event.task_id);
+      } catch (error) {
+        this.gateway.emit({ type: "handoff.reconciliation_failed", actorId: "system_supervisor", workspaceId: appended.event.workspace_id ?? null, runId: appended.event.run_id ?? null, taskId: appended.event.task_id, correlationId: appended.event.correlation_id ?? null, summary: error instanceof Error ? error.message : String(error), attentionState: "failed" });
       }
     }
 
@@ -142,6 +155,7 @@ export class ExecutionSupervisor {
       try {
         const result = await this.runner.runNext(principalId);
         if (!result) return;
+        this.handoff?.reconcileTask(result.task.id);
         await this.reconcileFanoutTask(result.task.id);
       } catch (error) {
         if (error instanceof ExecutionOwnershipError) return;

@@ -14,6 +14,7 @@ import { DeterministicRuntimeAdapter, RuntimeRegistry } from "./runtime.js";
 import { CoordinationStore } from "./store.js";
 import { ExecutionSupervisor } from "./supervisor.js";
 import { TeamRunFanout } from "./team-run-fanout.js";
+import { TeamRunHandoff } from "./team-run-handoff.js";
 import { TeamRunCoordinator, type TeamRunStatus, type TeamRunTopology, type WorkerStatus } from "./team-runs.js";
 
 export interface GatewayServerOptions {
@@ -90,7 +91,8 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
     .register(new OpenAICompatibleRuntimeAdapter());
   const runner = new BotRunner(store, gateway, executionQueue, runtimes);
   const fanout = new TeamRunFanout(teamRuns, gateway, executionQueue, runner);
-  const supervisor = new ExecutionSupervisor(gateway, executionQueue, runner, 5000, managerTopology, fanout);
+  const handoffs = new TeamRunHandoff(teamRuns, gateway, executionQueue, runner);
+  const supervisor = new ExecutionSupervisor(gateway, executionQueue, runner, 5000, managerTopology, fanout, handoffs);
   supervisor.start();
 
   const server = createServer(async (req: any, res: any) => {
@@ -332,6 +334,56 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
           environmentPolicy: typeof body.environmentPolicy === "string" ? body.environmentPolicy as any : undefined,
           environmentRef: typeof body.environmentRef === "string" ? body.environmentRef : undefined
         }));
+        return;
+      }
+
+      const directScheduleMatch = url.pathname.match(/^\/v1\/team-runs\/([^/]+)\/handoff\/schedule$/);
+      if (method === "POST" && directScheduleMatch) {
+        const body = await readJson(req);
+        json(res, 202, handoffs.scheduleInitialWorker({
+          runId: decodeURIComponent(directScheduleMatch[1] as string),
+          workerId: requiredString(body, "workerId"),
+          actorId: requiredString(body, "actorId"),
+          recoveryPolicy: optionalRecoveryPolicy(body.recoveryPolicy),
+          maxAttempts: optionalMaxAttempts(body.maxAttempts)
+        }));
+        return;
+      }
+
+      const directRequestMatch = url.pathname.match(/^\/v1\/team-runs\/([^/]+)\/handoffs$/);
+      if (method === "POST" && directRequestMatch) {
+        const body = await readJson(req);
+        json(res, 201, handoffs.request({
+          runId: decodeURIComponent(directRequestMatch[1] as string),
+          sourceOwnerId: requiredString(body, "sourceOwnerId"),
+          targetOwnerId: requiredString(body, "targetOwnerId"),
+          taskId: requiredString(body, "taskId"),
+          reason: requiredString(body, "reason"),
+          requiredConstraints: Array.isArray(body.requiredConstraints) ? body.requiredConstraints.map(String) : [],
+          artifactRefs: Array.isArray(body.artifactRefs) ? body.artifactRefs.map(String) : [],
+          returnPolicy: optionalReturnPolicy(body.returnPolicy)
+        }));
+        return;
+      }
+
+      const directAcceptMatch = url.pathname.match(/^\/v1\/team-run-handoffs\/([^/]+)\/accept$/);
+      if (method === "POST" && directAcceptMatch) {
+        const body = await readJson(req);
+        json(res, 200, handoffs.accept(decodeURIComponent(directAcceptMatch[1] as string), requiredString(body, "actorId")));
+        return;
+      }
+
+      const directRejectMatch = url.pathname.match(/^\/v1\/team-run-handoffs\/([^/]+)\/reject$/);
+      if (method === "POST" && directRejectMatch) {
+        const body = await readJson(req);
+        json(res, 200, handoffs.reject(decodeURIComponent(directRejectMatch[1] as string), requiredString(body, "actorId"), typeof body.reason === "string" ? body.reason : undefined));
+        return;
+      }
+
+      const directCancelMatch = url.pathname.match(/^\/v1\/team-runs\/([^/]+)\/handoff\/cancel$/);
+      if (method === "POST" && directCancelMatch) {
+        const body = await readJson(req);
+        json(res, 200, await handoffs.cancelRun(decodeURIComponent(directCancelMatch[1] as string), requiredString(body, "actorId"), typeof body.reason === "string" ? body.reason : undefined));
         return;
       }
 
@@ -614,6 +666,7 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
     teamRuns,
     managerTopology,
     fanout,
+    handoffs,
     runtimes,
     runner,
     supervisor,
