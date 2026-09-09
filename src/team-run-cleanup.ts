@@ -7,7 +7,9 @@ import { validateProtocolObject } from "./validator.js";
 const TERMINAL_RUN_STATES = new Set<TeamRunStatus>(["completed", "failed", "canceled", "budget_exhausted"]);
 const TERMINAL_TASK_STATES = new Set(["completed", "failed", "canceled"]);
 const TERMINAL_WORKER_STATES = new Set<WorkerStatus>(["completed", "failed", "canceled", "expired"]);
+const ACTIVE_HANDOFF_STATES = new Set(["requested", "accepted"]);
 const CANCELABLE_EXECUTION_STATES = new Set<ExecutionState>(["queued", "claimed", "running", "dead_letter"]);
+const ACTIONABLE_DELIVERY_STATES = ["queued", "accepted", "processing"] as const;
 const OPTIMISTIC_RETRY_LIMIT = 4;
 const DEFAULT_STALE_OPENING_MS = 5 * 60 * 1000;
 
@@ -37,6 +39,8 @@ export interface TeamRunCleanupSummary {
   environment_lease_ids_revoked: string[];
   shared_environment_lease_ids_preserved: string[];
   execution_item_ids_canceled: string[];
+  approval_ids_canceled: string[];
+  delivery_message_ids_canceled: string[];
   room_ids_closed: string[];
   thread_ids_closed: string[];
   preserved_artifact_refs: string[];
@@ -68,9 +72,9 @@ export interface DiscussionOpeningReapResult {
  * Host-neutral cleanup/reaping coordinator for temporary Team Run state.
  *
  * Cleanup never deletes canonical Tasks, Messages, Artifacts, Handoffs, Rooms,
- * Threads, Workers, events, or provenance. It terminalizes/revokes transient
- * execution authority and marks temporary identity/surfaces inactive while
- * preserving the audit graph required to explain a final result later.
+ * Threads, Workers, Approvals, events, or provenance. It terminalizes/revokes
+ * transient execution authority and marks temporary identity/surfaces inactive
+ * while preserving the audit graph required to explain a final result later.
  */
 export class TeamRunCleanup {
   constructor(
@@ -80,6 +84,12 @@ export class TeamRunCleanup {
   ) {}
 
   cleanupRun(runId: string, actorId: string): TeamRunCleanupResult {
+    // Queue and mailbox delivery state live outside the protocol-object CAS.
+    // Accumulate their successful idempotent side effects across retries so a
+    // later TeamRun CAS retry cannot forget work already canceled.
+    const canceledExecutionItemIds = new Set<string>();
+    const canceledDeliveryMessageIds = new Set<string>();
+
     for (let attempt = 0; attempt < OPTIMISTIC_RETRY_LIMIT; attempt += 1) {
       const run = this.requireRun(runId);
       this.assertCleanupActor(run, actorId);
@@ -91,10 +101,19 @@ export class TeamRunCleanup {
       const workspaceId = String(run.payload.workspace_id);
       const tasks = this.gateway.store.listObjects("task", workspaceId)
         .filter((task) => String(task.payload.run_id ?? "") === run.id);
+      const taskIds = new Set(tasks.map((task) => task.id));
       const workers = this.teams.listWorkers(run.id);
       const liveTasks = tasks.filter((task) => !TERMINAL_TASK_STATES.has(String(task.payload.status)));
       const liveWorkers = workers.filter((worker) => !TERMINAL_WORKER_STATES.has(String(worker.payload.status) as WorkerStatus));
-      const blockerIds = uniqueSorted([...liveTasks.map((task) => task.id), ...liveWorkers.map((worker) => worker.id)]);
+      const activeHandoffs = this.gateway.store.listObjects("handoff", workspaceId).filter((handoff) => {
+        const taskId = String(handoff.payload.task_id ?? handoff.payload.work_item_id ?? "");
+        return taskIds.has(taskId) && ACTIVE_HANDOFF_STATES.has(String(handoff.payload.status));
+      });
+      const blockerIds = uniqueSorted([
+        ...liveTasks.map((task) => task.id),
+        ...liveWorkers.map((worker) => worker.id),
+        ...activeHandoffs.map((handoff) => handoff.id)
+      ]);
       if (blockerIds.length > 0) {
         this.gateway.emit({
           type: "team_run.cleanup_blocked",
@@ -102,7 +121,7 @@ export class TeamRunCleanup {
           workspaceId,
           runId: run.id,
           correlationId: String(run.payload.root_objective_id),
-          summary: `Cleanup blocked by nonterminal run objects: ${blockerIds.join(", ")}`,
+          summary: `Cleanup blocked by unresolved or nonterminal run objects: ${blockerIds.join(", ")}`,
           attentionState: "failed",
           idempotencyKey: `team-run:${run.id}:cleanup-blocked:${blockerIds.join(":")}`
         });
@@ -114,14 +133,14 @@ export class TeamRunCleanup {
         };
       }
 
-      const taskIds = new Set(tasks.map((task) => task.id));
-      const workerIds = new Set(workers.map((worker) => worker.id));
       const preservedArtifacts = this.gateway.store.listObjects("artifact", workspaceId)
         .filter((artifact) => String(artifact.payload.run_id ?? "") === run.id)
         .map((artifact) => artifact.id);
 
       const capabilityLeases = this.gateway.store.listObjects("capability_lease", workspaceId)
         .filter((lease) => taskIds.has(String(lease.payload.task_id ?? "")));
+      const pendingApprovals = this.gateway.store.listObjects("approval", workspaceId)
+        .filter((approval) => taskIds.has(String(approval.payload.task_id ?? "")) && approval.payload.status === "pending");
 
       const environmentLeaseRefs = new Set<string>();
       for (const task of tasks) {
@@ -158,12 +177,17 @@ export class TeamRunCleanup {
       const capabilityLeasesToRevoke = capabilityLeases.filter((lease) => lease.payload.cleanup_revoked_at === undefined);
       const environmentLeasesToRevoke = environmentLeases.filter((lease) => lease.payload.cleanup_revoked_at === undefined);
 
-      const canceledExecutionItemIds: string[] = [];
       for (const task of tasks) {
         const execution = this.queue.getByItem(task.id);
         if (!execution || !CANCELABLE_EXECUTION_STATES.has(execution.state)) continue;
         this.queue.cancelByItem(task.id, `Team Run ${run.id} cleanup after ${runStatus}`);
-        canceledExecutionItemIds.push(task.id);
+        canceledExecutionItemIds.add(task.id);
+      }
+      for (const worker of workers) {
+        for (const delivery of this.gateway.store.listMailbox(worker.id, [...ACTIONABLE_DELIVERY_STATES])) {
+          this.gateway.store.updateDeliveryState(delivery.messageId, "canceled");
+          canceledDeliveryMessageIds.add(delivery.messageId);
+        }
       }
 
       const priorSummary = asObject(run.payload.cleanup_summary);
@@ -173,7 +197,9 @@ export class TeamRunCleanup {
         && threadsToClose.length === 0
         && capabilityLeasesToRevoke.length === 0
         && environmentLeasesToRevoke.length === 0
-        && canceledExecutionItemIds.length === 0
+        && pendingApprovals.length === 0
+        && canceledExecutionItemIds.size === 0
+        && canceledDeliveryMessageIds.size === 0
         && run.payload.discussion_opening_id == null;
       if (alreadyCompleted && noObjectChanges) {
         const summary = this.summaryFromPayload(priorSummary, run);
@@ -217,6 +243,17 @@ export class TeamRunCleanup {
           }, "environment_lease")
         }))
       ];
+      const approvalObjects = pendingApprovals.map((approval) => ({
+        kind: "approval" as const,
+        payload: validateProtocolObject({
+          ...approval.payload,
+          status: "canceled",
+          canceled_at: timestamp,
+          canceled_by: actorId,
+          cleanup_run_id: run.id,
+          decision_reason: `Team Run ${run.id} reached ${runStatus} before this approval was decided`
+        }, "approval")
+      }));
       const roomObjects = roomsToClose.map((room) => {
         const discussion = asObject(room.payload.discussion);
         const nextDiscussion = Object.keys(discussion).length === 0 ? discussion : {
@@ -253,6 +290,8 @@ export class TeamRunCleanup {
         environment_lease_ids_revoked: uniqueSorted([...stringArray(priorSummary.environment_lease_ids_revoked), ...environmentLeasesToRevoke.map((lease) => lease.id)]),
         shared_environment_lease_ids_preserved: uniqueSorted([...stringArray(priorSummary.shared_environment_lease_ids_preserved), ...sharedEnvironmentLeaseIds]),
         execution_item_ids_canceled: uniqueSorted([...stringArray(priorSummary.execution_item_ids_canceled), ...canceledExecutionItemIds]),
+        approval_ids_canceled: uniqueSorted([...stringArray(priorSummary.approval_ids_canceled), ...pendingApprovals.map((approval) => approval.id)]),
+        delivery_message_ids_canceled: uniqueSorted([...stringArray(priorSummary.delivery_message_ids_canceled), ...canceledDeliveryMessageIds]),
         room_ids_closed: uniqueSorted([...stringArray(priorSummary.room_ids_closed), ...roomsToClose.map((room) => room.id)]),
         thread_ids_closed: uniqueSorted([...stringArray(priorSummary.thread_ids_closed), ...threadsToClose.map((thread) => thread.id)]),
         preserved_artifact_refs: uniqueSorted([...stringArray(priorSummary.preserved_artifact_refs), ...preservedArtifacts]),
@@ -274,6 +313,7 @@ export class TeamRunCleanup {
         { kind: "team_run" as const, payload: updatedRunPayload },
         ...workerObjects,
         ...leaseObjects,
+        ...approvalObjects,
         ...roomObjects,
         ...threadObjects
       ];
@@ -282,6 +322,7 @@ export class TeamRunCleanup {
         ...workersToExpire.map((worker) => ({ id: worker.id, kind: "worker" as const, status: String(worker.payload.status), updatedAt: worker.updatedAt })),
         ...capabilityLeasesToRevoke.map((lease) => ({ id: lease.id, kind: "capability_lease" as const, updatedAt: lease.updatedAt })),
         ...environmentLeasesToRevoke.map((lease) => ({ id: lease.id, kind: "environment_lease" as const, updatedAt: lease.updatedAt })),
+        ...pendingApprovals.map((approval) => ({ id: approval.id, kind: "approval" as const, status: "pending", updatedAt: approval.updatedAt })),
         ...roomsToClose.map((room) => ({ id: room.id, kind: "room" as const, status: String(room.payload.status), updatedAt: room.updatedAt })),
         ...threadsToClose.map((thread) => ({ id: thread.id, kind: "thread" as const, status: String(thread.payload.status), updatedAt: thread.updatedAt }))
       ];
@@ -474,13 +515,35 @@ export class TeamRunCleanup {
         idempotencyKey: `team-run:${runId}:cleanup:lease:${leaseId}`
       });
     }
+    for (const approvalId of summary.approval_ids_canceled) {
+      this.gateway.emit({
+        type: "approval.cleanup_canceled",
+        actorId,
+        workspaceId,
+        runId,
+        correlationId: String(run.payload.root_objective_id),
+        summary: `Canceled stale pending Approval ${approvalId} during Team Run cleanup`,
+        idempotencyKey: `team-run:${runId}:cleanup:approval:${approvalId}`
+      });
+    }
+    for (const messageId of summary.delivery_message_ids_canceled) {
+      this.gateway.emit({
+        type: "delivery.cleanup_canceled",
+        actorId,
+        workspaceId,
+        runId,
+        correlationId: String(run.payload.root_objective_id),
+        summary: `Canceled live mailbox delivery for Message ${messageId} targeting a temporary Worker`,
+        idempotencyKey: `team-run:${runId}:cleanup:delivery:${messageId}`
+      });
+    }
     this.gateway.emit({
       type: "team_run.cleanup_completed",
       actorId,
       workspaceId,
       runId,
       correlationId: String(run.payload.root_objective_id),
-      summary: `Cleanup completed: ${summary.worker_ids_expired.length} Worker(s) expired, ${summary.execution_item_ids_canceled.length} execution item(s) canceled, ${summary.room_ids_closed.length} temporary Room(s) closed; ${summary.preserved_artifact_refs.length} Artifact(s) preserved`,
+      summary: `Cleanup completed: ${summary.worker_ids_expired.length} Worker(s) expired, ${summary.execution_item_ids_canceled.length} execution item(s) canceled, ${summary.approval_ids_canceled.length} Approval(s) canceled, ${summary.delivery_message_ids_canceled.length} Worker delivery(s) canceled, ${summary.room_ids_closed.length} temporary Room(s) closed; ${summary.preserved_artifact_refs.length} Artifact(s) preserved`,
       idempotencyKey: `team-run:${runId}:cleanup-completed`
     });
   }
@@ -492,6 +555,8 @@ export class TeamRunCleanup {
       environment_lease_ids_revoked: uniqueSorted(stringArray(value.environment_lease_ids_revoked)),
       shared_environment_lease_ids_preserved: uniqueSorted(stringArray(value.shared_environment_lease_ids_preserved)),
       execution_item_ids_canceled: uniqueSorted(stringArray(value.execution_item_ids_canceled)),
+      approval_ids_canceled: uniqueSorted(stringArray(value.approval_ids_canceled)),
+      delivery_message_ids_canceled: uniqueSorted(stringArray(value.delivery_message_ids_canceled)),
       room_ids_closed: uniqueSorted(stringArray(value.room_ids_closed)),
       thread_ids_closed: uniqueSorted(stringArray(value.thread_ids_closed)),
       preserved_artifact_refs: uniqueSorted([
@@ -511,6 +576,8 @@ export class TeamRunCleanup {
       environment_lease_ids_revoked: [],
       shared_environment_lease_ids_preserved: [],
       execution_item_ids_canceled: [],
+      approval_ids_canceled: [],
+      delivery_message_ids_canceled: [],
       room_ids_closed: [],
       thread_ids_closed: [],
       preserved_artifact_refs: this.gateway.store.listObjects("artifact", String(run.payload.workspace_id))
