@@ -5,7 +5,7 @@ import { PrincipalRunner as BasePrincipalRunner, type CancelResult, type RunResu
 import { RuntimeRegistry, type RuntimeAdapter, type RuntimeExecutionContext, type RuntimeExecutionResult } from "./runtime.js";
 import { CoordinationStore } from "./store.js";
 import { TeamRunCoordinator } from "./team-runs.js";
-import type { AppendedEvent, JsonObject, StoredObject } from "./types.js";
+import type { JsonObject, StoredObject } from "./types.js";
 import { validateProtocolObject } from "./validator.js";
 
 export type { RunResult, CancelResult } from "./principal-runner.js";
@@ -161,9 +161,9 @@ export class PrincipalRunner extends BasePrincipalRunner {
     this.persistRunUsage(runId);
 
     const outcome = result.status === "completed" ? "completed" : result.status === "canceled" ? "canceled" : "failed";
-    const teamSettlement = this.settleTeamRunHandoff(task.id, outcome, targetId);
-    const genericSettlement = teamSettlement ? null : this.gateway.settleHandoffForTask(task.id, outcome, targetId);
-    const finalTask = teamSettlement?.task ?? genericSettlement?.task ?? this.store.getObject(task.id) ?? result.task;
+    const genericSettlement = this.gateway.settleHandoffForTask(task.id, outcome, targetId);
+    let finalTask = genericSettlement?.task ?? this.store.getObject(task.id) ?? result.task;
+    finalTask = this.normalizeTeamRunCompletionOwner(finalTask.id, outcome, targetId) ?? finalTask;
 
     if (result.status === "failed" && String(finalTask.payload.failure_code ?? "").startsWith("TEAM_RUN_")) {
       await this.exhaustRun(runId, String(finalTask.payload.failure_reason ?? "Team Run budget exhausted"), task.id);
@@ -176,113 +176,110 @@ export class PrincipalRunner extends BasePrincipalRunner {
     const events = [...result.events];
     const tasks = result.tasks.map((task) => {
       if (typeof task.payload.run_id !== "string") return task;
-      const settlement = this.settleTeamRunHandoff(task.id, "canceled", actorId);
-      if (!settlement) return this.store.getObject(task.id) ?? task;
-      events.push(...settlement.events);
-      return settlement.task;
+      const settlement = this.gateway.settleHandoffForTask(task.id, "canceled", actorId);
+      if (settlement) events.push(...settlement.events);
+      return settlement?.task ?? this.store.getObject(task.id) ?? task;
     });
     return { tasks, events };
   }
 
-  private settleTeamRunHandoff(
+  private normalizeTeamRunCompletionOwner(
     taskId: string,
     outcome: "completed" | "failed" | "canceled",
-    actorId: string
-  ): { task: StoredObject; events: AppendedEvent[] } | null {
+    executionTargetId: string
+  ): StoredObject | null {
+    if (outcome !== "completed") return null;
     const task = this.store.getObject(taskId);
     if (!task || task.kind !== "task" || typeof task.payload.run_id !== "string") return null;
     const handoffId = typeof task.payload.handoff_id === "string" ? task.payload.handoff_id : null;
-    const handoff = handoffId
-      ? this.store.getObject(handoffId)
-      : this.store.listObjects("handoff", task.workspaceId ?? undefined).find((candidate) =>
-          candidate.payload.run_id === task.payload.run_id
-          && String(candidate.payload.task_id ?? candidate.payload.work_item_id ?? "") === taskId
-          && candidate.payload.status === "ownership_changed"
-        ) ?? null;
-    if (!handoff || handoff.kind !== "handoff" || handoff.payload.status !== "ownership_changed") return null;
+    if (!handoffId) return null;
+    const handoff = this.store.getObject(handoffId);
+    if (!handoff || handoff.kind !== "handoff" || handoff.payload.status !== "completed") return null;
     if (String(handoff.payload.run_id ?? "") !== String(task.payload.run_id)) return null;
+    if (String(handoff.payload.team_run_return_policy ?? "") !== "return_to_leader") return null;
 
-    const targetId = String(handoff.payload.target_owner_id ?? handoff.payload.target_bot_id ?? "");
-    if (!targetId || String(task.payload.owner_id) !== targetId) return null;
-
+    const run = this.store.getObject(String(task.payload.run_id));
+    const returnOwnerId = typeof handoff.payload.return_owner_id === "string" ? handoff.payload.return_owner_id : null;
+    const returnOwner = returnOwnerId ? this.store.getObject(returnOwnerId) : null;
+    const validReturnOwner = Boolean(
+      run
+      && run.kind === "team_run"
+      && returnOwner
+      && returnOwner.kind === "bot"
+      && returnOwner.payload.status === "active"
+      && returnOwner.workspaceId === task.workspaceId
+      && run.workspaceId === task.workspaceId
+      && String(run.payload.leader_id ?? "") === returnOwner.id
+    );
     const timestamp = new Date().toISOString();
-    const policy = String(handoff.payload.team_run_return_policy ?? "return_to_leader");
-    const requestedReturnOwnerId = typeof handoff.payload.return_owner_id === "string" ? handoff.payload.return_owner_id : null;
-    const returnOwner = requestedReturnOwnerId ? this.store.getObject(requestedReturnOwnerId) : null;
-    const canReturnToLeader = outcome === "completed"
-      && policy === "return_to_leader"
-      && Boolean(
-        returnOwner
-        && returnOwner.kind === "bot"
-        && returnOwner.payload.status === "active"
-        && returnOwner.workspaceId === task.workspaceId
-      );
-    const terminalStatus = outcome === "completed" ? "completed" : outcome === "failed" ? "failed" : "canceled";
-    const updatedTaskPayload = canReturnToLeader && returnOwner
-      ? {
-          ...task.payload,
-          owner_id: returnOwner.id,
-          ownership_returned_at: timestamp,
-          ownership_returned_from: targetId,
-          ownership_returned_by_handoff: handoff.id
-        }
-      : { ...task.payload };
-    const updatedHandoffPayload = validateProtocolObject({
-      ...handoff.payload,
-      status: terminalStatus,
-      settled_at: timestamp,
-      outcome,
-      ownership_returned: canReturnToLeader,
-      settled_owner_id: canReturnToLeader && returnOwner ? returnOwner.id : targetId,
-      ...(outcome === "completed" && policy === "return_to_leader" && !canReturnToLeader
-        ? { return_skipped_reason: "Durable Team Run return owner was unavailable at settlement" }
-        : {})
-    }, "handoff");
 
+    if (!validReturnOwner || !returnOwner) {
+      if (handoff.payload.return_skipped_reason === undefined) {
+        this.store.putObject("handoff", validateProtocolObject({
+          ...handoff.payload,
+          ownership_returned: false,
+          settled_owner_id: String(task.payload.owner_id ?? executionTargetId),
+          return_skipped_reason: "Durable Team Run leader was unavailable at completion settlement",
+          team_run_return_normalized_at: timestamp
+        }, "handoff"));
+        this.gateway.emit({
+          type: "handoff.return_skipped",
+          actorId: executionTargetId,
+          workspaceId: task.workspaceId,
+          runId: String(task.payload.run_id),
+          taskId,
+          correlationId: String(task.payload.root_objective_id),
+          summary: `Kept ${taskId} with its completed target because the durable Team Run leader was unavailable`,
+          attentionState: "unread_result"
+        });
+      }
+      return task;
+    }
+
+    const currentOwnerId = String(task.payload.owner_id ?? "");
+    if (currentOwnerId !== executionTargetId && currentOwnerId !== returnOwner.id) return null;
+    const updatedHandoff = validateProtocolObject({
+      ...handoff.payload,
+      ownership_returned: true,
+      settled_owner_id: returnOwner.id,
+      return_owner_id: returnOwner.id,
+      team_run_returned_at: timestamp,
+      team_run_return_normalized_at: timestamp
+    }, "handoff");
+    if (currentOwnerId === returnOwner.id) {
+      this.store.putObject("handoff", updatedHandoff);
+      return task;
+    }
+
+    const updatedTask = validateProtocolObject({
+      ...task.payload,
+      owner_id: returnOwner.id,
+      ownership_returned_at: timestamp,
+      ownership_returned_from: executionTargetId,
+      ownership_returned_by_handoff: handoff.id
+    }, "task");
     const mutation = this.store.atomicMutation({
       preconditions: [
-        { id: handoff.id, kind: "handoff", status: "ownership_changed" },
-        { id: task.id, kind: "task", status: String(task.payload.status), ownerId: targetId }
+        { id: handoff.id, kind: "handoff", status: "completed" },
+        { id: task.id, kind: "task", status: "completed", ownerId: executionTargetId }
       ],
       objects: [
-        { kind: "handoff", payload: updatedHandoffPayload },
-        { kind: "task", payload: validateProtocolObject(updatedTaskPayload, "task") }
+        { kind: "handoff", payload: updatedHandoff },
+        { kind: "task", payload: updatedTask }
       ],
       events: []
     });
-    const settledTask = mutation.objects.find((object) => object.id === task.id) ?? task;
-    const events: AppendedEvent[] = [this.gateway.emit({
-      type: terminalStatus === "completed" ? "handoff.completed" : `handoff.${terminalStatus}`,
-      actorId,
+    const normalizedTask = mutation.objects.find((object) => object.id === task.id) ?? task;
+    this.gateway.emit({
+      type: "ownership.changed",
+      actorId: executionTargetId,
       workspaceId: task.workspaceId,
       runId: String(task.payload.run_id),
       taskId,
       correlationId: String(task.payload.root_objective_id),
-      summary: `Team Run Handoff ${handoff.id} settled from Task outcome ${outcome}`
-    })];
-    if (canReturnToLeader && returnOwner) {
-      events.push(this.gateway.emit({
-        type: "ownership.changed",
-        actorId,
-        workspaceId: task.workspaceId,
-        runId: String(task.payload.run_id),
-        taskId,
-        correlationId: String(task.payload.root_objective_id),
-        summary: `${returnOwner.id} regained final ownership of ${taskId}`
-      }));
-    } else if (outcome === "completed" && policy === "return_to_leader") {
-      events.push(this.gateway.emit({
-        type: "handoff.return_skipped",
-        actorId,
-        workspaceId: task.workspaceId,
-        runId: String(task.payload.run_id),
-        taskId,
-        correlationId: String(task.payload.root_objective_id),
-        summary: `Kept ${taskId} with ${targetId} because the durable Team Run return owner was unavailable`,
-        attentionState: "unread_result"
-      }));
-    }
-    return { task: settledTask, events };
+      summary: `${returnOwner.id} received final Team Run ownership of ${taskId}`
+    });
+    return normalizedTask;
   }
 
   private persistRunUsage(runId: string): void {
