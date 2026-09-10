@@ -670,6 +670,10 @@ export class PrincipalRunner {
   private assertCanCancel(task: StoredObject, actorId: string): void {
     if (actorId.startsWith("operator_")) return;
     if (actorId === task.payload.created_by || actorId === task.payload.owner_id || actorId === task.payload.assignee_id) return;
+    if (typeof task.payload.run_id === "string") {
+      const run = this.store.getObject(task.payload.run_id);
+      if (run?.kind === "team_run" && String(run.payload.leader_id ?? "") === actorId && run.workspaceId === task.workspaceId) return;
+    }
     throw new Error(`Actor ${actorId} cannot cancel Task ${task.id}`);
   }
 
