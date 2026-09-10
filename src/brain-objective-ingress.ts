@@ -531,9 +531,37 @@ export class BrainObjectiveIngress {
     const taskId = `task_brain_ingress_${ingressDigest.slice(0, 32)}`;
     const leaseId = `lease_brain_ingress_${ingressDigest.slice(0, 32)}`;
     const approvalId = `approval_brain_ingress_${ingressDigest.slice(0, 32)}`;
+    const approvalRequired = input.approval?.required === true;
+    const taskReason = input.reason?.trim() || "Execute the current AI-Verse Brain objective through the coordination boundary";
+    const requestedAction = asObject(input.approval?.action) ?? {};
+    const approvalAction: JsonObject | null = approvalRequired ? {
+      ...requestedAction,
+      kind: typeof requestedAction.kind === "string" && requestedAction.kind ? requestedAction.kind : "task.execute",
+      summary: typeof requestedAction.summary === "string" && requestedAction.summary ? requestedAction.summary : `Execute Brain objective ${projection.objective_id}`,
+      task_id: taskId
+    } : null;
+    const approvalReason = approvalRequired
+      ? (input.approval?.reason?.trim() || input.reason?.trim() || "Brain objective execution requires explicit approval")
+      : null;
+    const requestContractDigest = digestValue({
+      leader_id: input.leaderId,
+      workspace_id: input.workspaceId,
+      tools,
+      connections,
+      budget,
+      max_hops: input.maxHops ?? null,
+      deadline_at: input.deadlineAt ?? null,
+      lease_expires_at: input.leaseExpiresAt ?? null,
+      task_reason: taskReason,
+      approval: {
+        required: approvalRequired,
+        reason: approvalReason,
+        action: approvalAction
+      }
+    });
 
     const existing = this.store.getObject(taskId);
-    if (existing) return this.existingResult(existing, projection, input, leaseId, approvalId, tools, connections, budget, requiredConstraints);
+    if (existing) return this.existingResult(existing, projection, input, leaseId, approvalId, tools, connections, budget, requiredConstraints, requestContractDigest);
 
     const prepared = policy.prepareDelegation({
       createdBy: AI_VERSE_BRAIN_INGRESS_ACTOR,
@@ -548,7 +576,6 @@ export class BrainObjectiveIngress {
       deadlineAt: input.deadlineAt,
       budget
     });
-    const approvalRequired = input.approval?.required === true;
     const timestamp = new Date().toISOString();
     const lease = validateProtocolObject({
       schema_version: "1.0",
@@ -573,7 +600,7 @@ export class BrainObjectiveIngress {
       workspace_id: input.workspaceId,
       root_objective_id: rootObjectiveId,
       parent_task_id: prepared.parentTaskId,
-      reason: input.reason?.trim() || "Execute the current AI-Verse Brain objective through the coordination boundary",
+      reason: taskReason,
       objective,
       required_constraints: requiredConstraints,
       constraints_digest: constraintsDigest(requiredConstraints),
@@ -596,6 +623,7 @@ export class BrainObjectiveIngress {
       brain_ingress: {
         provider: projection.provider,
         ingress_digest: ingressDigest,
+        request_contract_digest: requestContractDigest,
         source_ref: projection.source.ref,
         source_revision: projection.source.revision,
         source_digest: projection.source.source_digest,
@@ -623,13 +651,6 @@ export class BrainObjectiveIngress {
     }];
     let approval: JsonObject | null = null;
     if (approvalRequired) {
-      const requestedAction = asObject(input.approval?.action) ?? {};
-      const action: JsonObject = {
-        ...requestedAction,
-        kind: typeof requestedAction.kind === "string" && requestedAction.kind ? requestedAction.kind : "task.execute",
-        summary: typeof requestedAction.summary === "string" && requestedAction.summary ? requestedAction.summary : `Execute Brain objective ${projection.objective_id}`,
-        task_id: taskId
-      };
       approval = validateProtocolObject({
         schema_version: "1.0",
         id: approvalId,
@@ -640,8 +661,8 @@ export class BrainObjectiveIngress {
         requested_by: AI_VERSE_BRAIN_INGRESS_ACTOR,
         requested_at: timestamp,
         status: "pending",
-        reason: input.approval?.reason ?? input.reason ?? "Brain objective execution requires explicit approval",
-        action
+        reason: approvalReason,
+        action: approvalAction
       }, "approval");
       objects.push({ kind: "approval", payload: approval });
       events.push({
@@ -678,7 +699,7 @@ export class BrainObjectiveIngress {
     } catch (error) {
       const raced = this.store.getObject(taskId);
       if (!raced) throw error;
-      return this.existingResult(raced, projection, input, leaseId, approvalId, tools, connections, budget, requiredConstraints);
+      return this.existingResult(raced, projection, input, leaseId, approvalId, tools, connections, budget, requiredConstraints, requestContractDigest);
     }
 
     if (!approvalRequired) this.queue.enqueueTask(taskId, input.leaderId, input.workspaceId);
@@ -698,12 +719,16 @@ export class BrainObjectiveIngress {
     tools: string[],
     connections: string[],
     budget: BudgetEnvelope,
-    requiredConstraints: string[]
+    requiredConstraints: string[],
+    requestContractDigest: string
   ): BrainObjectiveIngressResult {
     if (task.kind !== "task") throw new BrainObjectiveIngressError("INGRESS_ID_COLLISION", `${task.id} already exists and is not a Task`);
     const ingress = asObject(task.payload.brain_ingress);
     if (!ingress || ingress.provider !== projection.provider || ingress.intent_digest !== projection.intent_digest) {
       throw new BrainObjectiveIngressError("INGRESS_ID_COLLISION", `${task.id} does not match the requested Brain ingress contract`);
+    }
+    if (ingress.request_contract_digest !== requestContractDigest) {
+      throw new BrainObjectiveIngressError("BRAIN_INGRESS_CONFLICT", `Brain objective ${projection.objective_id} was already ingressed with a different request contract`);
     }
     if (task.workspaceId !== input.workspaceId || task.payload.root_objective_id !== projection.root_objective_id || task.payload.assignee_id !== input.leaderId) {
       throw new BrainObjectiveIngressError("BRAIN_INGRESS_CONFLICT", `Brain objective ${projection.objective_id} is already bound to a different coordination contract`);
