@@ -13,6 +13,14 @@ declare module "node:crypto" {
     digest(encoding: "hex"): string;
   };
 }
+declare module "node:child_process" {
+  export function execFile(
+    file: string,
+    args: string[],
+    options: any,
+    callback: (error: Error | null, stdout: string, stderr: string) => void
+  ): any;
+}
 declare module "node:fs" {
   export function existsSync(path: string): boolean;
   export function lstatSync(path: string): any;
