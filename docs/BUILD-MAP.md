@@ -229,7 +229,7 @@ None.
 
 **Status:** IN PROGRESS
 
-**Directional phase progress:** approximately 40%.
+**Directional phase progress:** approximately 50%.
 
 Goal: attach the finished host-neutral teammate/squad package to AI-Verse OS without moving or duplicating canonical OS/Brain/Memory/Skills state into this repository.
 
@@ -239,8 +239,8 @@ Goal: attach the finished host-neutral teammate/squad package to AI-Verse OS wit
 2. workspace-scoped state projection - **COMPLETE**
 3. Brain initiative/goal ingress - **COMPLETE**
 4. Memory context/recall adapter - **COMPLETE**
-5. Skills capability resolution - **NEXT**
-6. Automations wake/schedule integration - **NOT STARTED**
+5. Skills capability resolution - **COMPLETE**
+6. Automations wake/schedule integration - **NEXT**
 7. OS write-command boundary - **NOT STARTED**
 8. candidate knowledge/decision write-back - **NOT STARTED**
 9. 4Cs health integration - **NOT STARTED**
@@ -338,9 +338,33 @@ Implemented:
 
 See `docs/AI-VERSE-MEMORY-RECALL.md` and `docs/PHASE-3-STATUS.md`.
 
+### Phase 3.5 - Skills capability resolution
+
+Implemented:
+
+- host-neutral `SkillsCapabilitySource` / `SkillsCapabilityProjection` runtime contracts
+- public `AiVerseSkillsCapabilitySource` using the AI-Verse OS-owned capability resolver rather than reading the Skills registry directly
+- explicit bounded Task `skill_refs` with bare, qualified-provider and exact-workspace references
+- durable Bot declaration checks at Task creation and again immediately before runtime resolution
+- temporary Worker explicit-subset propagation for manager, fan-out, discussion and verifier flows with no automatic leader-skill inheritance
+- explicit synthesis skill requirements on the durable Team Run leader
+- AI-Verse Brain ingress skill requirements bound into the exact ingress contract digest
+- progressive disclosure of selected `SKILL.md` instructions only when a Task explicitly requests them
+- exact workspace-scope and qualified-ID binding
+- package digest verification before and after instruction load, plus resolver/package symlink and containment safety
+- runtime-only skill instructions with persisted provider/generation/package/instruction provenance digests only
+- handoff preservation of Task skill requirements without widening capability leases or Approval state
+- explicit unavailable/degraded/integrity failure semantics
+- standalone ordinary Tasks remain independent; explicit skill dependency fails closed without a resolver source
+- model-runtime authority ordering that treats skills as method instructions, never permission grants
+
+**Verified implementation gate:** GitHub Actions run 34515699163 passed the full **242/242 tests** with 0 failures, 0 canceled and 0 skipped on exact code head `348cb30b16da5d5145e4599241702fd01b135648`.
+
+See `docs/AI-VERSE-SKILLS-CAPABILITY-RESOLUTION.md` and `docs/PHASE-3-STATUS.md`.
+
 ### Phase 3 boundary
 
-Phase 3 work is additive through explicit host adapters. AI-Verse OS remains canonical for operator/workspace/domain state. AI-Verse Brain remains canonical for strategic intent and objective lifecycle. AI-Verse Memory remains canonical for historical memory and its rebuildable derived index. Multiple Bots remains canonical for coordination state. Host, Brain and Memory projections are scoped runtime views, not competing truth.
+Phase 3 work is additive through explicit host adapters. AI-Verse OS remains canonical for operator/workspace/domain state and capability-provider resolution. AI-Verse Brain remains canonical for strategic intent and objective lifecycle. AI-Verse Memory remains canonical for historical memory and its rebuildable derived index. AI-Verse Skills remains canonical for reusable capability packages and immutable generations. Multiple Bots remains canonical for coordination state. Host, Brain, Memory and selected Skills projections are scoped runtime views, not competing truth.
 
 Production one-command package materialization is still a Phase 5 product responsibility; Phase 3.1 defines safe host registration after extension-owned files exist.
 
