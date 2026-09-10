@@ -4,6 +4,7 @@ import { CoordinationGateway } from "./gateway.js";
 import { PrincipalRunner as BasePrincipalRunner, type CancelResult, type RunResult } from "./principal-runner.js";
 import { RuntimeRegistry, type RuntimeAdapter, type RuntimeExecutionContext, type RuntimeExecutionResult } from "./runtime.js";
 import { CoordinationStore } from "./store.js";
+import { TeamRunControl } from "./team-run-control.js";
 import { TeamRunCoordinator } from "./team-runs.js";
 import type { JsonObject, StoredObject } from "./types.js";
 import { validateProtocolObject } from "./validator.js";
@@ -11,7 +12,6 @@ import { validateProtocolObject } from "./validator.js";
 export type { RunResult, CancelResult } from "./principal-runner.js";
 
 const EXECUTABLE_RUN_STATES = new Set(["running", "synthesizing", "verifying"]);
-const TERMINAL_TASK_STATES = new Set(["completed", "failed", "canceled"]);
 const OPTIMISTIC_RETRY_LIMIT = 4;
 
 function stringArray(value: unknown): string[] {
@@ -138,6 +138,8 @@ class TeamRunGuardedRuntimeRegistry extends RuntimeRegistry {
  * and aggregate budget before a runtime result can become an Artifact.
  */
 export class PrincipalRunner extends BasePrincipalRunner {
+  readonly teamRunControl: TeamRunControl;
+
   constructor(
     store: CoordinationStore,
     gateway: CoordinationGateway,
@@ -148,9 +150,16 @@ export class PrincipalRunner extends BasePrincipalRunner {
     heartbeatIntervalMs?: number
   ) {
     super(store, gateway, queue, new TeamRunGuardedRuntimeRegistry(runtimes, store), runnerId, executionLeaseSeconds, heartbeatIntervalMs);
+    this.teamRunControl = new TeamRunControl(new TeamRunCoordinator(store), gateway, queue, this);
   }
 
   override async runNext(targetId: string): Promise<RunResult | null> {
+    const queued = this.queue.list(targetId, ["queued"])[0];
+    if (queued?.itemKind === "task") {
+      const guard = await this.teamRunControl.guardQueuedTask(queued.itemId);
+      if (!guard.executable) return null;
+    }
+
     this.prepareTeamRunHandoffSettlement(targetId);
     const result = await super.runNext(targetId);
     if (!result) return null;
@@ -167,10 +176,29 @@ export class PrincipalRunner extends BasePrincipalRunner {
     let finalTask = genericSettlement?.task ?? this.store.getObject(task.id) ?? result.task;
     finalTask = this.normalizeTeamRunCompletionOwner(finalTask.id, outcome, targetId) ?? finalTask;
 
-    if (result.status === "failed" && String(finalTask.payload.failure_code ?? "").startsWith("TEAM_RUN_")) {
-      await this.exhaustRun(runId, String(finalTask.payload.failure_reason ?? "Team Run budget exhausted"), task.id);
+    const run = this.store.getObject(runId);
+    const leaderId = run?.kind === "team_run" ? String(run.payload.leader_id ?? "") : "";
+    if (leaderId && result.status === "failed" && String(finalTask.payload.failure_code ?? "").startsWith("TEAM_RUN_")) {
+      await this.teamRunControl.exhaustBudget(runId, leaderId, String(finalTask.payload.failure_reason ?? "Team Run budget exhausted"), task.id);
     }
-    return { ...result, task: finalTask };
+
+    if (leaderId && result.status === "canceled" && typeof finalTask.payload.team_run_budget_deadline_at === "string") {
+      const deadlineMs = Date.parse(finalTask.payload.team_run_budget_deadline_at);
+      if (Number.isFinite(deadlineMs) && Date.now() >= deadlineMs) {
+        await this.teamRunControl.exhaustBudget(
+          runId,
+          leaderId,
+          `Team Run ${runId} exceeded its absolute wall-clock deadline ${finalTask.payload.team_run_budget_deadline_at}`,
+          task.id
+        );
+      }
+    }
+
+    const latestRun = this.store.getObject(runId);
+    if (latestRun?.kind === "team_run" && new Set(["canceled", "budget_exhausted"]).has(String(latestRun.payload.status))) {
+      await this.teamRunControl.reconcileTerminalRun(runId);
+    }
+    return { ...result, task: this.store.getObject(finalTask.id) ?? finalTask };
   }
 
   override async cancelTask(taskId: string, actorId: string, reason = "Canceled by operator or owner"): Promise<CancelResult> {
@@ -282,7 +310,7 @@ export class PrincipalRunner extends BasePrincipalRunner {
           workspaceId: task.workspaceId,
           runId: String(task.payload.run_id),
           taskId,
-          correlationId: String(task.payload.root_objective_id),
+          correlationId: String(task.payload.root_object_id),
           summary: `Kept ${taskId} with its completed target because the durable Team Run leader was unavailable`,
           attentionState: "unread_result"
         });
@@ -357,21 +385,6 @@ export class PrincipalRunner extends BasePrincipalRunner {
         const optimisticConflict = error instanceof Error && error.message.includes("changed since it was read");
         if (!optimisticConflict || attempt === OPTIMISTIC_RETRY_LIMIT - 1) throw error;
       }
-    }
-  }
-
-  private async exhaustRun(runId: string, reason: string, failedTaskId: string): Promise<void> {
-    const teams = new TeamRunCoordinator(this.store);
-    const run = teams.getRun(runId);
-    if (!run || new Set(["completed", "failed", "canceled", "budget_exhausted"]).has(String(run.payload.status))) return;
-    const leaderId = String(run.payload.leader_id ?? "");
-    for (const sibling of this.store.listObjects("task", run.workspaceId ?? undefined)) {
-      if (sibling.id === failedTaskId || sibling.payload.run_id !== runId || TERMINAL_TASK_STATES.has(String(sibling.payload.status))) continue;
-      await this.cancelTask(sibling.id, leaderId, `Team Run ${runId} budget exhausted: ${reason}`);
-    }
-    const latest = teams.getRun(runId);
-    if (latest && !new Set(["completed", "failed", "canceled", "budget_exhausted"]).has(String(latest.payload.status))) {
-      teams.transitionRun(runId, "budget_exhausted", leaderId, reason);
     }
   }
 }
