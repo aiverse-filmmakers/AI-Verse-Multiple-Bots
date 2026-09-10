@@ -13,11 +13,15 @@ declare module "node:crypto" {
     digest(encoding: "hex"): string;
   };
 }
+declare module "node:child_process" {
+  export function spawnSync(command: string, args?: string[], options?: any): any;
+}
 declare module "node:fs" {
   export function existsSync(path: string): boolean;
   export function lstatSync(path: string): any;
   export function mkdirSync(path: string, options?: any): void;
   export function readFileSync(path: string, encoding: "utf8"): string;
+  export function realpathSync(path: string): string;
   export function renameSync(oldPath: string, newPath: string): void;
   export function rmSync(path: string, options?: any): void;
   export function symlinkSync(target: string, path: string, type?: any): void;
