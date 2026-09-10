@@ -144,6 +144,12 @@ function validateProjection(
       throw new SkillsCapabilityResolutionError("SKILLS_INVALID_OUTPUT", "Capability source returned an unexpected or duplicate requested_ref");
     }
     seen.add(capability.requested_ref);
+    if (capability.requested_ref.includes(":") && capability.id !== capability.requested_ref) {
+      throw new SkillsCapabilityResolutionError(
+        "SKILLS_INVALID_OUTPUT",
+        `Qualified capability request ${capability.requested_ref} resolved to a different capability ${capability.id}`
+      );
+    }
     if (capability.visibility.startsWith("workspace:") && capability.visibility !== `workspace:${workspaceId}`) {
       throw new SkillsCapabilityResolutionError("SKILLS_SCOPE_VIOLATION", `Resolved capability ${capability.id} escaped Task workspace ${workspaceId}`);
     }
