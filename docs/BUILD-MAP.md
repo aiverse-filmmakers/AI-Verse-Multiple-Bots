@@ -16,12 +16,12 @@ The target is an installable persistent-teammate layer that can run standalone o
 Phase 0  Research + Architecture        [COMPLETE]    100%
 Phase 1  Runnable Coordination Core     [COMPLETE]    100%
 Phase 2  Dynamic Multi-Agent Squads     [COMPLETE]    100%
-Phase 3  AI-Verse Native Integration    [IN PROGRESS] ~30%
+Phase 3  AI-Verse Native Integration    [IN PROGRESS] ~40%
 Phase 4  Runtime / A2A Interoperability [NOT STARTED]
 Phase 5  Product + Install + Dashboard  [NOT STARTED]
 ```
 
-**Directional overall first-release progress:** roughly 71% complete.
+**Directional overall first-release progress:** roughly 73% complete.
 
 That overall figure is intentionally approximate because later phases contain different amounts of work. Passed phase gates, not percentages, are authoritative.
 
@@ -229,7 +229,7 @@ None.
 
 **Status:** IN PROGRESS
 
-**Directional phase progress:** approximately 30%.
+**Directional phase progress:** approximately 40%.
 
 Goal: attach the finished host-neutral teammate/squad package to AI-Verse OS without moving or duplicating canonical OS/Brain/Memory/Skills state into this repository.
 
@@ -238,8 +238,8 @@ Goal: attach the finished host-neutral teammate/squad package to AI-Verse OS wit
 1. AI-Verse OS installer/registration contract - **COMPLETE**
 2. workspace-scoped state projection - **COMPLETE**
 3. Brain initiative/goal ingress - **COMPLETE**
-4. Memory context/recall adapter - **NEXT**
-5. Skills capability resolution - **NOT STARTED**
+4. Memory context/recall adapter - **COMPLETE**
+5. Skills capability resolution - **NEXT**
 6. Automations wake/schedule integration - **NOT STARTED**
 7. OS write-command boundary - **NOT STARTED**
 8. candidate knowledge/decision write-back - **NOT STARTED**
@@ -309,13 +309,38 @@ Implemented:
 - runtime-only strategic intent injection with provenance-only persistence
 - native Gateway Brain-objective ingress command; standalone mode remains independent
 
-**Final PR-head verification:** GitHub Actions run 289 passed the full **202/202 tests** with 0 failures, 0 canceled and 0 skipped on exact head `328de54dc0506437d725f2a90dd1f35efe0c0d8a`.
+**Final PR-head verification:** GitHub Actions run 295 passed the full **202/202 tests** with 0 failures, 0 canceled and 0 skipped on exact head `1fef1af59a167ce413899cc3e2b81bc692e86e05`. Phase 3.3 was squash-merged as `1945b45c99fc4ce10060156d3f4ebff912bfcbf4`, and post-merge `main` CI run 296 also passed **202/202**.
 
 See `docs/AI-VERSE-BRAIN-OBJECTIVE-INGRESS.md` and `docs/PHASE-3-STATUS.md`.
 
+### Phase 3.4 - Memory context/recall adapter
+
+Implemented:
+
+- host-neutral explicit historical-recall runtime contracts for durable Bots and temporary Workers
+- public `AiVerseMemoryRecallSource` native adapter and `MemoryRecallRuntimeRegistry`
+- lazy AI-Verse Memory v0.2+ native-install compatibility gate
+- shell-free structured Python bridge into the installed Memory engine rather than direct SQLite ownership
+- exact workspace-scoped recall: selected workspace plus operator context only
+- no cross-workspace recall surface in the Phase 3.4 Task contract
+- bounded query/result/subprocess/item/aggregate output limits
+- strict canonical Memory source-root ownership validation, including path-kind-scope matching
+- symlink/escape-safe Memory installation and source-path validation
+- source identity/version/freshness validation plus post-recall canonical source revalidation
+- historical recall injected only when a Task explicitly requests it
+- recalled text remains ephemeral runtime context; persisted receipts contain provenance and digests only
+- current OS/Brain context and hard Task/lease/Approval authority explicitly outrank historical recall
+- no Memory write/supersede/forget/promotion authority introduced
+- normalized HTTP delegation and managed-Worker propagation through the same common runtime path
+- explicit recall fails closed when Memory is unavailable/incompatible; ordinary no-recall work remains standalone-safe
+
+**Verified hardening gate:** GitHub Actions run 345 passed the full **221/221 tests** with 0 failures, 0 canceled and 0 skipped on exact branch head `f2112055bd1771d75dbe5c720ffac70d83604590`. Platform Smoke run 8 also passed on the same head. This gate includes the dedicated canonical-source ownership, path-kind and symlinked-install hardening tests.
+
+See `docs/AI-VERSE-MEMORY-RECALL.md` and `docs/PHASE-3-STATUS.md`.
+
 ### Phase 3 boundary
 
-Phase 3 work is additive through explicit host adapters. AI-Verse OS remains canonical for operator/workspace/domain state. AI-Verse Brain remains canonical for strategic intent and objective lifecycle. Multiple Bots remains canonical for coordination state. Host/Brain projections are derived runtime views, not competing truth.
+Phase 3 work is additive through explicit host adapters. AI-Verse OS remains canonical for operator/workspace/domain state. AI-Verse Brain remains canonical for strategic intent and objective lifecycle. AI-Verse Memory remains canonical for historical memory and its rebuildable derived index. Multiple Bots remains canonical for coordination state. Host, Brain and Memory projections are scoped runtime views, not competing truth.
 
 Production one-command package materialization is still a Phase 5 product responsibility; Phase 3.1 defines safe host registration after extension-owned files exist.
 
@@ -380,9 +405,9 @@ The first finished release must prove at minimum:
 
 ## Next gate
 
-**Phase 3.4 - Memory context/recall adapter.**
+**Phase 3.5 - Skills capability resolution.**
 
-The next slice must let durable Bots and temporary Workers retrieve bounded, workspace-correct historical context from AI-Verse Memory through an explicit adapter without duplicating Memory's canonical state inside the coordination database. Recall must remain provenance-bearing, authority-scoped and optional so standalone mode continues to work without Memory.
+The next slice must let durable Bots and temporary Workers resolve task-required capabilities through AI-Verse Skills without copying or owning the Skills registry inside coordination state. Resolution must be exact, authority-bounded, workspace/task scoped, approval-aware, provenance-bearing, and compatible with standalone operation when AI-Verse Skills is not present.
 
 ## How to report progress
 
