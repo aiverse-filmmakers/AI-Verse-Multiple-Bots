@@ -303,12 +303,12 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
 
       const roomGetMatch = url.pathname.match(/^\/v1\/rooms\/([^/]+)$/);
       if (method === "GET" && roomGetMatch) {
-        const bot = rooms.getRoom(decodeURIComponent(roomGetMatch[1] as string));
-        if (!bot) {
+        const room = rooms.getRoom(decodeURIComponent(roomGetMatch[1] as string));
+        if (!room) {
           json(res, 404, { error: "NOT_FOUND" });
           return;
         }
-        json(res, 200, bot);
+        json(res, 200, room);
         return;
       }
 
