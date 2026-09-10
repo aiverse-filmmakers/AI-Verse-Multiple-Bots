@@ -20,6 +20,7 @@ declare module "node:fs" {
   export function readFileSync(path: string, encoding: "utf8"): string;
   export function renameSync(oldPath: string, newPath: string): void;
   export function rmSync(path: string, options?: any): void;
+  export function symlinkSync(target: string, path: string, type?: any): void;
   export function writeFileSync(path: string, data: string, options?: any): void;
 }
 declare module "node:path" {
