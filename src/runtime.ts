@@ -3,6 +3,25 @@ import type { BotManifest, JsonObject, StoredObject } from "./types.js";
 
 export type ExecutionPrincipalKind = "bot" | "worker";
 
+export interface WorkspaceProjectionSource {
+  ref: string;
+  digest: string;
+}
+
+export interface WorkspaceStateProjection {
+  schema_version: "1.0";
+  provider: string;
+  workspace_id: string;
+  projection_digest: string;
+  projected_at: string;
+  sources: WorkspaceProjectionSource[];
+  data: JsonObject;
+}
+
+export interface WorkspaceStateProjector {
+  project(workspaceId: string): WorkspaceStateProjection;
+}
+
 export interface RuntimeExecutionContext {
   /** Canonical execution identity. Durable Bots and temporary Workers both use this field. */
   principal: StoredObject;
@@ -15,6 +34,8 @@ export interface RuntimeExecutionContext {
   capabilityLease: StoredObject;
   environmentLease: StoredObject | null;
   inputArtifacts: StoredObject[];
+  /** Ephemeral, read-only host workspace context. Never canonical Multiple Bots state. */
+  workspaceProjection?: WorkspaceStateProjection | null;
   signal: AbortSignal;
 }
 
@@ -72,6 +93,9 @@ export class DeterministicRuntimeAdapter implements RuntimeAdapter {
         execution_principal_kind: context.principalKind,
         runtime_adapter: this.id,
         lease_id: context.capabilityLease.id,
+        ...(context.workspaceProjection
+          ? { workspace_projection_digest: context.workspaceProjection.projection_digest }
+          : {}),
         result: `Completed: ${objective}`
       },
       usage: {
