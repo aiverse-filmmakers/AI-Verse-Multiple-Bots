@@ -6,13 +6,13 @@
 
 **Overall status:** IN PROGRESS
 
-**Directional phase progress:** approximately 40%
+**Directional phase progress:** approximately 50%
 
 This file is the implementation ledger for Phase 3. The canonical product roadmap remains `BUILD-MAP.md`.
 
 ## Phase 3 goal
 
-Attach the completed host-neutral persistent-teammate and squad package to AI-Verse OS through explicit adapters while preserving the ownership boundary: AI-Verse OS remains canonical for operator/workspace/domain state, AI-Verse Brain remains canonical for strategic state, AI-Verse Memory remains canonical for historical memory, and Multiple Bots remains canonical only for coordination state.
+Attach the completed host-neutral persistent-teammate and squad package to AI-Verse OS through explicit adapters while preserving the ownership boundary: AI-Verse OS remains canonical for operator/workspace/domain state and capability resolution, AI-Verse Brain remains canonical for strategic state, AI-Verse Memory remains canonical for historical memory, AI-Verse Skills remains canonical for reusable capability packages, and Multiple Bots remains canonical only for coordination state.
 
 ## Slice status
 
@@ -20,8 +20,8 @@ Attach the completed host-neutral persistent-teammate and squad package to AI-Ve
 2. workspace-scoped state projection — **COMPLETE**
 3. Brain initiative/goal ingress — **COMPLETE**
 4. Memory context/recall adapter — **COMPLETE**
-5. Skills capability resolution — **NEXT**
-6. Automations wake/schedule integration — **NOT STARTED**
+5. Skills capability resolution — **COMPLETE**
+6. Automations wake/schedule integration — **NEXT**
 7. OS write-command boundary — **NOT STARTED**
 8. candidate knowledge/decision write-back — **NOT STARTED**
 9. 4Cs health integration — **NOT STARTED**
@@ -218,9 +218,68 @@ Phase 3.4 acceptance coverage proves:
 
 See `AI-VERSE-MEMORY-RECALL.md` for the canonical Phase 3.4 boundary.
 
+## Slice 3.5 - Skills capability resolution
+
+**Implementation status:** COMPLETE
+
+Phase 3.5 adds explicit task-scoped reusable methods to durable Bot and temporary Worker execution while keeping Skills packages and provider selection outside Multiple Bots canonical state.
+
+Implemented:
+
+- public host-neutral `ResolvedSkillCapability`, `SkillsCapabilityProjection` and `SkillsCapabilitySource` contracts
+- public `AiVerseSkillsCapabilitySource` native adapter
+- direct consumption of the AI-Verse OS `selectCapability` boundary instead of copying or reading the AI-Verse Skills registry
+- exact AI-Verse OS workspace scope supplied to the resolver
+- bounded `skill_refs` Task contract with bare, qualified-provider and exact-workspace forms
+- maximum 12 normalized skill references per Task
+- durable Bot declaration enforcement before Task creation and again immediately before execution
+- selected method references kept separate from `capability_lease` tools/connections/destructive-action authority
+- no permission, readiness or Approval grant derived from Skills metadata
+- progressive disclosure: only selected `SKILL.md` bodies are loaded
+- resolver and package path containment/symlink validation
+- `aiverse-package-sha256-v1` verification before and after instruction loading to detect stale or changing packages
+- bounded per-skill and aggregate instruction payloads
+- deterministic request, instruction and resolution digests
+- qualified-ID rebinding rejection
+- runtime-only instruction injection with provenance-only persisted receipts
+- manager, fan-out, discussion and verifier Workers receive only explicitly selected subsets of leader-declared methods
+- Worker creation with no skill subset does not inherit the leader's complete skill set
+- synthesis Task support for an explicit leader-declared method subset
+- Handoff target compatibility checks preserve Task skill requirements while reissuing only the pre-existing execution lease authority
+- Brain objective ingress binds normalized skill requirements into its exact request-contract digest and idempotency check
+- HTTP delegation validates untrusted skill references before canonical Task creation
+- explicit unavailable/degraded/integrity failures fail closed
+- ordinary standalone Tasks remain unchanged when no Skills capability source is configured
+
+### 3.5 acceptance proof
+
+The hardened implementation gate at exact code head `348cb30b16da5d5145e4599241702fd01b135648` passed GitHub Actions **CI run 34515699163 with 242/242 tests**, **0 failures, 0 canceled, and 0 skipped**.
+
+Phase 3.5 acceptance coverage proves:
+
+1. skill requirements are explicit, bounded, normalized and workspace-scoped
+2. ordinary Tasks invoke no Skills source
+3. runtime receives selected instructions while persisted receipts retain only bounded provenance/digests
+4. skill resolution cannot mutate or expand the capability lease
+5. durable Bot declarations are enforced both before Task creation and at execution time
+6. explicit skill work fails closed when no source is configured
+7. cross-workspace resolver output fails before model execution
+8. forged request/resolution bindings are rejected
+9. qualified capability requests cannot silently resolve to another provider
+10. native resolution uses the AI-Verse OS-owned resolver rather than duplicating provider selection
+11. package mutation during instruction load is detected by a second digest verification
+12. malformed generation/package metadata and unsafe resolver paths fail closed
+13. Handoffs preserve required methods without adding permission or changing Approval authority
+14. temporary Workers receive explicit subsets only and never auto-inherit all leader capabilities
+15. synthesis follows the same method-versus-authority separation
+16. standalone no-skill execution remains available
+17. the full pre-existing coordination, squad, recovery, workspace, Brain and Memory suite remains green
+
+See `AI-VERSE-SKILLS-CAPABILITY-RESOLUTION.md` for the canonical Phase 3.5 boundary.
+
 ## Ownership boundary
 
-Phase 3.1 through 3.4 do not make Multiple Bots the source of truth for any AI-Verse OS, Brain or Memory domain state.
+Phase 3.1 through 3.5 do not make Multiple Bots the source of truth for any AI-Verse OS, Brain, Memory or Skills domain state.
 
 ```text
 AI-Verse OS
@@ -232,16 +291,23 @@ AI-Verse Brain
 AI-Verse Memory
   owns historical memory in canonical Markdown and its rebuildable derived index
 
+AI-Verse Skills
+  owns reusable capability packages, immutable generations and package provenance
+
+AI-Verse OS
+  owns capability-provider discovery, workspace-scoped selection and operational permission policy
+
 AI-Verse Multiple Bots
   owns Bot/Worker coordination identity, Messages, Tasks, Rooms, Handoffs,
   Team Runs, coordination Artifacts/events/leases/budgets/cancellation/recovery
 
 Phase 3 adapters
-  project only the minimum scoped host/Brain/Memory data needed for execution
-  and route later candidate writes back through explicit owner-controlled boundaries
+  project only the minimum scoped host/Brain/Memory data and selected Skills
+  instructions needed for execution, and route later candidate writes back
+  through explicit owner-controlled boundaries
 ```
 
-Workspace projection, current Brain strategic projection and recalled Memory text are ephemeral execution context. Multiple Bots may retain only bounded provenance needed to explain which canonical sources and digests informed an Artifact; it does not retain copied canonical workspace, Brain or Memory objects.
+Workspace projection, current Brain strategic projection, recalled Memory text and selected Skills instructions are ephemeral execution context. Multiple Bots may retain only bounded provenance needed to explain which canonical sources, capability generations and digests informed an Artifact; it does not retain copied canonical workspace, Brain, Memory or Skills package state.
 
 Registration also does not auto-create AI-Verse OS durable agents. Durable Multiple Bots Bots and temporary Workers remain package identities unless a later explicit adapter maps them.
 
@@ -251,6 +317,6 @@ Phase 3.1 defines and implements safe registration after extension-owned files h
 
 ## Next gate
 
-**Phase 3.5 - Skills capability resolution.**
+**Phase 3.6 - Automations wake/schedule integration.**
 
-The next slice must let durable Bots and temporary Workers resolve task-required capabilities through AI-Verse Skills without copying the Skills registry into coordination state or expanding authority. Resolution must preserve exact workspace/task scope, capability leases, approvals, explicit availability/failure semantics and standalone compatibility.
+The next slice must let AI-Verse Automations wake durable Bots or start bounded Team Runs through the same coordination command boundary, without moving schedule/routine ownership into Multiple Bots or bypassing workspace, lease, Approval, budget and cancellation policy.

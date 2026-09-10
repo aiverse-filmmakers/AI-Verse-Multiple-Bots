@@ -34,6 +34,7 @@ export interface CoordinationPolicyOptions {
   absoluteMaxHops?: number;
   maxToolsPerTask?: number;
   maxConnectionsPerTask?: number;
+  maxSkillRefsPerTask?: number;
   maxPairTransitions?: number;
   maxRepeatedResults?: number;
 }
@@ -47,6 +48,7 @@ export interface DelegationSafetyInput {
   requiredConstraints?: string[];
   tools?: string[];
   connections?: string[];
+  skillRefs?: string[];
   parentTaskId?: string;
   hop?: number;
   maxHops?: number;
@@ -69,6 +71,7 @@ export interface HandoffSafetyInput {
   workspaceId: string;
   tools?: string[];
   connections?: string[];
+  skillRefs?: string[];
   environmentPolicy?: string | null;
 }
 
@@ -78,6 +81,7 @@ export class CoordinationPolicy {
   readonly absoluteMaxHops: number;
   readonly maxToolsPerTask: number;
   readonly maxConnectionsPerTask: number;
+  readonly maxSkillRefsPerTask: number;
   readonly loopGuard: CoordinationLoopGuard;
 
   constructor(readonly store: CoordinationStore, options: CoordinationPolicyOptions = {}) {
@@ -86,6 +90,7 @@ export class CoordinationPolicy {
     this.absoluteMaxHops = options.absoluteMaxHops ?? 12;
     this.maxToolsPerTask = options.maxToolsPerTask ?? 64;
     this.maxConnectionsPerTask = options.maxConnectionsPerTask ?? 64;
+    this.maxSkillRefsPerTask = options.maxSkillRefsPerTask ?? 12;
     this.loopGuard = new CoordinationLoopGuard(store, {
       maxPairTransitions: options.maxPairTransitions,
       maxRepeatedResults: options.maxRepeatedResults
@@ -98,12 +103,16 @@ export class CoordinationPolicy {
     this.assertPrincipalWorkspace(input.assigneeId, input.workspaceId, "assignee");
     this.assertPeerAllowed(input.createdBy, input.assigneeId);
     this.assertRequestedAuthority(input.assigneeId, input.tools ?? [], input.connections ?? []);
+    this.assertDeclaredSkillCapabilities(input.assigneeId, input.skillRefs ?? []);
 
     if ((input.tools?.length ?? 0) > this.maxToolsPerTask) {
       throw new PolicyError("TOOL_LIMIT_EXCEEDED", `Task requests more than ${this.maxToolsPerTask} tools`);
     }
     if ((input.connections?.length ?? 0) > this.maxConnectionsPerTask) {
       throw new PolicyError("CONNECTION_LIMIT_EXCEEDED", `Task requests more than ${this.maxConnectionsPerTask} connections`);
+    }
+    if ((input.skillRefs?.length ?? 0) > this.maxSkillRefsPerTask) {
+      throw new PolicyError("SKILL_LIMIT_EXCEEDED", `Task requests more than ${this.maxSkillRefsPerTask} skill capabilities`);
     }
 
     let parentTaskId: string | null = null;
@@ -182,6 +191,7 @@ export class CoordinationPolicy {
     }
 
     this.assertRequestedAuthority(input.targetOwnerId, input.tools ?? [], input.connections ?? []);
+    this.assertDeclaredSkillCapabilities(input.targetOwnerId, input.skillRefs ?? []);
     if (input.environmentPolicy) this.assertEnvironmentCompatibility(input.targetOwnerId, input.environmentPolicy);
   }
 
@@ -254,6 +264,21 @@ export class CoordinationPolicy {
         if (!allowedConnections.has("*") && !allowedConnections.has(connection)) {
           throw new PolicyError("CAPABILITY_UNAVAILABLE", `${assigneeId} is not granted connection ${connection}`);
         }
+      }
+    }
+  }
+
+  private assertDeclaredSkillCapabilities(assigneeId: string, skillRefs: string[]): void {
+    if (skillRefs.length === 0 || !assigneeId.startsWith("bot_")) return;
+    const assignee = this.store.getObject(assigneeId);
+    if (!assignee || assignee.kind !== "bot") return;
+    const capabilities = asObject(assignee.payload.capabilities);
+    const declared = capabilities && Array.isArray(capabilities.skill_refs)
+      ? new Set(stringArray(capabilities.skill_refs))
+      : new Set<string>();
+    for (const skillRef of skillRefs) {
+      if (!declared.has(skillRef)) {
+        throw new PolicyError("CAPABILITY_UNAVAILABLE", `${assigneeId} does not declare skill capability ${skillRef}`);
       }
     }
   }

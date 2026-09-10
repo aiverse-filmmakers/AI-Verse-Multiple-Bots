@@ -1,12 +1,15 @@
 import type { DelegateInput, CoordinationGateway } from "./gateway.js";
 import { parseTaskMemoryRecallRequest } from "./memory-recall-runtime.js";
+import { parseTaskSkillRefs } from "./skills-capability-runtime.js";
 import type { StoredObject } from "./types.js";
 import { validateProtocolObject } from "./validator.js";
 
-export interface ArtifactAwareDelegateInput extends Omit<DelegateInput, "memoryRecall"> {
+export interface ArtifactAwareDelegateInput extends Omit<DelegateInput, "memoryRecall" | "skillRefs"> {
   inputArtifactRefs?: string[];
   /** Untrusted API input; normalized before the canonical Task is created. */
   memoryRecall?: unknown;
+  /** Untrusted API input; normalized before the canonical Task is created. */
+  skillRefs?: unknown;
 }
 
 export interface ArtifactAwareDelegationResult {
@@ -44,10 +47,12 @@ export function delegateWithArtifacts(
 ): ArtifactAwareDelegationResult {
   const inputArtifacts = validateDelegationInputArtifacts(gateway, input.workspaceId, input.inputArtifactRefs);
   const memoryRecall = parseTaskMemoryRecallRequest(input.memoryRecall);
-  const { inputArtifactRefs: _inputArtifactRefs, memoryRecall: _memoryRecall, ...delegateInput } = input;
+  const skillRefs = parseTaskSkillRefs(input.skillRefs, input.workspaceId);
+  const { inputArtifactRefs: _inputArtifactRefs, memoryRecall: _memoryRecall, skillRefs: _skillRefs, ...delegateInput } = input;
   const delegated = gateway.delegate({
     ...delegateInput,
-    ...(memoryRecall ? { memoryRecall } : {})
+    ...(memoryRecall ? { memoryRecall } : {}),
+    ...(skillRefs.length > 0 ? { skillRefs } : {})
   });
   if (inputArtifacts.length === 0) return { ...delegated, inputArtifacts };
 

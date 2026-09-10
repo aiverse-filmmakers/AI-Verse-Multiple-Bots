@@ -73,6 +73,13 @@ export interface BotManifest extends JsonObject {
     type: "workspace" | "operator";
     workspace_id?: string;
   };
+  capabilities?: {
+    role_refs?: string[];
+    skill_refs?: string[];
+    operator_refs?: string[];
+    tool_refs?: string[];
+    [key: string]: unknown;
+  };
   permissions: {
     policy_ref: string;
     [key: string]: unknown;

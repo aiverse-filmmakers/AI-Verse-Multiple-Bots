@@ -257,7 +257,7 @@ capabilities:
   role_refs:
     - research-analyst
   skill_refs:
-    - deep-research
+    - deep-research-synthesis
     - evidence-verification
   operator_refs:
     - browser
@@ -281,15 +281,39 @@ INTERSECT
 task capability lease
 ```
 
+Phase 3.5 keeps `skill_refs` on the Bot/Worker and Task method contract. It never copies them into `capability_lease.tools` or `capability_lease.connections`.
+
+### Canonical resolver ownership
+
+Multiple Bots does not read the AI-Verse Skills registry or implement its own provider-ranking system.
+
+In native mode it calls the AI-Verse OS capability resolver using the exact Task workspace scope. AI-Verse OS remains responsible for OS/distributed/local/workspace provider discovery, provider precedence, protected aliases, qualified identity selection and provider health.
+
+AI-Verse Skills remains responsible for reusable packages, immutable generations, package metadata and package provenance.
+
 ### Progressive disclosure
 
-The Bot registry should load skill metadata for discovery first. Full skill instructions/resources should load only when needed.
+The Bot registry stores only declared references. Full skill instructions/resources load only when a Task explicitly requests the capability.
 
-This keeps permanent teams broad without flooding every Bot turn with the entire Skills repository.
+For a selected package, Phase 3.5 verifies the OS-selected `aiverse-package-sha256-v1` digest before and after reading the package `SKILL.md`. The instruction body is runtime-only. Coordination receipts retain bounded provider/generation/package/instruction digests, not the copied skill body.
 
 ### Worker skills
 
-Temporary Workers may receive a run-scoped subset of skills selected by the leader/orchestrator. They should not automatically inherit every capability of the leader.
+Temporary Workers may receive a run-scoped subset of skills selected by the leader/orchestrator. They do not automatically inherit every capability of the leader.
+
+Manager, fan-out, discussion and verifier paths all enforce this explicit subset. Final synthesis remains leader-owned and may also request an explicit leader-declared method subset.
+
+### Handoffs
+
+Task skill requirements survive a Handoff. A durable target must declare the required methods before it can accept the work.
+
+The Handoff reissues only the pre-existing execution lease authority. Skill knowledge does not become permission and does not bypass Approval state.
+
+### Standalone behavior
+
+Tasks without `skill_refs` require no Skills provider. An explicitly skill-dependent Task fails closed if no capability-resolution source exists.
+
+See `AI-VERSE-SKILLS-CAPABILITY-RESOLUTION.md` for the detailed Phase 3.5 contract.
 
 ## 9. AI-Verse Dashboard contract
 
