@@ -6,7 +6,7 @@
 
 **Overall status:** IN PROGRESS
 
-**Directional phase progress:** approximately 93%
+**Directional phase progress:** approximately 97%
 
 This file is the implementation ledger for Phase 2. The canonical product roadmap remains `BUILD-MAP.md`.
 
@@ -18,11 +18,11 @@ The package remains host-neutral. Phase 2 coordination primitives may be embedde
 
 ## Current verification
 
-Phase 2.10 is complete on PR #26 after the audited PR-head package suite passed **147/147 tests** with 0 failures, 0 canceled, and 0 skipped.
+Phase 2.11 is complete on PR #27 after the hardened PR-head package suite passed **167/167 tests** with 0 failures, 0 canceled, and 0 skipped.
 
-The cleanup gate now covers terminal Worker expiry, transient authority and execution cleanup, stale discussion-setup reaping, restart recovery, unresolved-state blockers, and preservation of the canonical audit/provenance graph.
+The adaptive decision gate now keeps simple work with one durable Bot, selects only the minimum justified supported squad shape, preserves objective/workspace/constraint/authority/budget boundaries, blocks impossible handoff plans, records bounded inspectable rationale, prevents repeated TeamRun creation for one root objective, and persists the decision Artifact plus audit event atomically.
 
-The next Phase 2 slice is 2.11 adaptive single-Bot-vs-squad decision policy.
+The final Phase 2 slice is 2.12 squad-wide budget/cancellation consolidation.
 
 ## Slice status
 
@@ -36,8 +36,8 @@ The next Phase 2 slice is 2.11 adaptive single-Bot-vs-squad decision policy.
 8. Bounded verifier/critic role — **COMPLETE**
 9. Canonical synthesis — **COMPLETE**
 10. Worker cleanup hardening — **COMPLETE**
-11. Adaptive single-Bot-vs-squad decision policy — **NEXT**
-12. Squad-wide budget/cancellation consolidation — remaining beyond the substantial controls already implemented
+11. Adaptive single-Bot-vs-squad decision policy — **COMPLETE**
+12. Squad-wide budget/cancellation consolidation — **NEXT**
 
 ## Implemented foundation
 
@@ -272,6 +272,72 @@ The cleanup acceptance/hardening tests prove:
 
 **Verified package suite:** 147 passed, 0 failed, 0 canceled, 0 skipped on the final audited PR-head gate.
 
+## Slice 2.11 - Adaptive single-Bot-vs-squad decision policy
+
+**COMPLETE**
+
+Phase 2.11 adds an explicit host-neutral policy layer that decides whether a durable Bot should remain single or open one bounded Team Run. The policy consumes declared work characteristics and protocol boundaries rather than hidden reasoning, and records the result as a deterministic auditable Artifact.
+
+Implemented:
+
+### Inspectable decision contract
+
+- public `TeamRunDecisionPolicy` with `decide`, `openSelectedRun`, `decideAndOpen`, lookup and listing surfaces
+- deterministic `collaboration_decision` Artifact keyed by normalized input digest
+- bounded reason codes/summaries explain the policy result without storing chain-of-thought
+- result records `single` vs `squad`, selected supported topology, Worker identity ceiling, execution readiness and selected run ID
+- simple linear work remains with the durable Bot and creates no Team Run
+
+### Minimum justified collaboration
+
+- structured signals cover independent workstreams, specialist roles, sequential stages, uncertainty, verification need, parallel safety, discussion need, ownership transfer, cost sensitivity and latency sensitivity
+- policy chooses only already-supported bounded topologies: `manager`, `handoff`, `parallel_panel`, `group_room`, `dynamic_squad`, `hybrid`, or `single`
+- parallel work is bounded by both Worker identity and leader concurrency capacity
+- required verifier capacity is reserved separately so fan-out/discussion cannot strand verification
+- discussion planning accounts cumulatively for participants, rounds, messages, Tasks and later verifier capacity
+- high cost sensitivity prefers bounded serial help unless high latency sensitivity justifies safe parallelism
+- explicit ownership-transfer need cannot select handoff/hybrid when `max_hops` forbids even one transfer
+
+### Authority, lineage and loop prevention
+
+- durable leader must be active and same-workspace
+- required tool/connection authority cannot exceed leader permissions
+- selected Team Run preserves root objective, workspace, normalized immutable constraints, approval requirement and effective budget
+- one deterministic adaptive Team Run ID is derived for a new squad decision
+- an existing compatible Team Run for the same root objective is reused rather than spawning another squad
+- multiple Team Runs for one root objective fail closed as an orchestration-loop inconsistency
+- reuse refuses broader authority/budget boundaries or a run without an explicit Worker ceiling
+- stored decision Artifacts are validated against their input digest and deterministic IDs before they can open work
+
+### Atomicity, restart and idempotency
+
+- decision Artifact and `collaboration.decision_recorded` event settle in one atomic mutation under an active-leader precondition
+- a failed/interrupted settlement leaves neither a half-written decision Artifact nor an orphan audit event
+- deterministic IDs let a concurrent winner be safely reused after a raced atomic write
+- selected Team Run and its creation event also settle atomically
+- database reopen returns the same decision/run and does not duplicate decision or Team Run creation events
+
+## Phase 2.11 acceptance proof
+
+The adaptive decision acceptance/hardening suite proves:
+
+1. simple linear work remains single and decision persistence is idempotent
+2. independent parallel-safe work selects the minimum bounded parallel panel and opens one auditable Team Run
+3. required verification reserves verifier identity capacity and cannot be stranded by fan-out
+4. discussion plus verification accounts for cumulative participant/task/message/round capacity
+5. sequential manager planning accounts for distinct lifetime Worker identities
+6. high cost sensitivity serializes safe parallel work unless latency pressure explicitly favors parallelism
+7. impossible discussion capacity degrades to a simpler supported topology rather than inventing capacity
+8. unavailable Worker authority/budget or required capabilities fail closed without opening a Team Run
+9. an existing compatible Team Run for the root objective is reused while tighter current boundaries fail closed
+10. multiple Team Runs for one root objective are treated as an orchestration-loop inconsistency
+11. poisoned or tampered decision Artifacts fail validation before work can open
+12. restart preserves one deterministic decision and one Team Run without duplicate audit events
+13. decision Artifact and audit event are all-or-nothing across an interrupted atomic settlement
+14. required ownership transfer is blocked when `max_hops: 0` makes runtime handoff impossible
+
+**Verified package suite:** 167 passed, 0 failed, 0 canceled, 0 skipped on the hardened PR-head gate.
+
 ## Reusability boundary
 
 Phase 2 remains package-owned and host-neutral:
@@ -279,6 +345,7 @@ Phase 2 remains package-owned and host-neutral:
 ```text
 TeamRunManager / TeamRunFanout / TeamRunHandoff / TeamRunDiscussion
 TeamRunDisagreementDetector / TeamRunVerifier / TeamRunSynthesis / TeamRunCleanup
+TeamRunDecisionPolicy
 PrincipalRunner / ExecutionSupervisor
   -> CoordinationStore + ExecutionQueue
   -> RuntimeAdapter contract
@@ -292,17 +359,14 @@ AI-Verse native integration remains Phase 3 and must arrive through adapters and
 
 ## Next slice
 
-### 2.11 - Adaptive single-Bot-vs-squad decision policy
+### 2.12 - Squad-wide budget/cancellation consolidation
 
-Required next work:
+Required final Phase 2 work:
 
-1. define an explicit, inspectable decision contract for when a durable Bot should stay single vs open a Team Run
-2. base the decision on work shape, uncertainty, independence, verification need, cost/latency budget, and available authority rather than vague model preference
-3. choose only among already-supported bounded topologies and fail closed to a simpler path when requirements are not met
-4. preserve root objective, workspace, immutable constraints, budget and approval boundaries through the decision
-5. prevent repeated squad creation or decision loops for the same objective
-6. record why collaboration was or was not justified without storing hidden chain-of-thought
-7. make the policy deterministic/idempotent where inputs are equivalent and restart-safe where state is persisted
-8. add acceptance coverage proving simple work remains single and genuinely parallel/verification-heavy work selects the minimum justified squad shape
-
-After 2.11, finish Phase 2 with squad-wide budget/cancellation consolidation.
+1. audit every supported squad topology against the same canonical Team Run budget envelope and cancellation semantics
+2. ensure token, cost, action, Task, Worker, hop, message, round and wall-clock ceilings cannot be bypassed by switching topology or durable-Bot/Worker ownership
+3. ensure cancellation reaches queued/running Worker work, run-scoped durable-Bot work, verifier/synthesis work, handoffs and temporary discussion/fan-out surfaces consistently
+4. consolidate terminal budget-exhaustion behavior so no later reconciliation path can resurrect a stopped Team Run
+5. preserve canonical Artifacts/audit evidence while preventing any new execution after terminal cancellation or budget exhaustion
+6. add cross-topology acceptance coverage and restart/recovery proof for the consolidated rules
+7. close Phase 2 only when the entire package gate is green and the canonical ledgers reflect the final verified state
