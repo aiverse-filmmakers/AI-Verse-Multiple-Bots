@@ -7,6 +7,7 @@
   "supported_host_schema_major": 2,
   "supported_host_architecture": "unified-workspace",
   "registry_path": ".aiverse/extensions/registry.json",
+  "registry_lock_path": ".aiverse/extensions/registry.json.lock",
   "installation_root": ".aiverse/extensions/ai-verse-multiple-bots",
   "instructions": ".aiverse/extensions/ai-verse-multiple-bots/INSTRUCTIONS.md",
   "engine": ".aiverse/extensions/ai-verse-multiple-bots/engine.mjs",
