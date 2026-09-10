@@ -310,7 +310,7 @@ export class PrincipalRunner extends BasePrincipalRunner {
           workspaceId: task.workspaceId,
           runId: String(task.payload.run_id),
           taskId,
-          correlationId: String(task.payload.root_object_id),
+          correlationId: String(task.payload.root_objective_id),
           summary: `Kept ${taskId} with its completed target because the durable Team Run leader was unavailable`,
           attentionState: "unread_result"
         });
