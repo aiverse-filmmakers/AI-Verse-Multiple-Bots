@@ -1,10 +1,10 @@
 # AI-Verse Multiple Bots Coordination Protocol v1.1
 
-**Status:** Current architecture-stage protocol
+**Status:** Current implementation-aligned protocol
 
-**Snapshot:** 2026-09-09
+**Snapshot:** 2026-09-10
 
-This revision extends the original coordination protocol for the persistent-teammate architecture discovered during the Grok Bot deep dive.
+This revision extends the original coordination protocol for the persistent-teammate architecture discovered during the Grok Bot deep dive and now reflects the completed Phase 2 squad runtime.
 
 The machine-readable companion is:
 
@@ -58,7 +58,7 @@ The protocol must represent:
 13. Room/Run streams have canonical local ordering.
 14. Private model reasoning is not protocol data.
 15. Consequential actions can be intercepted outside the acting Bot.
-16. Multi-agent fan-out is centrally budgeted and cancelable.
+16. Multi-agent work is centrally budgeted, hierarchically cancelable, and terminally fenced.
 
 ## 3. Recommended IDs
 
@@ -412,7 +412,7 @@ handoff.requested
 Required handoff metadata:
 
 - source owner;
-- target Bot;
+- target Bot/Worker as permitted by topology;
 - reason;
 - root objective;
 - immutable constraints;
@@ -468,6 +468,8 @@ Capability authority is task-scoped.
 
 Effective authority remains the intersection of host, workspace, Bot and Task policy.
 
+A Team Run terminal fence may revoke a run-scoped capability lease before its original expiry. Revocation is durable protocol state; later retry/recovery must not treat the lease as active.
+
 ## 19. Environment lease
 
 Execution access is independent from capability instructions.
@@ -495,6 +497,8 @@ external_managed
 ```
 
 Environment references are created/resolved by trusted runtime infrastructure, never model-authored free text.
+
+On Team Run termination, run-exclusive environment authority is revoked. A shared environment lease may remain active only when canonical state proves it is still referenced outside the terminating Team Run; termination must not destroy authority still required by another run.
 
 ## 20. Environment events
 
@@ -542,6 +546,8 @@ canceled
 ```
 
 The acting Bot is not the sole authority deciding whether its own high-risk action is safe.
+
+A pending Approval attached to a Team Run Task becomes non-actionable when that Team Run is terminally canceled or budget-exhausted.
 
 ## 22. Presence
 
@@ -622,6 +628,8 @@ Worker creation records:
 
 It has no default long-term memory write authority and no durable Room membership.
 
+A Worker used for an explicitly bounded multi-turn discussion may return to a nonterminal `waiting` state between its scheduled turns. That does not make it durable; it remains scoped to the same Team Run and becomes terminal when the bounded discussion/run lifecycle closes.
+
 Promotion into a permanent Bot is a separate approved operation.
 
 ## 26. Team Run
@@ -645,15 +653,18 @@ budget_exhausted
 A Team Run records:
 
 - root objective;
-- owner/leader;
+- durable owner/leader;
 - topology;
 - participants;
 - Tasks;
 - budgets;
 - Artifacts;
-- verifier result;
+- verification debt/result;
 - final result;
-- candidate write-backs.
+- candidate write-backs;
+- terminal cleanup/termination evidence when applicable.
+
+All run-scoped execution, regardless of whether the current Task owner is a Worker or durable Bot, remains subordinate to the Team Run's aggregate budget and terminal state.
 
 ## 27. Collaboration topology event
 
@@ -678,19 +689,22 @@ Or:
 }
 ```
 
+The adaptive decision layer chooses only supported bounded topology shapes and must fail closed when declared authority/budget/hop/identity capacity cannot safely execute the selected shape.
+
 ## 28. Dynamic squad
 
 Protocol stages:
 
 1. select topology;
-2. create distinct Worker Tasks;
-3. execute concurrently subject to budget;
+2. create distinct Worker Tasks where justified;
+3. execute subject to the shared Team Run budget;
 4. publish structured Artifacts;
 5. analyze conflicts/gaps;
 6. selectively create follow-up/reviewer Tasks;
-7. synthesize;
-8. verify when required;
-9. complete.
+7. verify when required;
+8. synthesize one canonical result;
+9. complete or terminally stop;
+10. clean temporary authority/state without deleting evidence.
 
 Independent Workers should not receive every other Worker's intermediate answer before they have produced their own evidence when independence is valuable.
 
@@ -719,6 +733,8 @@ Artifact is the preferred handoff unit for finished work.
 ```
 
 The coordination layer can store small inline results, but canonical/large outputs should normally use host Artifact/file handles.
+
+Terminal cancellation or cleanup does not delete already-published canonical Artifacts. Partial or failed-run Artifacts remain attributable through run/task/provenance lineage and can be retained according to host policy.
 
 ## 30. Artifact concurrency
 
@@ -778,29 +794,41 @@ Reject/stop based on:
 - hop cap;
 - recursion depth;
 - Worker cap;
+- Task cap;
 - message/round cap;
-- token/cost cap;
-- wall-clock deadline;
+- token/cost/action cap;
+- absolute Team Run wall-clock deadline;
 - A -> B -> A ping-pong;
 - longer cycles;
 - duplicate Task creation;
 - repeated identical tool action;
 - no-progress detector.
 
-Loop detection emits a structured event and returns control to owner/leader/user according to policy.
+Team Run ceilings are aggregate run constraints, not topology-local suggestions. Switching from manager to handoff, fan-out, discussion, verifier, synthesis, Worker ownership, or durable-Bot ownership must not reset or expand the envelope.
 
-## 34. Cancellation
+Loop/budget detection emits structured state and returns control to the owner/leader/user according to policy.
 
-Cancellation is hierarchical.
+## 34. Cancellation and terminal Team Run control
 
-Canceling a Team Run propagates to:
+Cancellation is hierarchical and run-wide.
 
-- queued Worker creation;
-- active child Tasks;
-- follow-up checks;
-- remote calls when supported.
+The durable Team Run leader and trusted operator may terminate the run. The leader's cancellation authority reaches any same-workspace Task canonically scoped to that Team Run even when a temporary Worker or another durable Bot currently owns/created the Task.
 
-Partial Artifacts remain attributable and can be retained according to policy.
+A Team Run cancellation or budget-exhaustion cascade follows these laws:
+
+1. **Fence first.** Persist terminal run state (`canceled` or `budget_exhausted`) before draining work so no new successful execution can start behind the cancellation race.
+2. **One envelope.** Token, cost, action, Task, Worker, hop, message, round and wall-clock ceilings remain run-wide across every topology and principal kind.
+3. **Absolute wall clock.** A run wall-clock limit is derived from Team Run creation, not reset per Task. Queued Tasks are guarded before execution and running Tasks receive an effective deadline no later than the run deadline.
+4. **Drain all run work.** Cancel queued/claimed/running run-scoped Tasks, including Worker-owned work, durable-Bot-owned handoff work, verifier work and synthesis work.
+5. **Stop pending authority.** Pending Approvals and active Handoffs attached to run Tasks become non-actionable.
+6. **Revoke transient leases.** Run-scoped capability leases expire/revoke. Run-exclusive environment leases revoke; genuinely shared environment leases are preserved only when canonical state shows an external run still references them.
+7. **Close temporary surfaces.** Temporary Team Run Rooms and Threads close; active fan-out/verifier/synthesis/discussion-opening pointers are cleared.
+8. **Preserve evidence.** Messages, Tasks, Handoffs, Approvals, Workers, Events, canonical Artifacts and provenance remain available for audit. Cleanup may later expire temporary identity without erasing prior terminal status evidence.
+9. **No resurrection.** Dead-letter retry, stale recovery and topology reconciliation must refuse to re-enable executable work for a canceled or budget-exhausted Team Run.
+10. **Recover termination first.** After restart, pending Team Run termination reconciliation runs before topology recovery and queue draining.
+11. **Idempotent audit.** Repeated/retried termination preserves a stable union of what was stopped/revoked/closed and does not duplicate canonical completion events.
+
+A remote adapter should propagate cancellation to the remote call when supported. If a remote runtime cannot cancel, the local terminal fence still removes that late execution's authority to publish a successful canonical result into the stopped Team Run; the adapter limitation must be visible.
 
 ## 35. Retry rules
 
@@ -818,6 +846,8 @@ Require idempotency receipt:
 - external mutations.
 
 Never blindly retry financial/destructive/publication operations.
+
+A dead-lettered Task belonging to a canceled or budget-exhausted Team Run is not retryable into executable state. A new explicit run/objective is required if the user wants fresh work after terminal cancellation.
 
 ## 36. Remote A2A mapping
 
@@ -849,7 +879,8 @@ Every adapter must prove:
 10. permission cannot increase;
 11. provenance preserved;
 12. environment policy/lease preserved when applicable;
-13. unsupported safety-critical features fail explicitly.
+13. unsupported safety-critical features fail explicitly;
+14. late remote results cannot bypass a local terminal Team Run fence.
 
 An adapter must never silently downgrade a handoff into an ordinary Message or drop permission/scope metadata.
 

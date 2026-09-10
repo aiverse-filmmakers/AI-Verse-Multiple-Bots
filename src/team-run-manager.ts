@@ -18,7 +18,6 @@ function stringArray(value: unknown): string[] {
 }
 
 const TERMINAL_TASK_STATES = new Set(["completed", "failed", "canceled"]);
-const TERMINAL_RUN_STATES = new Set(["completed", "failed", "canceled", "budget_exhausted"]);
 
 export interface ManagedWorkerTaskInput {
   runId: string;
@@ -222,27 +221,7 @@ export class TeamRunManager {
   }
 
   async cancelRun(runId: string, actorId: string, reason = "Team Run canceled by leader"): Promise<StoredObject> {
-    const run = this.teams.getRun(runId);
-    if (!run) throw new Error(`Team Run ${runId} not found`);
-    const leaderId = String(run.payload.leader_id ?? "");
-    if (actorId !== leaderId && !actorId.startsWith("operator_")) {
-      throw new Error(`Only Team Run leader ${leaderId} or an operator can cancel ${runId}`);
-    }
-    const cancellationActor = actorId.startsWith("operator_") ? actorId : leaderId;
-
-    for (const worker of this.teams.listWorkers(runId)) {
-      const taskId = typeof worker.payload.task_id === "string" ? worker.payload.task_id : null;
-      if (!taskId) continue;
-      const task = this.gateway.store.getObject(taskId);
-      if (!task || task.kind !== "task" || TERMINAL_TASK_STATES.has(String(task.payload.status))) continue;
-      await this.runner.cancelTask(taskId, cancellationActor, reason);
-    }
-
-    const latest = this.teams.getRun(runId);
-    if (!latest) throw new Error(`Team Run ${runId} disappeared during cancellation`);
-    if (TERMINAL_RUN_STATES.has(String(latest.payload.status))) return latest;
-    const transitionActor = actorId.startsWith("operator_") ? leaderId : actorId;
-    return this.teams.transitionRun(runId, "canceled", transitionActor, reason).run;
+    return (await this.runner.teamRunControl.cancelRun(runId, actorId, reason)).run;
   }
 
   private ensureRunning(runId: string, actorId: string): StoredObject {
