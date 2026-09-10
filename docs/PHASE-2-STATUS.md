@@ -18,7 +18,7 @@ The package remains host-neutral. Phase 2 coordination primitives may be embedde
 
 ## Completion verification
 
-Phase 2 is complete on PR #28 after the hardened PR-head package suite passed **174/174 tests** with **0 failures, 0 canceled, and 0 skipped** on GitHub Actions run 243.
+Phase 2 is complete on PR #28 after the hardened PR-head package suite passed **175/175 tests** with **0 failures, 0 canceled, and 0 skipped** on GitHub Actions run 248.
 
 The final gate proves that every supported squad topology now shares one run-wide budget and termination contract. A Team Run cannot evade limits by switching between Workers and durable Bots, by entering fan-out/discussion/verifier/synthesis stages, or by surviving a process restart. Cancellation and budget exhaustion fence the run before cleanup, stop executable work, revoke run-exclusive authority, preserve shared external authority only when another run still references it, and retain canonical Artifacts/audit evidence.
 
@@ -183,7 +183,7 @@ Implemented:
 - Team Run leader has explicit hierarchical cancellation authority over any same-run Task, including participant-owned durable-Bot/Worker work
 - terminal cancellation/budget-exhaustion fence is persisted before draining executable work
 - pending Approvals and active Handoffs become non-actionable
-- capability leases are revoked and expired
+- capability leases are revoked and expired without overwriting prior independent revocation attribution
 - run-exclusive environment leases are revoked; leases genuinely shared outside the run are preserved
 - temporary Room/Thread surfaces are closed
 - active fan-out/verifier/synthesis pointers and discussion-opening reservations are cleared
@@ -198,14 +198,15 @@ Implemented:
 The final control-plane tests prove:
 
 1. canonical Team Run cancellation fences and drains mixed-principal work while preserving a stable audit summary
-2. run-exclusive environment authority is revoked while an environment genuinely shared outside the run is preserved
-3. the durable Team Run leader can abort an already-running participant-owned Task hierarchically
-4. an expired absolute Team Run wall-clock budget stops queued work before runtime execution
-5. the absolute Team Run deadline aborts already-running work and settles the run as `budget_exhausted`
-6. aggregate runtime budget exhaustion uses the same canonical terminal cascade
-7. terminal Team Run residue survives database reopen, is recovered before execution, closes an orphan Thread, and preserves prior cancellation evidence through later cleanup
+2. a capability lease already revoked by another lifecycle operation keeps its original revocation attribution and is not falsely credited to Team Run termination
+3. run-exclusive environment authority is revoked while an environment genuinely shared outside the run is preserved
+4. the durable Team Run leader can abort an already-running participant-owned Task hierarchically
+5. an expired absolute Team Run wall-clock budget stops queued work before runtime execution
+6. the absolute Team Run deadline aborts already-running work and settles the run as `budget_exhausted`
+7. aggregate runtime budget exhaustion uses the same canonical terminal cascade
+8. terminal Team Run residue survives database reopen, is recovered before execution, closes an orphan Thread, and preserves prior cancellation evidence through later cleanup
 
-**Final verified Phase 2 package suite:** **174 passed, 0 failed, 0 canceled, 0 skipped** on GitHub Actions run 243 before the documentation-only closure commit.
+**Final verified Phase 2 package suite:** **175 passed, 0 failed, 0 canceled, 0 skipped** on GitHub Actions run 248.
 
 ## Reusability boundary
 
