@@ -37,13 +37,8 @@ export interface AiVerseOsCompatibility {
 }
 
 export interface AiVerseOsRegistrationOptions {
-  version?: string;
-  source?: string;
-  instructions?: string;
-  engine?: string;
   adapters?: string[];
   enabled?: boolean;
-  verify_installed_paths?: boolean;
 }
 
 export interface AiVerseOsRegistrationPlan {
@@ -332,8 +327,6 @@ function normalizedAdapters(adapters: string[] | undefined): string[] {
 
 function buildEntry(existing: JsonRecord | null, options: AiVerseOsRegistrationOptions = {}): JsonRecord {
   const current = existing ?? {};
-  const instructions = validateAiVerseOsRelativePath(options.instructions ?? AI_VERSE_MULTIPLE_BOTS_INSTRUCTIONS_PATH);
-  const engine = validateAiVerseOsRelativePath(options.engine ?? AI_VERSE_MULTIPLE_BOTS_ENGINE_PATH);
   const adapters = normalizedAdapters(options.adapters);
   const enabled = options.enabled ?? (typeof current.enabled === "boolean" ? current.enabled : true);
   return {
@@ -342,10 +335,10 @@ function buildEntry(existing: JsonRecord | null, options: AiVerseOsRegistrationO
     supported: true,
     installed: true,
     enabled,
-    version: options.version ?? AI_VERSE_MULTIPLE_BOTS_EXTENSION_VERSION,
-    source: options.source ?? AI_VERSE_MULTIPLE_BOTS_EXTENSION_SOURCE,
-    instructions,
-    engine,
+    version: AI_VERSE_MULTIPLE_BOTS_EXTENSION_VERSION,
+    source: AI_VERSE_MULTIPLE_BOTS_EXTENSION_SOURCE,
+    instructions: AI_VERSE_MULTIPLE_BOTS_INSTRUCTIONS_PATH,
+    engine: AI_VERSE_MULTIPLE_BOTS_ENGINE_PATH,
     adapters
   };
 }
@@ -480,13 +473,12 @@ export function planAiVerseOsRegistration(rootInput: string, options: AiVerseOsR
 }
 
 export function registerAiVerseOsExtension(rootInput: string, options: AiVerseOsRegistrationOptions = {}): AiVerseOsRegistrationResult {
-  const compatibility = requireCompatible(rootInput);
-  return withRegistryLock(compatibility.root, () => {
+  const initialCompatibility = requireCompatible(rootInput);
+  return withRegistryLock(initialCompatibility.root, () => {
+    const compatibility = requireCompatible(initialCompatibility.root);
     const registry = readRegistryDocument(compatibility.root);
     const plan = planFromRegistry(compatibility, registry.extensions, options);
-    if (options.verify_installed_paths !== false) {
-      for (const relativePath of plan.files_to_verify) assertInstalledFile(plan.root, relativePath);
-    }
+    for (const relativePath of plan.files_to_verify) assertInstalledFile(plan.root, relativePath);
     if (!plan.requires_write) return { ...plan, status: "unchanged" };
 
     const nextExtensions: JsonRecord = {
