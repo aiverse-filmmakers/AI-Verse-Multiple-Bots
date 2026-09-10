@@ -264,7 +264,7 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
           expectedOutput: typeof body.expectedOutput === "object" && body.expectedOutput !== null && !Array.isArray(body.expectedOutput)
             ? body.expectedOutput as JsonObject
             : undefined,
-          memoryRecall: body.memoryRecall,
+          memoryRecall: body.memoryRecall as any,
           skillRefs: optionalStringArray(body.skillRefs, "skillRefs"),
           tools: optionalStringArray(body.tools, "tools"),
           connections: optionalStringArray(body.connections, "connections"),

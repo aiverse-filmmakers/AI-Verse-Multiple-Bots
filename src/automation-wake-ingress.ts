@@ -148,8 +148,12 @@ function digestValue(value: unknown): string {
   return createHash("sha256").update(JSON.stringify(stableValue(value))).digest("hex");
 }
 
-function sha256Bytes(value: Uint8Array): string {
+function sha256Text(value: string): string {
   return createHash("sha256").update(value).digest("hex");
+}
+
+function byteLength(value: string): number {
+  return new TextEncoder().encode(value).length;
 }
 
 function boundedId(value: unknown, label: string): string {
@@ -308,11 +312,11 @@ export class AiVerseOsAutomationInvocationSource implements AutomationInvocation
     if (typeof stat.size === "number" && stat.size > this.maxSourceBytes) {
       throw new AutomationWakeIngressError("AUTOMATION_SOURCE_TOO_LARGE", `automation source exceeds ${this.maxSourceBytes} bytes`);
     }
-    const bytes = readFileSync(physical);
-    if (bytes.byteLength > this.maxSourceBytes) {
+    const text = readFileSync(physical, "utf8");
+    if (byteLength(text) > this.maxSourceBytes) {
       throw new AutomationWakeIngressError("AUTOMATION_SOURCE_TOO_LARGE", `automation source exceeds ${this.maxSourceBytes} bytes`);
     }
-    const currentDigest = sha256Bytes(bytes);
+    const currentDigest = sha256Text(text);
     if (currentDigest !== sourceDigest) {
       throw new AutomationWakeIngressError("AUTOMATION_SOURCE_CHANGED", "automation source digest no longer matches the fired invocation");
     }
