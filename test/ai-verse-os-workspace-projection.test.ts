@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { createServer, request } from "node:http";
 import { resolve } from "node:path";
 import test from "node:test";
@@ -142,6 +142,22 @@ function modelBot(endpoint: string): BotManifest {
   };
 }
 
+function deterministicBot(): BotManifest {
+  return {
+    schema_version: "1.0",
+    id: "bot_projection-standalone",
+    name: "Standalone Bot",
+    kind: "durable",
+    status: "active",
+    role: { title: "Standalone Bot", mission: "Complete assigned work without a host projection." },
+    runtime: { adapter: "deterministic" },
+    execution: { environment_policy: "shared_workspace" },
+    scope: { type: "workspace", workspace_id: "ws-alpha" },
+    permissions: { policy_ref: "default-bot", allowed_peers: ["*"] },
+    coordination: { default_mode: "direct" }
+  };
+}
+
 test("active AI-Verse OS workspace projects only bounded canonical identity, boundaries, and current context", () => {
   const root = hostFixture();
   addWorkspace(root, "ws-alpha", "ALPHA_PRIVATE_MARKER");
@@ -240,11 +256,6 @@ test("workspace projection rejects current-context traversal, symlinks, and over
   const oversizedRoot = hostFixture();
   addWorkspace(oversizedRoot, "ws-alpha", "SMALL");
   try {
-    write(rootPath(oversizedRoot, "workspaces/ws-alpha/context/CURRENT.md"), "", "");
-  } catch {
-    // unreachable helper guard; actual oversized write follows
-  }
-  try {
     write(oversizedRoot, "workspaces/ws-alpha/context/CURRENT.md", `# Current Workspace Context\n\n## Objective\n\n${"x".repeat(2048)}\n`);
     const projector = new AiVerseOsWorkspaceProjector(oversizedRoot, { maxCurrentContextBytes: 1024 });
     assert.throws(
@@ -255,10 +266,6 @@ test("workspace projection rejects current-context traversal, symlinks, and over
     rmSync(oversizedRoot, { recursive: true, force: true });
   }
 });
-
-function rootPath(root: string, relative: string): string {
-  return resolve(root, ...relative.split("/"));
-}
 
 test("native runner passes live projection to the model but persists only projection provenance, never workspace text", async () => {
   const root = hostFixture();
@@ -345,7 +352,7 @@ test("native runner passes live projection to the model but persists only projec
   }
 });
 
-test("workspace isolation is exact and standalone server mode does not project host state implicitly", async () => {
+test("workspace isolation is exact and standalone execution does not project host state implicitly", async () => {
   const root = hostFixture();
   addWorkspace(root, "ws-alpha", "ALPHA_ONLY");
   addWorkspace(root, "ws-beta", "BETA_ONLY");
@@ -358,12 +365,33 @@ test("workspace isolation is exact and standalone server mode does not project h
     assert.equal(JSON.stringify(beta.data).includes("BETA_ONLY"), true);
     assert.equal(JSON.stringify(beta.data).includes("ALPHA_ONLY"), false);
 
-    const service = createGatewayServer({ dbPath: `/tmp/ai-verse-standalone-projection-${randomUUID()}.db`, port: 0 });
+    const dbPath = `/tmp/ai-verse-standalone-projection-${randomUUID()}.db`;
+    const service = createGatewayServer({ dbPath, port: 0 });
+    const address = await service.listen();
     try {
-      assert.ok(service.runner);
-      assert.equal((service.runner as any).workspaceProjector, undefined);
+      const bot = await httpJson(address.port, "POST", "/v1/bots", deterministicBot());
+      assert.equal(bot.status, 201);
+      const delegation = await httpJson(address.port, "POST", "/v1/delegations", {
+        createdBy: "operator_local",
+        assigneeId: "bot_projection-standalone",
+        workspaceId: "ws-alpha",
+        rootObjectiveId: "obj_standalone_projection",
+        objective: "Complete standalone work.",
+        reason: "No AI-Verse OS host was configured",
+        requiredConstraints: []
+      });
+      assert.equal(delegation.status, 201);
+      await settleSupervisor(service);
+      const task = service.store.getObject(delegation.body.task.id);
+      assert.equal(task?.payload.status, "completed");
+      const artifactId = (task?.payload.output_artifact_refs as string[])[0] as string;
+      const artifact = service.store.getObject(artifactId);
+      const receipts = artifact?.payload.runtime_receipts as any[];
+      assert.equal(receipts.some((receipt) => receipt.kind === "workspace_state_projection"), false);
+      assert.equal(Object.prototype.hasOwnProperty.call((artifact?.payload.inline_content as any) ?? {}, "workspace_projection_digest"), false);
     } finally {
       await service.close();
+      rmSync(dbPath, { force: true });
     }
   } finally {
     rmSync(root, { recursive: true, force: true });
