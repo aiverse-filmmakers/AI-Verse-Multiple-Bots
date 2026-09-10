@@ -25,6 +25,8 @@ export const AI_VERSE_MEMORY_MAX_BUFFER_BYTES = 512 * 1024;
 
 const MEMORY_IMPLEMENTATION_PATH = "scripts/ai-verse-memory/memory_engine.py";
 const MEMORY_COMPATIBILITY_PATH = "scripts/ai-verse-memory/os_compat.py";
+const MEMORY_EXTENSION_REGISTRY_PATH = ".aiverse/extensions/registry.json";
+const MEMORY_EXTENSION_REGISTRY_MAX_BYTES = 256 * 1024;
 const SHA256_PATTERN = /^sha256:[0-9a-f]{64}$/;
 const ALLOWED_KINDS = new Set(["memory", "context", "workspace_manifest", "decision", "profile", "memory_summary"]);
 
@@ -224,6 +226,51 @@ function parseEngineVersion(path: string): string | null {
   }
 }
 
+function assertRegisteredMemoryState(root: string, providerVersion: string): void {
+  const registryPath = resolve(root, ...MEMORY_EXTENSION_REGISTRY_PATH.split("/"));
+  if (!existsSync(registryPath)) return;
+  assertRegularFileInsideRoot(root, registryPath, "AI-Verse OS extension registry", "MEMORY_UNSAFE_INSTALL", "MEMORY_UNSAFE_INSTALL");
+  if (Number(lstatSync(registryPath).size) > MEMORY_EXTENSION_REGISTRY_MAX_BYTES) {
+    throw new AiVerseMemoryRecallError("MEMORY_UNSAFE_INSTALL", "AI-Verse OS extension registry exceeds the bounded Memory integration limit");
+  }
+
+  let document: Record<string, unknown>;
+  try {
+    const parsed = JSON.parse(readFileSync(registryPath, "utf8"));
+    const object = asObject(parsed);
+    if (!object) throw new Error("registry is not an object");
+    document = object;
+  } catch (error) {
+    throw new AiVerseMemoryRecallError(
+      "MEMORY_UNSAFE_INSTALL",
+      `AI-Verse OS extension registry is malformed: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
+  if (document.schema_version !== "1.0") {
+    throw new AiVerseMemoryRecallError("MEMORY_UNSAFE_INSTALL", "AI-Verse OS extension registry has an unsupported schema");
+  }
+  const extensions = asObject(document.extensions);
+  if (!extensions) {
+    throw new AiVerseMemoryRecallError("MEMORY_UNSAFE_INSTALL", "AI-Verse OS extension registry is missing its extensions object");
+  }
+  const entry = asObject(extensions[AI_VERSE_MEMORY_PROVIDER_ID]);
+  if (!entry) {
+    throw new AiVerseMemoryRecallError("MEMORY_UNSAFE_INSTALL", "AI-Verse Memory engine files exist but the OS extension registry does not register ai-verse-memory");
+  }
+  if (entry.id !== AI_VERSE_MEMORY_PROVIDER_ID || entry.supported !== true || entry.installed !== true) {
+    throw new AiVerseMemoryRecallError("MEMORY_UNSAFE_INSTALL", "AI-Verse Memory extension registration is not supported and installed");
+  }
+  if (entry.enabled !== true) {
+    throw new AiVerseMemoryRecallError("MEMORY_DISABLED", "AI-Verse Memory extension is explicitly disabled by the OS extension registry");
+  }
+  if (entry.version !== providerVersion) {
+    throw new AiVerseMemoryRecallError("MEMORY_INSTALL_CHANGED", "AI-Verse Memory extension registry version does not match the installed engine version");
+  }
+  if (entry.engine !== AI_VERSE_MEMORY_ENGINE_PATH) {
+    throw new AiVerseMemoryRecallError("MEMORY_UNSAFE_INSTALL", "AI-Verse Memory extension registry points at an unexpected engine path");
+  }
+}
+
 export function detectAiVerseMemoryInstallation(rootInput: string): AiVerseMemoryInstallation {
   const root = resolve(rootInput);
   const entrypoint = resolve(root, ...AI_VERSE_MEMORY_ENGINE_PATH.split("/"));
@@ -275,6 +322,7 @@ export function detectAiVerseMemoryInstallation(rootInput: string): AiVerseMemor
         entrypoint
       };
     }
+    assertRegisteredMemoryState(root, providerVersion);
     return {
       status: "compatible",
       root,
