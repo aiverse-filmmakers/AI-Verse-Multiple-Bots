@@ -6,9 +6,14 @@ import { resolve } from "node:path";
 import {
   AI_VERSE_MULTIPLE_BOTS_ENGINE_PATH,
   AI_VERSE_MULTIPLE_BOTS_EXTENSION_ID,
+  AI_VERSE_MULTIPLE_BOTS_EXTENSION_ROOT,
   AI_VERSE_MULTIPLE_BOTS_EXTENSION_VERSION,
   AI_VERSE_MULTIPLE_BOTS_INSTRUCTIONS_PATH,
+  AI_VERSE_OS_EXTENSION_REGISTRY_LOCK_PATH,
   AI_VERSE_OS_EXTENSION_REGISTRY_PATH,
+  AI_VERSE_OS_HOST_ID,
+  AI_VERSE_OS_SUPPORTED_ARCHITECTURE,
+  AI_VERSE_OS_SUPPORTED_SCHEMA_MAJOR,
   AiVerseOsRegistrationError,
   detectAiVerseOsCompatibility,
   findAiVerseOsRoot,
@@ -237,7 +242,43 @@ test("registration refuses malformed registries and never replaces unknown incom
   }
 });
 
-test("Multiple Bots registration version stays aligned with the package version", () => {
+test("concurrent extension registry mutation fails closed while another installer owns the registry lock", () => {
+  const root = fixture();
+  try {
+    write(root, AI_VERSE_OS_EXTENSION_REGISTRY_PATH, JSON.stringify({
+      schema_version: "1.0",
+      extensions: { "other-extension": { id: "other-extension", installed: true } },
+      sentinel: "preserve"
+    }, null, 2) + "\n");
+    write(root, AI_VERSE_OS_EXTENSION_REGISTRY_LOCK_PATH, '{"extension_id":"other-extension"}\n');
+    const before = readFileSync(registryPath(root), "utf8");
+    assert.throws(
+      () => registerAiVerseOsExtension(root),
+      (error: unknown) => error instanceof AiVerseOsRegistrationError && error.code === "EXTENSION_REGISTRY_BUSY"
+    );
+    assert.equal(readFileSync(registryPath(root), "utf8"), before);
+    assert.equal(readFileSync(resolve(root, ...AI_VERSE_OS_EXTENSION_REGISTRY_LOCK_PATH.split("/")), "utf8"), '{"extension_id":"other-extension"}\n');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("Multiple Bots registration metadata stays aligned with package and AI-Verse OS contract constants", () => {
   const packageJson = JSON.parse(readFileSync(resolve("package.json"), "utf8"));
+  const manifest = JSON.parse(readFileSync(resolve("integrations", "ai-verse-os", "extension.json"), "utf8"));
   assert.equal(AI_VERSE_MULTIPLE_BOTS_EXTENSION_VERSION, packageJson.version);
+  assert.equal(manifest.id, AI_VERSE_MULTIPLE_BOTS_EXTENSION_ID);
+  assert.equal(manifest.package_version, packageJson.version);
+  assert.equal(manifest.host, AI_VERSE_OS_HOST_ID);
+  assert.equal(manifest.supported_host_schema_major, AI_VERSE_OS_SUPPORTED_SCHEMA_MAJOR);
+  assert.equal(manifest.supported_host_architecture, AI_VERSE_OS_SUPPORTED_ARCHITECTURE);
+  assert.equal(manifest.registry_path, AI_VERSE_OS_EXTENSION_REGISTRY_PATH);
+  assert.equal(manifest.registry_lock_path, AI_VERSE_OS_EXTENSION_REGISTRY_LOCK_PATH);
+  assert.equal(manifest.installation_root, AI_VERSE_MULTIPLE_BOTS_EXTENSION_ROOT);
+  assert.equal(manifest.instructions, AI_VERSE_MULTIPLE_BOTS_INSTRUCTIONS_PATH);
+  assert.equal(manifest.engine, AI_VERSE_MULTIPLE_BOTS_ENGINE_PATH);
+  assert.deepEqual(manifest.tracked_os_files_mutated, []);
+  assert.equal(manifest.registration_grants_permissions, false);
+  assert.equal(manifest.registration_asserts_health, false);
+  assert.equal(manifest.owns_os_canonical_state, false);
 });
