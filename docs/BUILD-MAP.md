@@ -16,12 +16,12 @@ The target is an installable persistent-teammate layer that can run standalone o
 Phase 0  Research + Architecture        [COMPLETE]    100%
 Phase 1  Runnable Coordination Core     [COMPLETE]    100%
 Phase 2  Dynamic Multi-Agent Squads     [COMPLETE]    100%
-Phase 3  AI-Verse Native Integration    [NOT STARTED]
+Phase 3  AI-Verse Native Integration    [IN PROGRESS] ~10%
 Phase 4  Runtime / A2A Interoperability [NOT STARTED]
 Phase 5  Product + Install + Dashboard  [NOT STARTED]
 ```
 
-**Directional overall first-release progress:** roughly 65% complete.
+**Directional overall first-release progress:** roughly 67% complete.
 
 That overall figure is intentionally approximate because later phases contain different amounts of work. Passed phase gates, not percentages, are authoritative.
 
@@ -76,7 +76,7 @@ Two persistent Bots independently exist, communicate asynchronously, delegate ac
 
 **Current phase progress:** 100%.
 
-**Completion verification:** the hardened Phase 2.12 PR-head package suite passed **175/175 tests** with **0 failures, 0 canceled, and 0 skipped** on GitHub Actions run 248.
+**Completion verification:** the hardened Phase 2.12 PR-head package suite passed **175/175 tests** with **0 failures, 0 canceled, and 0 skipped** on GitHub Actions run 248. Post-merge `main` CI run 251 also passed the full 175-test suite.
 
 Goal achieved: a durable Bot decides whether to work alone or create bounded temporary Workers, coordinates them through the topology justified by the work, detects/verifies material disagreement, returns one canonical result, and enforces a shared run-wide safety contract without turning temporary helpers into durable identities.
 
@@ -227,22 +227,53 @@ None.
 
 ## Phase 3 - AI-Verse Native Integration
 
-**Status:** NOT STARTED
+**Status:** IN PROGRESS
+
+**Directional phase progress:** approximately 10%.
 
 Goal: attach the finished host-neutral teammate/squad package to AI-Verse OS without moving or duplicating canonical OS/Brain/Memory/Skills state into this repository.
 
-Remaining major slices:
+### Phase 3 slices
 
-1. AI-Verse OS installer/registration contract
-2. workspace-scoped state projection
-3. Brain initiative/goal ingress
-4. Memory context/recall adapter
-5. Skills capability resolution
-6. Automations wake/schedule integration
-7. OS write-command boundary
-8. candidate knowledge/decision write-back
-9. 4Cs health integration
-10. uninstall/upgrade without canonical-state damage
+1. AI-Verse OS installer/registration contract - **COMPLETE**
+2. workspace-scoped state projection - **NEXT**
+3. Brain initiative/goal ingress - **NOT STARTED**
+4. Memory context/recall adapter - **NOT STARTED**
+5. Skills capability resolution - **NOT STARTED**
+6. Automations wake/schedule integration - **NOT STARTED**
+7. OS write-command boundary - **NOT STARTED**
+8. candidate knowledge/decision write-back - **NOT STARTED**
+9. 4Cs health integration - **NOT STARTED**
+10. uninstall/upgrade without canonical-state damage - **NOT STARTED**
+
+### Phase 3.1 - AI-Verse OS installer/registration contract
+
+Implemented:
+
+- public `aiVerseOsRegistrationAdapter`
+- fail-closed AI-Verse OS v2 + `unified-workspace` compatibility detection
+- stable local extension-hook verification
+- canonical extension manifest and AI-Verse OS task instructions
+- registration through `.aiverse/extensions/registry.json` only
+- no tracked AI-Verse OS file mutation and no implicit `agents/registry.yaml` changes
+- unknown registry/extension/entry-field preservation
+- user-disabled-state preservation across reinstall
+- relative-path, traversal, absolute-path, NUL and symlink safety
+- installed instruction/engine/adapter verification before registration
+- exclusive registry lock and unexpected-change detection to prevent silent lost updates
+- atomic, byte-stable, idempotent registration
+- CLI `os detect`, `os plan`, `os register`
+- explicit separation of registration from health, permission, approval and workspace authorization
+
+**Verified code gate:** GitHub Actions run 258 passed **184/184 tests**, with 0 failures, 0 canceled and 0 skipped.
+
+See `docs/PHASE-3-STATUS.md` and `docs/AI-VERSE-OS-REGISTRATION-CONTRACT.md`.
+
+### Phase 3 boundary
+
+Phase 3 work is additive through explicit host adapters. AI-Verse OS remains canonical for operator/workspace/domain state. Multiple Bots remains canonical for coordination state. Host projections are derived views, not competing truth.
+
+Production one-command package materialization is still a Phase 5 product responsibility; Phase 3.1 defines safe host registration after extension-owned files exist.
 
 ## Phase 4 - Runtime and Agent Interoperability
 
@@ -305,9 +336,9 @@ The first finished release must prove at minimum:
 
 ## Next gate
 
-**Phase 3.1 - AI-Verse OS installer/registration contract.**
+**Phase 3.2 - workspace-scoped state projection.**
 
-Phase 3 work must be additive through explicit host adapters. It must not merge this repository into AI-Verse OS or make the multi-bot package the source of truth for OS, Brain, Memory, Skills, Dashboard, or Automations state.
+The next slice must expose bounded read-only projections of AI-Verse OS workspace identity/state into Multiple Bots execution context without copying canonical workspace truth into the coordination database.
 
 ## How to report progress
 
