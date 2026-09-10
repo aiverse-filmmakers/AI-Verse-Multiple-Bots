@@ -1,4 +1,5 @@
 export * from "./ai-verse-os-registration.js";
+export * from "./ai-verse-os-workspace-projection.js";
 export * from "./artifact-delegation.js";
 export * from "./bot-registry.js";
 export * from "./budget.js";

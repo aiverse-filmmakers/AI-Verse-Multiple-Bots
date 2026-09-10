@@ -2,7 +2,7 @@ import { assertUsageWithinBudget, BudgetError, type RuntimeUsage } from "./budge
 import { ExecutionQueue } from "./execution-queue.js";
 import { CoordinationGateway } from "./gateway.js";
 import { PrincipalRunner as BasePrincipalRunner, type CancelResult, type RunResult } from "./principal-runner.js";
-import { RuntimeRegistry, type RuntimeAdapter, type RuntimeExecutionContext, type RuntimeExecutionResult } from "./runtime.js";
+import { RuntimeRegistry, type RuntimeAdapter, type RuntimeExecutionContext, type RuntimeExecutionResult, type WorkspaceStateProjector } from "./runtime.js";
 import { CoordinationStore } from "./store.js";
 import { TeamRunControl } from "./team-run-control.js";
 import { TeamRunCoordinator } from "./team-runs.js";
@@ -50,6 +50,61 @@ function assertBudgetDoesNotExpand(parentValue: unknown, childValue: unknown, la
     if (typeof p === "number" && typeof c === "number" && c > p) {
       throw new BudgetError("WORKER_BUDGET_EXPANSION", `${label} ${key} ${c} exceeds Team Run limit ${p}`);
     }
+  }
+}
+
+class WorkspaceProjectedRuntimeRegistry extends RuntimeRegistry {
+  private readonly projected = new Map<string, RuntimeAdapter>();
+
+  constructor(readonly base: RuntimeRegistry, readonly projector?: WorkspaceStateProjector) {
+    super();
+  }
+
+  override register(adapter: RuntimeAdapter): this {
+    this.base.register(adapter);
+    return this;
+  }
+
+  override has(id: string): boolean {
+    return this.base.has(id);
+  }
+
+  override get(id: string): RuntimeAdapter {
+    if (!this.projector) return this.base.get(id);
+    const existing = this.projected.get(id);
+    if (existing) return existing;
+    const inner = this.base.get(id);
+    const projector = this.projector;
+    const projected: RuntimeAdapter = {
+      id: inner.id,
+      async execute(context: RuntimeExecutionContext): Promise<RuntimeExecutionResult> {
+        const taskWorkspaceId = context.task.workspaceId;
+        const principalWorkspaceId = context.principal.workspaceId;
+        if (!taskWorkspaceId || !principalWorkspaceId || taskWorkspaceId !== principalWorkspaceId) {
+          throw new Error(`Workspace projection requires Task ${context.task.id} and ${context.principal.id} to share one explicit workspace`);
+        }
+        const projection = projector.project(taskWorkspaceId);
+        if (projection.workspace_id !== taskWorkspaceId) {
+          throw new Error(`Workspace projector returned ${projection.workspace_id} for Task workspace ${taskWorkspaceId}`);
+        }
+        const result = await inner.execute({ ...context, workspaceProjection: projection });
+        const projectionReceipt: JsonObject = {
+          kind: "workspace_state_projection",
+          provider: projection.provider,
+          schema_version: projection.schema_version,
+          workspace_id: projection.workspace_id,
+          projection_digest: projection.projection_digest,
+          sources: projection.sources.map((source) => ({ ref: source.ref, digest: source.digest }))
+        };
+        return {
+          ...result,
+          receipts: [...(result.receipts ?? []), projectionReceipt]
+        };
+      },
+      ...(inner.cancel ? { cancel: (taskId: string) => inner.cancel!(taskId) } : {})
+    };
+    this.projected.set(id, projected);
+    return projected;
   }
 }
 
@@ -129,6 +184,13 @@ class TeamRunGuardedRuntimeRegistry extends RuntimeRegistry {
   }
 }
 
+export interface PrincipalRunnerOptions {
+  runnerId?: string;
+  executionLeaseSeconds?: number;
+  heartbeatIntervalMs?: number;
+  workspaceProjector?: WorkspaceStateProjector;
+}
+
 /**
  * Public common execution runner.
  *
@@ -145,11 +207,27 @@ export class PrincipalRunner extends BasePrincipalRunner {
     gateway: CoordinationGateway,
     queue: ExecutionQueue,
     runtimes: RuntimeRegistry,
-    runnerId?: string,
+    runnerIdOrOptions?: string | PrincipalRunnerOptions,
     executionLeaseSeconds?: number,
     heartbeatIntervalMs?: number
   ) {
-    super(store, gateway, queue, new TeamRunGuardedRuntimeRegistry(runtimes, store), runnerId, executionLeaseSeconds, heartbeatIntervalMs);
+    const options: PrincipalRunnerOptions = typeof runnerIdOrOptions === "object" && runnerIdOrOptions !== null
+      ? runnerIdOrOptions
+      : {
+          runnerId: runnerIdOrOptions,
+          executionLeaseSeconds,
+          heartbeatIntervalMs
+        };
+    const projectedRuntimes = new WorkspaceProjectedRuntimeRegistry(runtimes, options.workspaceProjector);
+    super(
+      store,
+      gateway,
+      queue,
+      new TeamRunGuardedRuntimeRegistry(projectedRuntimes, store),
+      options.runnerId,
+      options.executionLeaseSeconds,
+      options.heartbeatIntervalMs
+    );
     this.teamRunControl = new TeamRunControl(new TeamRunCoordinator(store), gateway, queue, this);
   }
 

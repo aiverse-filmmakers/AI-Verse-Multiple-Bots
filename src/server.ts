@@ -1,5 +1,6 @@
 import { createServer } from "node:http";
 import { URL } from "node:url";
+import { AiVerseOsWorkspaceProjector } from "./ai-verse-os-workspace-projection.js";
 import { delegateWithArtifacts } from "./artifact-delegation.js";
 import type { BudgetEnvelope } from "./budget.js";
 import type { BotManifest, JsonObject } from "./types.js";
@@ -17,6 +18,7 @@ export interface GatewayServerOptions {
   host?: string;
   port?: number;
   dbPath?: string;
+  aiVerseOsRoot?: string;
 }
 
 async function readJson(req: any): Promise<JsonObject> {
@@ -75,6 +77,7 @@ function optionalMaxAttempts(value: unknown): number | undefined {
 }
 
 export function createGatewayServer(options: GatewayServerOptions = {}) {
+  const workspaceProjector = options.aiVerseOsRoot ? new AiVerseOsWorkspaceProjector(options.aiVerseOsRoot) : undefined;
   const store = new CoordinationStore(options.dbPath ?? "runtime/ai-verse-bots/coordination.db");
   const executionQueue = new ExecutionQueue(store.dbPath);
   const policy = new CoordinationPolicy(store, { requireRegisteredBots: true });
@@ -83,7 +86,13 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
   const runtimes = new RuntimeRegistry()
     .register(new DeterministicRuntimeAdapter())
     .register(new OpenAICompatibleRuntimeAdapter());
-  const runner = new BotRunner(store, gateway, executionQueue, runtimes);
+  const runner = new BotRunner(
+    store,
+    gateway,
+    executionQueue,
+    runtimes,
+    workspaceProjector ? { workspaceProjector } : undefined
+  );
   const supervisor = new ExecutionSupervisor(gateway, executionQueue, runner);
   supervisor.start();
 
