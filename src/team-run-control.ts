@@ -394,7 +394,7 @@ export class TeamRunControl {
     const activeHandoffs = this.gateway.store.listObjects("handoff", workspaceId)
       .filter((handoff) => taskIds.has(String(handoff.payload.task_id ?? handoff.payload.work_item_id ?? "")) && ACTIVE_HANDOFF_STATES.has(String(handoff.payload.status)));
     const capabilityLeases = this.gateway.store.listObjects("capability_lease", workspaceId)
-      .filter((lease) => taskIds.has(String(lease.payload.task_id ?? "")) && lease.payload.termination_revoked_at === undefined);
+      .filter((lease) => taskIds.has(String(lease.payload.task_id ?? "")) && isLeaseActive(lease));
 
     const allWorkspaceTasks = this.gateway.store.listObjects("task", workspaceId);
     const environmentLeases: StoredObject[] = [];
@@ -591,7 +591,7 @@ export class TeamRunControl {
     const workers = this.teams.listWorkers(run.id);
     const workspaceId = String(run.payload.workspace_id);
     const capabilityLeaseIds = this.gateway.store.listObjects("capability_lease", workspaceId)
-      .filter((lease) => taskIds.has(String(lease.payload.task_id ?? "")) && lease.payload.termination_revoked_at === undefined)
+      .filter((lease) => taskIds.has(String(lease.payload.task_id ?? "")) && isLeaseActive(lease))
       .map((lease) => lease.id);
 
     const environmentRefs = new Set<string>();
