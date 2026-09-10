@@ -70,6 +70,50 @@ export function parseTaskSkillRefs(value: unknown, workspaceId?: string): string
   return refs.sort();
 }
 
+function asObject(value: unknown): JsonObject {
+  return typeof value === "object" && value !== null && !Array.isArray(value) ? value as JsonObject : {};
+}
+
+function stringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.map(String) : [];
+}
+
+function expectedResolutionDigest(
+  provider: string,
+  workspaceId: string,
+  requestDigest: string,
+  capabilities: ResolvedSkillCapability[]
+): string {
+  return sha256(canonicalJson({
+    provider,
+    workspace_id: workspaceId,
+    request_digest: requestDigest,
+    capabilities: capabilities.map((item) => ({
+      requested_ref: item.requested_ref,
+      id: item.id,
+      provider: item.provider,
+      version: item.version,
+      generation_id: item.generation_id,
+      path: item.path,
+      digest_algorithm: item.digest_algorithm,
+      digest: item.digest,
+      instruction_digest: item.instruction_digest
+    }))
+  }));
+}
+
+function assertPrincipalDeclaresSkills(context: RuntimeExecutionContext, refs: string[]): void {
+  const declared = new Set(stringArray(asObject(context.principal.payload.capabilities).skill_refs));
+  for (const ref of refs) {
+    if (!declared.has(ref)) {
+      throw new SkillsCapabilityResolutionError(
+        "SKILLS_NOT_DECLARED",
+        `${context.principalKind} ${context.principal.id} does not declare Task skill capability ${ref}`
+      );
+    }
+  }
+}
+
 function validateProjection(
   projection: SkillsCapabilityProjection,
   workspaceId: string,
@@ -83,6 +127,19 @@ function validateProjection(
   }
   const seen = new Set<string>();
   for (const capability of projection.capabilities) {
+    for (const [label, value] of [
+      ["id", capability.id],
+      ["provider", capability.provider],
+      ["version", capability.version],
+      ["generation_id", capability.generation_id],
+      ["path", capability.path],
+      ["digest_algorithm", capability.digest_algorithm],
+      ["digest", capability.digest]
+    ] as const) {
+      if (typeof value !== "string" || !value.trim()) {
+        throw new SkillsCapabilityResolutionError("SKILLS_INVALID_OUTPUT", `Resolved capability ${capability.requested_ref} has invalid ${label}`);
+      }
+    }
     if (!requestedRefs.includes(capability.requested_ref) || seen.has(capability.requested_ref)) {
       throw new SkillsCapabilityResolutionError("SKILLS_INVALID_OUTPUT", "Capability source returned an unexpected or duplicate requested_ref");
     }
@@ -97,6 +154,15 @@ function validateProjection(
   const expectedRequestDigest = sha256(canonicalJson({ workspace_id: workspaceId, skill_refs: requestedRefs }));
   if (projection.request_digest !== expectedRequestDigest) {
     throw new SkillsCapabilityResolutionError("SKILLS_INVALID_OUTPUT", "Capability source request digest does not match the Task request");
+  }
+  const expectedDigest = expectedResolutionDigest(
+    projection.provider,
+    workspaceId,
+    projection.request_digest,
+    projection.capabilities
+  );
+  if (projection.resolution_digest !== expectedDigest) {
+    throw new SkillsCapabilityResolutionError("SKILLS_INVALID_OUTPUT", "Capability source resolution digest does not match the resolved capability set");
   }
   return projection;
 }
@@ -134,6 +200,7 @@ export class SkillsCapabilityRuntimeRegistry extends RuntimeRegistry {
             `Skill resolution requires Task ${context.task.id} and ${context.principal.id} to share one explicit workspace`
           );
         }
+        assertPrincipalDeclaresSkills(context, refs);
         if (!source) {
           throw new SkillsCapabilityResolutionError(
             "SKILLS_UNAVAILABLE",

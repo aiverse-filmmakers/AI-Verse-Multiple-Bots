@@ -82,6 +82,15 @@ function optionalMaxAttempts(value: unknown): number | undefined {
   return value;
 }
 
+function optionalStringArray(value: unknown, key: string): string[] | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (!Array.isArray(value)) throw new Error(`${key} must be an array of strings`);
+  return value.map((item, index) => {
+    if (typeof item !== "string") throw new Error(`${key}[${index}] must be a string`);
+    return item;
+  });
+}
+
 export function createGatewayServer(options: GatewayServerOptions = {}) {
   const workspaceProjector = options.aiVerseOsRoot ? new AiVerseOsWorkspaceProjector(options.aiVerseOsRoot) : undefined;
   const brainObjectiveSource = options.aiVerseOsRoot ? new AiVerseBrainObjectiveSource(options.aiVerseOsRoot) : undefined;
@@ -202,7 +211,7 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
           reason: typeof body.reason === "string" ? body.reason : undefined,
           tools: Array.isArray(body.tools) ? body.tools.map(String) : [],
           connections: Array.isArray(body.connections) ? body.connections.map(String) : [],
-          skillRefs: Array.isArray(body.skillRefs) ? body.skillRefs.map(String) : [],
+          skillRefs: optionalStringArray(body.skillRefs, "skillRefs"),
           maxHops: typeof body.maxHops === "number" ? body.maxHops : undefined,
           leaseExpiresAt: typeof body.leaseExpiresAt === "string" ? body.leaseExpiresAt : undefined,
           deadlineAt: typeof body.deadlineAt === "string" ? body.deadlineAt : undefined,

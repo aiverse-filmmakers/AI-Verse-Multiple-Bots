@@ -57,16 +57,26 @@ for (const requestedRef of refs) {
   if (!selection.digest || selection.digest.algorithm !== "aiverse-package-sha256-v1" || typeof selection.digest.value !== "string") {
     throw new Error(`[RESOLVER_CONTRACT_INVALID] ${requestedRef} has unsupported package digest`);
   }
-  const actualDigest = module.packageDigestV1(packagePath);
-  if (actualDigest !== selection.digest.value) {
-    throw new Error(`[PACKAGE_INTEGRITY_FAILED] ${requestedRef} package digest changed before instruction load`);
-  }
-  const skillPath = path.join(packagePath, "SKILL.md");
-  const realPackage = fs.realpathSync(packagePath);
-  const realSkill = fs.realpathSync(skillPath);
-  const rel = path.relative(realPackage, realSkill);
-  if (!rel || rel === ".." || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel) || !fs.statSync(realSkill).isFile()) {
-    throw new Error(`[PACKAGE_INTEGRITY_FAILED] ${requestedRef} SKILL.md escapes its selected package`);
+  let instructions;
+  try {
+    const beforeDigest = module.packageDigestV1(packagePath);
+    if (beforeDigest !== selection.digest.value) {
+      throw new Error("package digest changed before instruction load");
+    }
+    const skillPath = path.join(packagePath, "SKILL.md");
+    const realPackage = fs.realpathSync(packagePath);
+    const realSkill = fs.realpathSync(skillPath);
+    const rel = path.relative(realPackage, realSkill);
+    if (!rel || rel === ".." || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel) || !fs.statSync(realSkill).isFile()) {
+      throw new Error("SKILL.md escapes its selected package");
+    }
+    instructions = fs.readFileSync(realSkill, "utf8");
+    const afterDigest = module.packageDigestV1(packagePath);
+    if (afterDigest !== selection.digest.value) {
+      throw new Error("package digest changed while instructions were being loaded");
+    }
+  } catch (error) {
+    throw new Error(`[PACKAGE_INTEGRITY_FAILED] ${requestedRef}: ${error instanceof Error ? error.message : String(error)}`);
   }
   capabilities.push({
     requested_ref: requestedRef,
@@ -85,7 +95,7 @@ for (const requestedRef of refs) {
     approval: selection.approval,
     operators: Array.isArray(selection.operators) ? selection.operators : [],
     dependencies: Array.isArray(selection.dependencies) ? selection.dependencies : [],
-    instructions: fs.readFileSync(realSkill, "utf8")
+    instructions
   });
 }
 process.stdout.write(JSON.stringify({
