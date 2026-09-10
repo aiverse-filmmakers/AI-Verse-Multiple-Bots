@@ -181,7 +181,9 @@ Implemented:
 - cross-workspace recall deliberately unavailable from the 3.4 Task contract
 - bounded subprocess timeout/buffer plus per-item and aggregate recalled-text ceilings
 - exact returned-kind, scope, status, source-path, source-identity, source-version and freshness validation
-- canonical source files revalidated after Memory returns, so stale/mutated source evidence fails closed
+- source kind/scope is derived independently from Memory-owned canonical path roots before bridge metadata is trusted
+- every installed Memory path component is checked for symlinks before Python code can execute
+- canonical source files are revalidated after Memory returns, so stale/mutated source evidence fails closed
 - actual recalled text and `why` content remain ephemeral runtime context only
 - persisted receipts contain bounded provider/workspace/query/recall/source provenance and digests, never recalled text
 - explicit model-runtime authority ordering: Task/constraints/leases/approvals and current OS/Brain context outrank historical recall
@@ -193,7 +195,7 @@ Implemented:
 
 ### 3.4 acceptance proof
 
-The hardened implementation gate at commit `4e6098d3395d23b2a27d7c9d7efb5b92ff6e8619` passed GitHub Actions **CI run 342 with 218/218 tests**, **0 failures, 0 canceled, and 0 skipped**. The same head also passed **Platform Smoke run 5**. Ledger-only follow-up commits must retain the same full gates before merge.
+The hardened implementation gate at commit `f2112055bd1771d75dbe5c720ffac70d83604590` passed GitHub Actions **CI run 345 with 221/221 tests**, **0 failures, 0 canceled, and 0 skipped**. The same head also passed **Platform Smoke run 8**. Final PR-head and post-merge `main` gates must retain the same result before 3.4 is considered merged/closed.
 
 Phase 3.4 acceptance coverage proves:
 
@@ -206,11 +208,13 @@ Phase 3.4 acceptance coverage proves:
 7. the adapter uses a shell-free structured bridge and verifies exact workspace/operator provenance
 8. canonical Memory source mutation after recall is detected before accepting the result
 9. malformed provenance, unsafe paths, oversized output and absent installation fail closed
-10. `include_history` remains explicit and cannot widen workspace scope
-11. OpenAI-compatible prompting places historical recall below current canonical context and hard execution authority
-12. HTTP delegation validates recall before executable Task creation and ordinary no-Memory execution remains available
-13. a temporary Team Run Worker receives the same recall contract without promotion or recalled-text persistence
-14. the complete pre-existing coordination/squad/recovery suite and the five-repository Platform Smoke gate remain green
+10. canonical path ownership prevents forged same-workspace files or mislabelled kinds from entering recall
+11. symlinked Memory installation ancestry is rejected before engine execution
+12. `include_history` remains explicit and cannot widen workspace scope
+13. OpenAI-compatible prompting places historical recall below current canonical context and hard execution authority
+14. HTTP delegation validates recall before executable Task creation and ordinary no-Memory execution remains available
+15. a temporary Team Run Worker receives the same recall contract without promotion or recalled-text persistence
+16. the complete pre-existing coordination/squad/recovery suite and the five-repository Platform Smoke gate remain green
 
 See `AI-VERSE-MEMORY-RECALL.md` for the canonical Phase 3.4 boundary.
 
