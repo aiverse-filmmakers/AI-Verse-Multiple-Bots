@@ -389,35 +389,65 @@ All structured coordination events projected into human-readable activity.
 
 ## 10. Automations contract
 
-Multiple Bots should not create a competing scheduler.
+AI-Verse OS Automations owns Cadence. Multiple Bots does not create a competing scheduler.
 
-AI-Verse OS automations remain canonical for:
+Canonical host ownership includes:
 
-- cron schedules;
-- event triggers;
-- recurring routines;
-- approval policy;
-- run history at the automation layer.
+- scheduled/repeated job definitions;
+- event-trigger definitions;
+- trigger subscriptions and polling where applicable;
+- automation-level retry/failure policy;
+- automation-level approvals and kill switches;
+- automation-run history.
 
-An automation invokes Multiple Bots by command.
+Phase 3.6 implements only the receive-side coordination command:
 
-Example:
-
-```yaml
-trigger:
-  type: cron
-  schedule: "0 8 * * 1-5"
-
-action:
-  command: runs.start
-  args:
-    objective_ref: morning-market-brief
-    bot: research-lead
-    topology: auto
-    workspace_id: investing
+```text
+POST /v1/automations/invoke
 ```
 
-The resulting team-run ID is recorded back in the automation run receipt.
+### Invocation identity
+
+Every fired occurrence supplies a unique host-owned `invocationId` plus the canonical automation source identity, workspace, fire timestamp, source path and source SHA-256.
+
+Multiple Bots derives deterministic coordination identity from that occurrence. Duplicate delivery is idempotent. A replay with changed semantics fails closed.
+
+### Source ownership and kill fence
+
+Native automation invocations must point to a canonical AI-Verse OS automation definition under:
+
+```text
+automations/jobs/...
+automations/triggers/...
+workspaces/<workspace-id>/automations/...
+```
+
+The definition is revalidated against the exact active workspace and current source digest before ingress. If the source changed or disappeared after the host fired it, replay is rejected rather than silently running stale cadence.
+
+Multiple Bots stores only bounded source provenance and digests, never the source body or scheduler state.
+
+### Durable Bot wake
+
+A Bot wake creates a normal Task through the existing policy boundary.
+
+Tools, connections, skills, Memory recall, budget, deadlines, Approval and recovery remain Task-level contracts. No automation invocation grants authority by itself.
+
+### Team Run start
+
+A Team Run invocation opens only bounded coordination state.
+
+It creates no Task, lease, Approval, Worker or queue item. The run must have explicit hard worker/task/action/wall-clock/hop bounds and an active leader allowed to create Workers.
+
+Task-only authority fields are rejected at run creation. Later executable Tasks must receive those fields through their normal Team Run execution surfaces.
+
+If host automation policy still requires approval to start the run, the host must resolve that approval before invoking Multiple Bots. Phase 3.6 does not invent a parallel run-level approval system.
+
+### No scheduler in Multiple Bots
+
+Phase 3.6 adds no cron parser, RRULE parser, timer, watcher, polling loop, recurring-state database or automation history.
+
+See `AI-VERSE-AUTOMATION-WAKE-SCHEDULE.md` for the complete contract.
+
 
 ## 11. Connections contract
 
