@@ -254,6 +254,32 @@ test("canonical Team Run cancellation fences and drains mixed-principal work whi
   }
 });
 
+test("Team Run termination preserves prior capability-lease revocation attribution", async () => {
+  const env = setup(new NoopRuntime());
+  try {
+    const run = createRunningRun(env.teams, { max_workers: 1, max_tasks: 3, max_actions: 10, wall_clock_seconds: 60 });
+    const durable = addDurableTask(env, run.id);
+    const lease = env.store.getObject(durable.leaseId)!;
+    const priorRevokedAt = new Date(Date.now() - 1_000).toISOString();
+    env.store.putObject("capability_lease", validateProtocolObject({
+      ...lease.payload,
+      revoked_at: priorRevokedAt,
+      revocation_reason: "Previously revoked by ownership transfer"
+    }, "capability_lease"));
+
+    const result = await env.runner.teamRunControl.cancelRun(run.id, "bot_leader", "Stop run without rewriting old lease audit");
+    assert.equal(result.capability_lease_ids_revoked.includes(durable.leaseId), false);
+    const storedLease = env.store.getObject(durable.leaseId)!;
+    assert.equal(storedLease.payload.revoked_at, priorRevokedAt);
+    assert.equal(storedLease.payload.termination_revoked_at, undefined);
+    assert.equal(storedLease.payload.termination_run_id, undefined);
+    assert.equal(env.store.getObject(durable.task.id)?.payload.status, "canceled");
+  } finally {
+    env.queue.close();
+    env.store.close();
+  }
+});
+
 test("Team Run termination revokes exclusive environment authority but preserves an environment shared outside the run", async () => {
   const env = setup(new NoopRuntime());
   try {
