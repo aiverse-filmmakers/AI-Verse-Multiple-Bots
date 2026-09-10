@@ -1,10 +1,12 @@
 import { createServer } from "node:http";
 import { URL } from "node:url";
+import { AiVerseMemoryRecallProvider } from "./ai-verse-memory-recall.js";
 import { AiVerseBrainObjectiveSource, BrainObjectiveIngress } from "./brain-objective-ingress.js";
 import { BrainObjectiveRuntimeRegistry } from "./brain-objective-runtime.js";
 import { AiVerseOsWorkspaceProjector } from "./ai-verse-os-workspace-projection.js";
 import { delegateWithArtifacts } from "./artifact-delegation.js";
 import type { BudgetEnvelope } from "./budget.js";
+import type { MemoryRecallRequest } from "./memory-recall-contract.js";
 import type { BotManifest, JsonObject } from "./types.js";
 import { ExecutionQueue, type RecoveryPolicy } from "./execution-queue.js";
 import { CoordinationGateway, type ApprovalRequirement } from "./gateway.js";
@@ -60,6 +62,12 @@ function optionalApproval(value: unknown): ApprovalRequirement | undefined {
   };
 }
 
+function optionalMemoryRecall(value: unknown): MemoryRecallRequest | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== "object" || Array.isArray(value)) throw new Error("memoryRecall must be an object");
+  return value as MemoryRecallRequest;
+}
+
 function optionalReturnPolicy(value: unknown): "stay_with_target" | "return_on_completion" | "return_on_block" | "explicit_only" | undefined {
   if (value === undefined || value === null) return undefined;
   if (value === "stay_with_target" || value === "return_on_completion" || value === "return_on_block" || value === "explicit_only") return value;
@@ -81,6 +89,7 @@ function optionalMaxAttempts(value: unknown): number | undefined {
 export function createGatewayServer(options: GatewayServerOptions = {}) {
   const workspaceProjector = options.aiVerseOsRoot ? new AiVerseOsWorkspaceProjector(options.aiVerseOsRoot) : undefined;
   const brainObjectiveSource = options.aiVerseOsRoot ? new AiVerseBrainObjectiveSource(options.aiVerseOsRoot) : undefined;
+  const memoryRecallProvider = options.aiVerseOsRoot ? new AiVerseMemoryRecallProvider(options.aiVerseOsRoot) : undefined;
   const store = new CoordinationStore(options.dbPath ?? "runtime/ai-verse-bots/coordination.db");
   const executionQueue = new ExecutionQueue(store.dbPath);
   const policy = new CoordinationPolicy(store, { requireRegisteredBots: true });
@@ -97,7 +106,7 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
     gateway,
     executionQueue,
     runtimes,
-    workspaceProjector ? { workspaceProjector } : undefined
+    workspaceProjector || memoryRecallProvider ? { workspaceProjector, memoryRecallProvider } : undefined
   );
   const brainIngress = brainObjectiveSource
     ? new BrainObjectiveIngress(store, gateway, executionQueue, brainObjectiveSource)
@@ -375,6 +384,7 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
           requiredConstraints: Array.isArray(body.requiredConstraints) ? body.requiredConstraints.map(String) : [],
           expectedOutput: typeof body.expectedOutput === "object" && body.expectedOutput !== null ? body.expectedOutput as JsonObject : undefined,
           inputArtifactRefs: Array.isArray(body.inputArtifactRefs) ? body.inputArtifactRefs.map(String) : [],
+          memoryRecall: optionalMemoryRecall(body.memoryRecall),
           tools: Array.isArray(body.tools) ? body.tools.map(String) : [],
           connections: Array.isArray(body.connections) ? body.connections.map(String) : [],
           parentTaskId: typeof body.parentTaskId === "string" ? body.parentTaskId : undefined,
@@ -496,6 +506,7 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
     runner,
     brainObjectiveSource,
     brainIngress,
+    memoryRecallProvider,
     supervisor,
     recovery: supervisor.recovery,
     server,
