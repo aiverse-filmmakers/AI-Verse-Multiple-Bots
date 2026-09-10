@@ -10,8 +10,8 @@ import { RuntimeRegistry, type RuntimeAdapter, type RuntimeExecutionContext, typ
 import { CoordinationStore } from "../src/store.js";
 import { ExecutionSupervisor } from "../src/supervisor.js";
 import { TeamRunManager } from "../src/team-run-manager.js";
-import { TeamRunCoordinator } from "../src/team-runs.js";
-import type { BotManifest, JsonObject, StoredObject } from "../src/types.js";
+import { TeamRunCoordinator, type TeamRunTopology } from "../src/team-runs.js";
+import type { BotManifest, StoredObject } from "../src/types.js";
 import { validateProtocolObject } from "../src/validator.js";
 
 const WORKSPACE = "ws_phase2_control";
@@ -52,7 +52,7 @@ function setup(runtime: RuntimeAdapter, dbPath = ":memory:") {
   return { store, queue, gateway, teams, runner, supervisor, manager };
 }
 
-function createRunningRun(teams: TeamRunCoordinator, budget: Record<string, number>, topology = "hybrid") {
+function createRunningRun(teams: TeamRunCoordinator, budget: Record<string, number>, topology: TeamRunTopology = "hybrid") {
   let run = teams.createRun({
     leaderId: "bot_leader",
     workspaceId: WORKSPACE,
