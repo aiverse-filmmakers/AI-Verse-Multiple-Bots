@@ -1,4 +1,5 @@
 import type { RuntimeUsage } from "./budget.js";
+import type { BrainObjectiveProjection } from "./brain-objective-ingress.js";
 import type { BotManifest, JsonObject, StoredObject } from "./types.js";
 
 export type ExecutionPrincipalKind = "bot" | "worker";
@@ -36,6 +37,8 @@ export interface RuntimeExecutionContext {
   inputArtifacts: StoredObject[];
   /** Ephemeral, read-only host workspace context. Never canonical Multiple Bots state. */
   workspaceProjection?: WorkspaceStateProjection | null;
+  /** Ephemeral, read-only strategic intent from the canonical Brain owner. Never canonical Multiple Bots state. */
+  strategicIntent?: BrainObjectiveProjection | null;
   signal: AbortSignal;
 }
 
@@ -95,6 +98,9 @@ export class DeterministicRuntimeAdapter implements RuntimeAdapter {
         lease_id: context.capabilityLease.id,
         ...(context.workspaceProjection
           ? { workspace_projection_digest: context.workspaceProjection.projection_digest }
+          : {}),
+        ...(context.strategicIntent
+          ? { strategic_intent_digest: context.strategicIntent.intent_digest }
           : {}),
         result: `Completed: ${objective}`
       },
