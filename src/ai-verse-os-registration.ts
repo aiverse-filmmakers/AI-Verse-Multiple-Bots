@@ -15,6 +15,7 @@ export const AI_VERSE_OS_SUPPORTED_SCHEMA_MAJOR = 2;
 export const AI_VERSE_OS_SUPPORTED_ARCHITECTURE = "unified-workspace";
 export const AI_VERSE_OS_EXTENSION_REGISTRY_SCHEMA = "1.0";
 export const AI_VERSE_OS_EXTENSION_REGISTRY_PATH = ".aiverse/extensions/registry.json";
+export const AI_VERSE_OS_EXTENSION_REGISTRY_LOCK_PATH = ".aiverse/extensions/registry.json.lock";
 export const AI_VERSE_MULTIPLE_BOTS_EXTENSION_ID = "ai-verse-multiple-bots";
 export const AI_VERSE_MULTIPLE_BOTS_EXTENSION_VERSION = "0.1.0-alpha.1";
 export const AI_VERSE_MULTIPLE_BOTS_EXTENSION_SOURCE = "AI-Verse-Multiple-Bots";
@@ -75,6 +76,13 @@ export class AiVerseOsRegistrationError extends Error {
     super(message);
     this.name = "AiVerseOsRegistrationError";
   }
+}
+
+interface RegistryDocument {
+  document: JsonRecord;
+  extensions: JsonRecord;
+  exists: boolean;
+  raw_text: string | null;
 }
 
 function asRecord(value: unknown): JsonRecord | null {
@@ -273,7 +281,7 @@ function assertPathChainHasNoSymlinks(root: string, relativePath: string, includ
   }
 }
 
-function readRegistryDocument(root: string): { document: JsonRecord; extensions: JsonRecord; exists: boolean } {
+function readRegistryDocument(root: string): RegistryDocument {
   const registryRelative = AI_VERSE_OS_EXTENSION_REGISTRY_PATH;
   const registryPath = resolveInsideRoot(root, registryRelative);
   assertPathChainHasNoSymlinks(root, registryRelative, true);
@@ -282,7 +290,8 @@ function readRegistryDocument(root: string): { document: JsonRecord; extensions:
     return {
       document: { schema_version: AI_VERSE_OS_EXTENSION_REGISTRY_SCHEMA, extensions },
       extensions,
-      exists: false
+      exists: false,
+      raw_text: null
     };
   }
   const stat = lstatSync(registryPath);
@@ -291,8 +300,10 @@ function readRegistryDocument(root: string): { document: JsonRecord; extensions:
   }
 
   let parsed: unknown;
+  let rawText: string;
   try {
-    parsed = JSON.parse(readFileSync(registryPath, "utf8"));
+    rawText = readFileSync(registryPath, "utf8");
+    parsed = JSON.parse(rawText);
   } catch (error) {
     throw new AiVerseOsRegistrationError(
       "INVALID_EXTENSION_REGISTRY",
@@ -311,7 +322,7 @@ function readRegistryDocument(root: string): { document: JsonRecord; extensions:
   if (!extensions) {
     throw new AiVerseOsRegistrationError("INVALID_EXTENSION_REGISTRY", "Local extension registry 'extensions' must be a JSON object; left unchanged");
   }
-  return { document, extensions, exists: true };
+  return { document, extensions, exists: true, raw_text: rawText };
 }
 
 function normalizedAdapters(adapters: string[] | undefined): string[] {
@@ -360,7 +371,7 @@ function assertInstalledFile(root: string, relativePath: string): void {
   }
 }
 
-function writeRegistryAtomic(root: string, document: JsonRecord): void {
+function writeRegistryAtomic(root: string, document: JsonRecord, expectedRawText: string | null): void {
   const registryPath = resolveInsideRoot(root, AI_VERSE_OS_EXTENSION_REGISTRY_PATH);
   const registryDirectory = dirname(registryPath);
   assertPathChainHasNoSymlinks(root, AI_VERSE_OS_EXTENSION_REGISTRY_PATH, false);
@@ -369,9 +380,51 @@ function writeRegistryAtomic(root: string, document: JsonRecord): void {
   const temporaryPath = `${registryPath}.${randomUUID()}.tmp`;
   try {
     writeFileSync(temporaryPath, `${JSON.stringify(document, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
+    assertPathChainHasNoSymlinks(root, AI_VERSE_OS_EXTENSION_REGISTRY_PATH, true);
+    const currentRawText = existsSync(registryPath) ? readFileSync(registryPath, "utf8") : null;
+    if (currentRawText !== expectedRawText) {
+      throw new AiVerseOsRegistrationError(
+        "EXTENSION_REGISTRY_CHANGED",
+        "Local extension registry changed during registration; no write was applied. Retry against the latest registry state."
+      );
+    }
     renameSync(temporaryPath, registryPath);
   } finally {
     rmSync(temporaryPath, { force: true });
+  }
+}
+
+function withRegistryLock<T>(root: string, operation: () => T): T {
+  const lockPath = resolveInsideRoot(root, AI_VERSE_OS_EXTENSION_REGISTRY_LOCK_PATH);
+  const lockDirectory = dirname(lockPath);
+  assertPathChainHasNoSymlinks(root, AI_VERSE_OS_EXTENSION_REGISTRY_LOCK_PATH, false);
+  mkdirSync(lockDirectory, { recursive: true });
+  assertPathChainHasNoSymlinks(root, AI_VERSE_OS_EXTENSION_REGISTRY_LOCK_PATH, false);
+  let acquired = false;
+  try {
+    try {
+      writeFileSync(
+        lockPath,
+        `${JSON.stringify({ extension_id: AI_VERSE_MULTIPLE_BOTS_EXTENSION_ID, created_at: new Date().toISOString() })}\n`,
+        { encoding: "utf8", mode: 0o600, flag: "wx" }
+      );
+      acquired = true;
+    } catch (error) {
+      const code = typeof error === "object" && error !== null && "code" in error ? String((error as { code?: unknown }).code ?? "") : "";
+      if (code === "EEXIST") {
+        throw new AiVerseOsRegistrationError(
+          "EXTENSION_REGISTRY_BUSY",
+          `Local extension registry is already locked at ${AI_VERSE_OS_EXTENSION_REGISTRY_LOCK_PATH}; retry after the active installer finishes.`
+        );
+      }
+      throw new AiVerseOsRegistrationError(
+        "EXTENSION_REGISTRY_LOCK_FAILED",
+        `Could not acquire local extension registry lock: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+    return operation();
+  } finally {
+    if (acquired) rmSync(lockPath, { force: true });
   }
 }
 
@@ -386,10 +439,11 @@ function requireCompatible(rootInput: string): AiVerseOsCompatibility {
   return compatibility;
 }
 
-export function planAiVerseOsRegistration(rootInput: string, options: AiVerseOsRegistrationOptions = {}): AiVerseOsRegistrationPlan {
-  const compatibility = requireCompatible(rootInput);
-  const root = compatibility.root;
-  const { extensions } = readRegistryDocument(root);
+function planFromRegistry(
+  compatibility: AiVerseOsCompatibility,
+  extensions: JsonRecord,
+  options: AiVerseOsRegistrationOptions
+): AiVerseOsRegistrationPlan {
   const rawExisting = extensions[AI_VERSE_MULTIPLE_BOTS_EXTENSION_ID];
   if (rawExisting !== undefined && rawExisting !== null && !asRecord(rawExisting)) {
     throw new AiVerseOsRegistrationError(
@@ -406,7 +460,7 @@ export function planAiVerseOsRegistration(rootInput: string, options: AiVerseOsR
   ];
   return {
     host_id: AI_VERSE_OS_HOST_ID,
-    root,
+    root: compatibility.root,
     extension_id: AI_VERSE_MULTIPLE_BOTS_EXTENSION_ID,
     registry_path: compatibility.registry_path,
     compatibility,
@@ -419,48 +473,37 @@ export function planAiVerseOsRegistration(rootInput: string, options: AiVerseOsR
   };
 }
 
-export function registerAiVerseOsExtension(rootInput: string, options: AiVerseOsRegistrationOptions = {}): AiVerseOsRegistrationResult {
-  const plan = planAiVerseOsRegistration(rootInput, options);
-  if (options.verify_installed_paths !== false) {
-    for (const relativePath of plan.files_to_verify) assertInstalledFile(plan.root, relativePath);
-  }
-  if (!plan.requires_write) return { ...plan, status: "unchanged" };
+export function planAiVerseOsRegistration(rootInput: string, options: AiVerseOsRegistrationOptions = {}): AiVerseOsRegistrationPlan {
+  const compatibility = requireCompatible(rootInput);
+  const { extensions } = readRegistryDocument(compatibility.root);
+  return planFromRegistry(compatibility, extensions, options);
+}
 
-  const { document, extensions } = readRegistryDocument(plan.root);
-  const latestRaw = extensions[AI_VERSE_MULTIPLE_BOTS_EXTENSION_ID];
-  if (latestRaw !== undefined && latestRaw !== null && !asRecord(latestRaw)) {
-    throw new AiVerseOsRegistrationError(
-      "INVALID_EXISTING_EXTENSION_ENTRY",
-      `Existing ${AI_VERSE_MULTIPLE_BOTS_EXTENSION_ID} registration is not an object; left unchanged`
-    );
-  }
-  const latestEntry = latestRaw === undefined || latestRaw === null ? null : asRecord(latestRaw)!;
-  const nextEntry = buildEntry(latestEntry, options);
-  const nextExtensions: JsonRecord = { ...extensions, [AI_VERSE_MULTIPLE_BOTS_EXTENSION_ID]: nextEntry };
-  const nextDocument: JsonRecord = {
-    ...document,
-    schema_version: AI_VERSE_OS_EXTENSION_REGISTRY_SCHEMA,
-    extensions: nextExtensions
-  };
-  const requiresWrite = latestEntry === null || canonicalString(latestEntry) !== canonicalString(nextEntry);
-  if (!requiresWrite) {
+export function registerAiVerseOsExtension(rootInput: string, options: AiVerseOsRegistrationOptions = {}): AiVerseOsRegistrationResult {
+  const compatibility = requireCompatible(rootInput);
+  return withRegistryLock(compatibility.root, () => {
+    const registry = readRegistryDocument(compatibility.root);
+    const plan = planFromRegistry(compatibility, registry.extensions, options);
+    if (options.verify_installed_paths !== false) {
+      for (const relativePath of plan.files_to_verify) assertInstalledFile(plan.root, relativePath);
+    }
+    if (!plan.requires_write) return { ...plan, status: "unchanged" };
+
+    const nextExtensions: JsonRecord = {
+      ...registry.extensions,
+      [AI_VERSE_MULTIPLE_BOTS_EXTENSION_ID]: plan.next_entry
+    };
+    const nextDocument: JsonRecord = {
+      ...registry.document,
+      schema_version: AI_VERSE_OS_EXTENSION_REGISTRY_SCHEMA,
+      extensions: nextExtensions
+    };
+    writeRegistryAtomic(plan.root, nextDocument, registry.raw_text);
     return {
       ...plan,
-      current_entry: latestEntry,
-      next_entry: nextEntry,
-      requires_write: false,
-      status: "unchanged"
+      status: plan.current_entry ? "updated" : "registered"
     };
-  }
-
-  writeRegistryAtomic(plan.root, nextDocument);
-  return {
-    ...plan,
-    current_entry: latestEntry,
-    next_entry: nextEntry,
-    requires_write: true,
-    status: latestEntry ? "updated" : "registered"
-  };
+  });
 }
 
 export const aiVerseOsRegistrationAdapter: AiVerseOsRegistrationAdapter = {
