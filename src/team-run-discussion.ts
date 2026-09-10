@@ -925,7 +925,7 @@ export class TeamRunDiscussion {
     return unique;
   }
 
-  private speakerGrant(room: StoredObject, speakerIndex: number, key: "tools" | "connections"): string[] {
+  private speakerGrant(room: StoredObject, speakerIndex: number, key: "tools" | "connections" | "skill_refs"): string[] {
     const discussion = asObject(room.payload.discussion);
     const grant = objectArray(discussion.speaker_grants)[speakerIndex];
     return grant ? stringArray(grant[key]) : [];
