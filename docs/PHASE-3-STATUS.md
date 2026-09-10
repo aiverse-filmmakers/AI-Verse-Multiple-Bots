@@ -6,21 +6,21 @@
 
 **Overall status:** IN PROGRESS
 
-**Directional phase progress:** approximately 30%
+**Directional phase progress:** approximately 40%
 
 This file is the implementation ledger for Phase 3. The canonical product roadmap remains `BUILD-MAP.md`.
 
 ## Phase 3 goal
 
-Attach the completed host-neutral persistent-teammate and squad package to AI-Verse OS through explicit adapters while preserving the ownership boundary: AI-Verse OS remains canonical for operator/workspace/domain state, and Multiple Bots remains canonical only for coordination state.
+Attach the completed host-neutral persistent-teammate and squad package to AI-Verse OS through explicit adapters while preserving the ownership boundary: AI-Verse OS remains canonical for operator/workspace/domain state, AI-Verse Brain remains canonical for strategic state, AI-Verse Memory remains canonical for historical memory, and Multiple Bots remains canonical only for coordination state.
 
 ## Slice status
 
 1. AI-Verse OS installer/registration contract — **COMPLETE**
 2. workspace-scoped state projection — **COMPLETE**
 3. Brain initiative/goal ingress — **COMPLETE**
-4. Memory context/recall adapter — **NEXT**
-5. Skills capability resolution — **NOT STARTED**
+4. Memory context/recall adapter — **COMPLETE**
+5. Skills capability resolution — **NEXT**
 6. Automations wake/schedule integration — **NOT STARTED**
 7. OS write-command boundary — **NOT STARTED**
 8. candidate knowledge/decision write-back — **NOT STARTED**
@@ -145,7 +145,7 @@ Implemented:
 
 ### 3.3 acceptance proof
 
-Final PR-head GitHub Actions run **289** passed the full **202/202 test suite** with **0 failures, 0 canceled, and 0 skipped** on exact head `328de54dc0506437d725f2a90dd1f35efe0c0d8a`.
+Final PR-head GitHub Actions run **295** passed the full **202/202 test suite** with **0 failures, 0 canceled, and 0 skipped** on exact head `1fef1af59a167ce413899cc3e2b81bc692e86e05`. Phase 3.3 was squash-merged as `1945b45c99fc4ce10060156d3f4ebff912bfcbf4`, and post-merge `main` CI run **296** also passed **202/202**.
 
 Phase 3.3 acceptance coverage proves:
 
@@ -162,9 +162,65 @@ Phase 3.3 acceptance coverage proves:
 
 See `AI-VERSE-BRAIN-OBJECTIVE-INGRESS.md` for the canonical Phase 3.3 boundary.
 
+## Slice 3.4 - Memory context/recall adapter
+
+**Implementation status:** COMPLETE
+
+Phase 3.4 adds explicit, bounded historical recall from AI-Verse Memory to the common durable-Bot/temporary-Worker runtime path without making Multiple Bots a second memory store.
+
+Implemented:
+
+- public host-neutral `HistoricalRecallRequest`, `HistoricalRecallProjection` and `HistoricalRecallSource` contracts
+- public `AiVerseMemoryRecallSource` native adapter and `MemoryRecallRuntimeRegistry`
+- lazy AI-Verse Memory installation detection with minimum native Memory v0.2 compatibility gate
+- invocation of the installed Memory engine through a shell-free structured Python bridge rather than direct SQLite access
+- no recall work unless the canonical Task explicitly carries `memory_recall`
+- strict request normalization with bounded query/result limits and rejection of workspace/scope override fields
+- exact Task/principal workspace match before recall
+- native Memory workspace recall only: selected workspace plus operator context permitted by Memory's own contract
+- cross-workspace recall deliberately unavailable from the 3.4 Task contract
+- bounded subprocess timeout/buffer plus per-item and aggregate recalled-text ceilings
+- exact returned-kind, scope, status, source-path, source-identity, source-version and freshness validation
+- source kind/scope is derived independently from Memory-owned canonical path roots before bridge metadata is trusted
+- every installed Memory path component is checked for symlinks before Python code can execute
+- canonical source files are revalidated after Memory returns, so stale/mutated source evidence fails closed
+- actual recalled text and `why` content remain ephemeral runtime context only
+- persisted receipts contain bounded provider/workspace/query/recall/source provenance and digests, never recalled text
+- explicit model-runtime authority ordering: Task/constraints/leases/approvals and current OS/Brain context outrank historical recall
+- no Memory write, supersede, forget or promotion authority introduced
+- temporary Team Run Workers receive the same scoped recall contract without durable promotion or broader workspace visibility
+- explicit recall fails closed when Memory is unavailable/incompatible, while ordinary no-recall Tasks continue normally
+- HTTP delegation accepts untrusted `memoryRecall`, validates it before Task creation and persists only the normalized request
+- standalone Multiple Bots remains unchanged when no host Memory source is configured
+
+### 3.4 acceptance proof
+
+The hardened implementation gate at commit `f2112055bd1771d75dbe5c720ffac70d83604590` passed GitHub Actions **CI run 345 with 221/221 tests**, **0 failures, 0 canceled, and 0 skipped**. The same head also passed **Platform Smoke run 8**. Final PR-head and post-merge `main` gates must retain the same result before 3.4 is considered merged/closed.
+
+Phase 3.4 acceptance coverage proves:
+
+1. Task recall requests are explicit, bounded and cannot widen workspace scope
+2. no recall request invokes no Memory source and leaves ordinary execution unchanged
+3. a durable Bot receives recalled content only at runtime while persisted receipts retain provenance/digests only
+4. out-of-scope Memory results fail before model execution
+5. explicit recall fails closed when no Memory source is configured
+6. Memory installation detection is lazy and native-version gated
+7. the adapter uses a shell-free structured bridge and verifies exact workspace/operator provenance
+8. canonical Memory source mutation after recall is detected before accepting the result
+9. malformed provenance, unsafe paths, oversized output and absent installation fail closed
+10. canonical path ownership prevents forged same-workspace files or mislabelled kinds from entering recall
+11. symlinked Memory installation ancestry is rejected before engine execution
+12. `include_history` remains explicit and cannot widen workspace scope
+13. OpenAI-compatible prompting places historical recall below current canonical context and hard execution authority
+14. HTTP delegation validates recall before executable Task creation and ordinary no-Memory execution remains available
+15. a temporary Team Run Worker receives the same recall contract without promotion or recalled-text persistence
+16. the complete pre-existing coordination/squad/recovery suite and the five-repository Platform Smoke gate remain green
+
+See `AI-VERSE-MEMORY-RECALL.md` for the canonical Phase 3.4 boundary.
+
 ## Ownership boundary
 
-Phase 3.1 through 3.3 do not make Multiple Bots the source of truth for any AI-Verse OS or Brain domain state.
+Phase 3.1 through 3.4 do not make Multiple Bots the source of truth for any AI-Verse OS, Brain or Memory domain state.
 
 ```text
 AI-Verse OS
@@ -173,16 +229,19 @@ AI-Verse OS
 AI-Verse Brain
   owns strategic intent, initiatives, objectives, criteria and strategic lifecycle
 
+AI-Verse Memory
+  owns historical memory in canonical Markdown and its rebuildable derived index
+
 AI-Verse Multiple Bots
   owns Bot/Worker coordination identity, Messages, Tasks, Rooms, Handoffs,
   Team Runs, coordination Artifacts/events/leases/budgets/cancellation/recovery
 
 Phase 3 adapters
-  project only the minimum scoped host/Brain data needed for execution
-  and route candidate writes back through OS-owned boundaries
+  project only the minimum scoped host/Brain/Memory data needed for execution
+  and route later candidate writes back through explicit owner-controlled boundaries
 ```
 
-Workspace projection and current Brain strategic projection are ephemeral execution context. Multiple Bots may retain only bounded provenance needed to explain which host/Brain sources and digests informed an Artifact; it does not retain copied canonical workspace or Brain objects.
+Workspace projection, current Brain strategic projection and recalled Memory text are ephemeral execution context. Multiple Bots may retain only bounded provenance needed to explain which canonical sources and digests informed an Artifact; it does not retain copied canonical workspace, Brain or Memory objects.
 
 Registration also does not auto-create AI-Verse OS durable agents. Durable Multiple Bots Bots and temporary Workers remain package identities unless a later explicit adapter maps them.
 
@@ -192,6 +251,6 @@ Phase 3.1 defines and implements safe registration after extension-owned files h
 
 ## Next gate
 
-**Phase 3.4 - Memory context/recall adapter.**
+**Phase 3.5 - Skills capability resolution.**
 
-The next slice must let durable Bots and temporary Workers request bounded, workspace-correct historical recall from AI-Verse Memory without moving Memory ownership into the coordination database. Retrieval must be explicit, provenance-bearing, authority-scoped and safe for both standalone/no-Memory mode and AI-Verse native mode.
+The next slice must let durable Bots and temporary Workers resolve task-required capabilities through AI-Verse Skills without copying the Skills registry into coordination state or expanding authority. Resolution must preserve exact workspace/task scope, capability leases, approvals, explicit availability/failure semantics and standalone compatibility.

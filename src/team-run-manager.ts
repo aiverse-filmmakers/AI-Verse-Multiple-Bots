@@ -4,6 +4,8 @@ import { createId } from "./id.js";
 import type { RecoveryPolicy } from "./execution-queue.js";
 import { ExecutionQueue } from "./execution-queue.js";
 import { CoordinationGateway } from "./gateway.js";
+import { parseTaskMemoryRecallRequest } from "./memory-recall-runtime.js";
+import type { HistoricalRecallRequest } from "./runtime.js";
 import { BotRunner } from "./runner.js";
 import { TeamRunCoordinator, type TeamRunStatus } from "./team-runs.js";
 import type { JsonObject, StoredObject } from "./types.js";
@@ -31,6 +33,7 @@ export interface ManagedWorkerTaskInput {
   requiredConstraints?: string[];
   expectedOutput?: JsonObject;
   inputArtifactRefs?: string[];
+  memoryRecall?: HistoricalRecallRequest;
   tools?: string[];
   connections?: string[];
   parentTaskId?: string;
@@ -65,6 +68,7 @@ export class TeamRunManager {
   ) {}
 
   createWorkerTask(input: ManagedWorkerTaskInput): ManagedWorkerTaskResult {
+    const memoryRecall = parseTaskMemoryRecallRequest(input.memoryRecall);
     const run = this.ensureRunning(input.runId, input.createdBy);
     const leaderId = String(run.payload.leader_id ?? "");
     if (leaderId !== input.createdBy) throw new Error(`Only Team Run leader ${leaderId} can create managed Worker Tasks`);
@@ -144,6 +148,7 @@ export class TeamRunManager {
         constraints_digest: constraintsDigest(requiredConstraints),
         expected_output: input.expectedOutput ?? { contract: "artifact-or-structured-result" },
         input_artifact_refs: artifactRefs,
+        ...(memoryRecall ? { memory_recall: memoryRecall } : {}),
         lease_id: leaseId,
         environment_lease_id: null,
         response_target: { kind: "bot", id: leaderId },

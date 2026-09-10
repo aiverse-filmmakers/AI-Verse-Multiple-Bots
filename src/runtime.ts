@@ -32,6 +32,49 @@ export interface StrategicIntentProjection extends JsonObject {
   data: JsonObject;
 }
 
+export interface HistoricalRecallRequest {
+  query: string;
+  limit?: number;
+  include_history?: boolean;
+}
+
+export interface HistoricalRecallItem {
+  id: string;
+  kind: string;
+  type: string;
+  scope: string;
+  content: string;
+  why?: string | null;
+  path: string;
+  digest: string;
+  source_identity?: string | null;
+  source?: string | null;
+  updated_at?: string | null;
+  source_version?: string | null;
+  freshness?: string | null;
+  indexed_at?: string | null;
+  importance?: number | null;
+  confidence?: number | null;
+}
+
+/** Ephemeral historical/contextual evidence. Canonical ownership remains with the host Memory provider. */
+export interface HistoricalRecallProjection {
+  schema_version: "1.0";
+  provider: string;
+  provider_version?: string | null;
+  workspace_id: string;
+  query_digest: string;
+  recall_digest: string;
+  recalled_at: string;
+  include_history: boolean;
+  requested_limit: number;
+  items: HistoricalRecallItem[];
+}
+
+export interface HistoricalRecallSource {
+  recall(workspaceId: string, request: HistoricalRecallRequest): Promise<HistoricalRecallProjection>;
+}
+
 export interface RuntimeExecutionContext {
   /** Canonical execution identity. Durable Bots and temporary Workers both use this field. */
   principal: StoredObject;
@@ -48,6 +91,8 @@ export interface RuntimeExecutionContext {
   workspaceProjection?: WorkspaceStateProjection | null;
   /** Ephemeral, read-only strategic context supplied by an explicit host adapter. Never canonical Multiple Bots state. */
   strategicIntent?: StrategicIntentProjection | null;
+  /** Ephemeral, lower-authority historical evidence returned only for an explicit Task recall request. */
+  historicalRecall?: HistoricalRecallProjection | null;
   signal: AbortSignal;
 }
 
@@ -110,6 +155,9 @@ export class DeterministicRuntimeAdapter implements RuntimeAdapter {
           : {}),
         ...(context.strategicIntent
           ? { strategic_intent_digest: context.strategicIntent.intent_digest }
+          : {}),
+        ...(context.historicalRecall
+          ? { historical_recall_digest: context.historicalRecall.recall_digest }
           : {}),
         result: `Completed: ${objective}`
       },

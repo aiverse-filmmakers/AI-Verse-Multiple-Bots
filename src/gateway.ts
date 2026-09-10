@@ -3,7 +3,9 @@ import { BotRegistryRules, type BotLifecycleStatus } from "./bot-registry.js";
 import { constraintsDigest, normalizeConstraints } from "./constraints.js";
 import { createId } from "./id.js";
 import { ExecutionQueue } from "./execution-queue.js";
+import { parseTaskMemoryRecallRequest } from "./memory-recall-runtime.js";
 import { CoordinationPolicy } from "./policy.js";
+import type { HistoricalRecallRequest } from "./runtime.js";
 import { CoordinationStore } from "./store.js";
 import type { AppendedEvent, BotManifest, CoordinationEvent, DeliveryRecord, JsonObject, StoredObject } from "./types.js";
 import { validateProtocolObject } from "./validator.js";
@@ -54,6 +56,7 @@ export interface DelegateInput {
   reason: string;
   requiredConstraints?: string[];
   expectedOutput?: JsonObject;
+  memoryRecall?: HistoricalRecallRequest;
   tools?: string[];
   connections?: string[];
   parentTaskId?: string;
@@ -179,6 +182,7 @@ export class CoordinationGateway {
   }
 
   delegate(input: DelegateInput): { task: StoredObject; lease: StoredObject; approval: StoredObject | null; event: AppendedEvent } {
+    const memoryRecall = parseTaskMemoryRecallRequest(input.memoryRecall);
     const prepared = this.policy?.prepareDelegation({
       createdBy: input.createdBy,
       assigneeId: input.assigneeId,
@@ -237,6 +241,7 @@ export class CoordinationGateway {
       constraints_digest: constraintsDigest(normalizedConstraints),
       expected_output: input.expectedOutput ?? { contract: "artifact-or-structured-result" },
       input_artifact_refs: [],
+      ...(memoryRecall ? { memory_recall: memoryRecall } : {}),
       lease_id: leaseId,
       environment_lease_id: null,
       response_target: input.responseTarget ?? null,
