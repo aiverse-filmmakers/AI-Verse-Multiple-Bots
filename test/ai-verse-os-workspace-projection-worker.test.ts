@@ -26,7 +26,8 @@ function write(root: string, relative: string, content: string): void {
 
 function createHost(marker: string): string {
   const root = `/tmp/ai-verse-worker-projection-host-${randomUUID()}`;
-  mkdirSync(root, { recursive: true });
+  mkdirSync(resolve(root, "operator"), { recursive: true });
+  mkdirSync(resolve(root, "workspaces"), { recursive: true });
   write(root, "AI-VERSE.yaml", [
     'schema_version: "2.0"',
     "architecture: unified-workspace",
