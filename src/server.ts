@@ -1,5 +1,6 @@
 import { createServer } from "node:http";
 import { URL } from "node:url";
+import { AiVerseOsWorkspaceProjector } from "./ai-verse-os-workspace-projection.js";
 import { delegateWithArtifacts } from "./artifact-delegation.js";
 import type { BudgetEnvelope } from "./budget.js";
 import type { BotManifest, JsonObject } from "./types.js";
@@ -17,6 +18,7 @@ export interface GatewayServerOptions {
   host?: string;
   port?: number;
   dbPath?: string;
+  aiVerseOsRoot?: string;
 }
 
 async function readJson(req: any): Promise<JsonObject> {
@@ -83,7 +85,14 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
   const runtimes = new RuntimeRegistry()
     .register(new DeterministicRuntimeAdapter())
     .register(new OpenAICompatibleRuntimeAdapter());
-  const runner = new BotRunner(store, gateway, executionQueue, runtimes);
+  const workspaceProjector = options.aiVerseOsRoot ? new AiVerseOsWorkspaceProjector(options.aiVerseOsRoot) : undefined;
+  const runner = new BotRunner(
+    store,
+    gateway,
+    executionQueue,
+    runtimes,
+    workspaceProjector ? { workspaceProjector } : undefined
+  );
   const supervisor = new ExecutionSupervisor(gateway, executionQueue, runner);
   supervisor.start();
 
