@@ -1,5 +1,4 @@
 import type { RuntimeUsage } from "./budget.js";
-import type { BrainObjectiveProjection } from "./brain-objective-ingress.js";
 import type { BotManifest, JsonObject, StoredObject } from "./types.js";
 
 export type ExecutionPrincipalKind = "bot" | "worker";
@@ -23,6 +22,16 @@ export interface WorkspaceStateProjector {
   project(workspaceId: string): WorkspaceStateProjection;
 }
 
+/** Generic runtime-only strategic context. Host adapters remain responsible for canonical ownership and freshness. */
+export interface StrategicIntentProjection extends JsonObject {
+  schema_version: string;
+  provider: string;
+  workspace_id: string;
+  root_objective_id: string;
+  intent_digest: string;
+  data: JsonObject;
+}
+
 export interface RuntimeExecutionContext {
   /** Canonical execution identity. Durable Bots and temporary Workers both use this field. */
   principal: StoredObject;
@@ -37,8 +46,8 @@ export interface RuntimeExecutionContext {
   inputArtifacts: StoredObject[];
   /** Ephemeral, read-only host workspace context. Never canonical Multiple Bots state. */
   workspaceProjection?: WorkspaceStateProjection | null;
-  /** Ephemeral, read-only strategic intent from the canonical Brain owner. Never canonical Multiple Bots state. */
-  strategicIntent?: BrainObjectiveProjection | null;
+  /** Ephemeral, read-only strategic context supplied by an explicit host adapter. Never canonical Multiple Bots state. */
+  strategicIntent?: StrategicIntentProjection | null;
   signal: AbortSignal;
 }
 
