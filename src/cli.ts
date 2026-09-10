@@ -56,7 +56,7 @@ if (args[0] === "serve") {
     if (args[1] === "detect") {
       const compatibility = detectAiVerseOsCompatibility(root);
       console.log(JSON.stringify({ ok: compatibility.status === "compatible", compatibility }, null, 2));
-      if (compatibility.status === "incompatible") process.exitCode = 1;
+      if (compatibility.status !== "compatible") process.exitCode = 1;
     } else if (args[1] === "plan") {
       console.log(JSON.stringify({ ok: true, plan: planAiVerseOsRegistration(root) }, null, 2));
     } else if (args[1] === "register") {
