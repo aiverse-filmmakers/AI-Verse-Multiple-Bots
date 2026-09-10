@@ -20,9 +20,9 @@ The target experience is inspired most strongly by xAI's Grok Bot persistent-tea
 
 **Phase 2: Dynamic Multi-Agent Squads: COMPLETE**
 
-**Phase 3: AI-Verse Native Integration: IN PROGRESS (~30%)**
+**Phase 3: AI-Verse Native Integration: IN PROGRESS (~40%)**
 
-Phase 2 is merged to `main` and its post-merge gate passed **175/175 tests**. Phase 3.1 through 3.3 cover safe AI-Verse OS registration, live workspace-state projection, and bounded Brain objective ingress. The hardened Phase 3.3 package gate passes **202/202 tests**. Phase 3.4 Memory context/recall is next.
+Phase 2 is merged to `main` and its post-merge gate passed **175/175 tests**. Phase 3.1 through 3.4 cover safe AI-Verse OS registration, live workspace-state projection, bounded Brain objective ingress, and explicit workspace-scoped Memory recall. The hardened Phase 3.4 branch gate passes **221/221 tests** plus the five-repository Platform Smoke gate. Phase 3.5 Skills capability resolution is next.
 
 The current package includes:
 
@@ -47,6 +47,8 @@ The current package includes:
 - live workspace-scoped runtime projection for durable Bots and temporary Workers without copying canonical host text
 - Brain objective ingress with explicit direction ownership, semantic-root provenance and execution-time stale-intent fencing
 - exact Brain re-ingress contract protection for authority, deadlines, hops, leases and Approvals
+- explicit AI-Verse Memory recall through the installed Memory engine without reading or owning its SQLite index
+- bounded canonical Memory source/path/provenance validation with runtime-only recalled text for durable Bots and temporary Workers
 - CLI surfaces for `os detect`, `os plan`, and `os register`
 
 See [`docs/BUILD-MAP.md`](docs/BUILD-MAP.md) for the canonical project progress map, [`docs/PHASE-2-STATUS.md`](docs/PHASE-2-STATUS.md) for the complete squad-core ledger, and [`docs/PHASE-3-STATUS.md`](docs/PHASE-3-STATUS.md) for current native-integration progress.
@@ -60,7 +62,8 @@ For implementation, these are the current source documents:
 3. [`schemas/coordination-v1.schema.json`](schemas/coordination-v1.schema.json) is the machine-readable coordination companion and evolves through implementation tests.
 4. [`docs/AI-VERSE-OS-REGISTRATION-CONTRACT.md`](docs/AI-VERSE-OS-REGISTRATION-CONTRACT.md) is the Phase 3.1 host-registration boundary.
 5. [`docs/AI-VERSE-BRAIN-OBJECTIVE-INGRESS.md`](docs/AI-VERSE-BRAIN-OBJECTIVE-INGRESS.md) is the Phase 3.3 Brain-to-coordination boundary.
-6. [`templates/bot.yaml`](templates/bot.yaml) and [`templates/room.yaml`](templates/room.yaml) are the current Bot and Room manifest examples.
+6. [`docs/AI-VERSE-MEMORY-RECALL.md`](docs/AI-VERSE-MEMORY-RECALL.md) is the Phase 3.4 Memory-to-runtime recall boundary.
+7. [`templates/bot.yaml`](templates/bot.yaml) and [`templates/room.yaml`](templates/room.yaml) are the current Bot and Room manifest examples.
 
 The earlier [`docs/ARCHITECTURE-BLUEPRINT.md`](docs/ARCHITECTURE-BLUEPRINT.md) and [`docs/COORDINATION-PROTOCOL.md`](docs/COORDINATION-PROTOCOL.md) remain research/background documents. Where they differ from the canonical files above, the current architecture/protocol/status documents win.
 
@@ -451,7 +454,7 @@ AI-Verse-OS/
             └── <future adapters>
 ```
 
-Phase 3.1 implements compatibility detection and safe registration through this local extension hook. Phase 3.2 adds read-only live workspace projection. Phase 3.3 adds bounded Brain objective ingress and execution-time strategic freshness checks.
+Phase 3.1 implements compatibility detection and safe registration through this local extension hook. Phase 3.2 adds read-only live workspace projection. Phase 3.3 adds bounded Brain objective ingress and execution-time strategic freshness checks. Phase 3.4 adds explicit, bounded workspace-scoped historical recall through AI-Verse Memory.
 
 Important boundaries:
 
@@ -461,8 +464,9 @@ Important boundaries:
 - registration does not imply health, permissions, approvals, workspace access or runtime readiness
 - installed extension paths must stay inside the OS root and must not traverse symlinks
 - competing registry writers fail visibly instead of silently overwriting each other
-- workspace and Brain projections remain derived runtime context; canonical host/Brain state stays outside the coordination database
+- workspace, Brain and Memory projections remain derived runtime context; canonical host/Brain/Memory state stays outside the coordination database
 - Brain-rooted execution is revalidated against current canonical Brain state immediately before runtime execution
+- Memory recall uses Memory's installed engine rather than reading its SQLite index directly, and recalled text is never persisted into coordination receipts
 
 Programmatic host registration is exported as `aiVerseOsRegistrationAdapter`.
 
@@ -476,7 +480,7 @@ ai-verse-bots os register --root /path/to/AI-Verse-OS
 
 `os register` is intentionally a registration operation, not the final member-facing installer. It expects extension-owned files to have already been materialized and verifies them before writing `installed: true`. Clean-machine packaging/materialization remains a Phase 5 product gate.
 
-See [`docs/AI-VERSE-OS-REGISTRATION-CONTRACT.md`](docs/AI-VERSE-OS-REGISTRATION-CONTRACT.md) and [`docs/AI-VERSE-BRAIN-OBJECTIVE-INGRESS.md`](docs/AI-VERSE-BRAIN-OBJECTIVE-INGRESS.md).
+See [`docs/AI-VERSE-OS-REGISTRATION-CONTRACT.md`](docs/AI-VERSE-OS-REGISTRATION-CONTRACT.md), [`docs/AI-VERSE-BRAIN-OBJECTIVE-INGRESS.md`](docs/AI-VERSE-BRAIN-OBJECTIVE-INGRESS.md), and [`docs/AI-VERSE-MEMORY-RECALL.md`](docs/AI-VERSE-MEMORY-RECALL.md).
 
 ## Standalone mode
 
@@ -531,6 +535,7 @@ Therefore the system selects the **smallest sufficient topology** and keeps mult
 - [`docs/PHASE-3-STATUS.md`](docs/PHASE-3-STATUS.md) - current Phase 3 ledger
 - [`docs/AI-VERSE-OS-REGISTRATION-CONTRACT.md`](docs/AI-VERSE-OS-REGISTRATION-CONTRACT.md) - Phase 3.1 host contract
 - [`docs/AI-VERSE-BRAIN-OBJECTIVE-INGRESS.md`](docs/AI-VERSE-BRAIN-OBJECTIVE-INGRESS.md) - Phase 3.3 Brain ingress contract
+- [`docs/AI-VERSE-MEMORY-RECALL.md`](docs/AI-VERSE-MEMORY-RECALL.md) - Phase 3.4 Memory recall contract
 - [`docs/RESEARCH-2026-09.md`](docs/RESEARCH-2026-09.md) - multi-agent/open-source ecosystem benchmark
 - [`docs/REFERENCE-ADOPTION-MAP.md`](docs/REFERENCE-ADOPTION-MAP.md) - adopt/adapt/integrate/study/avoid map
 - [`docs/AI-VERSE-INTEGRATION.md`](docs/AI-VERSE-INTEGRATION.md) - broader AI-Verse integration direction
@@ -546,11 +551,11 @@ Contracts are tightened through implementation/evaluation rather than treated as
 
 ## Implementation progress
 
-Phases 0, 1 and 2 are complete. Phase 3 is in progress at approximately 30%.
+Phases 0, 1 and 2 are complete. Phase 3 is in progress at approximately 40%.
 
 The remaining first-release program is:
 
-1. **Phase 3: AI-Verse Native Integration** - 3.1 registration, 3.2 workspace projection and 3.3 Brain ingress are complete; Memory, Skills, Automations, write-command/write-back, health and lifecycle integration remain.
+1. **Phase 3: AI-Verse Native Integration** - 3.1 registration, 3.2 workspace projection, 3.3 Brain ingress and 3.4 Memory recall are complete; Skills, Automations, write-command/write-back, health and lifecycle integration remain.
 2. **Phase 4: Runtime and Agent Interoperability** - A2A, Hermes, OpenClaw and other managed agent/runtime adapters.
 3. **Phase 5: Product, Installer, Omnichannel and Dashboard** - clean installation, onboarding, secure remote access, Dashboard control surfaces, channel bridges and full release acceptance.
 
