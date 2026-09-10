@@ -107,6 +107,7 @@ function bot(adapter: string, allowedTools: string[] = ["web"]): BotManifest {
     runtime: { adapter },
     execution: { environment_policy: "shared_workspace" },
     scope: { type: "workspace", workspace_id: WORKSPACE },
+    capabilities: { skill_refs: ["synthesis-method"] },
     permissions: { policy_ref: "strict", can_create_workers: true, allowed_tools: allowedTools, allowed_connections: [] },
     coordination: { default_mode: "manager", max_parallel_workers: 4, max_hops: 6 }
   };
@@ -193,6 +194,41 @@ test("durable leader creates one canonical final synthesis and completes the Tea
     assert.deepEqual(new Set(final.payload.source_artifact_refs as string[]), new Set([left.id, right.id]));
     assert.equal((final.payload.inline_content as any).result.answer, "bounded final answer");
     assert.equal(env.synthesis.list(run.id).length, 1);
+  } finally {
+    await close(env);
+  }
+});
+
+test("synthesis keeps skill method requirements separate from lease authority and rejects undeclared methods", async () => {
+  const env = fixture();
+  try {
+    const run = runningRun(env);
+    const source = candidate(env, run, "method-source");
+    const tasksBefore = env.store.listObjects("task", WORKSPACE).length;
+    assert.throws(
+      () => env.synthesis.schedule({
+        runId: run.id,
+        createdBy: LEADER,
+        sourceArtifactRefs: [source.id],
+        skillRefs: ["undeclared-method"]
+      }),
+      /undeclared leader skill capability undeclared-method/i
+    );
+    assert.equal(env.store.listObjects("task", WORKSPACE).length, tasksBefore);
+
+    const scheduled = env.synthesis.schedule({
+      runId: run.id,
+      createdBy: LEADER,
+      sourceArtifactRefs: [source.id],
+      skillRefs: ["synthesis-method"],
+      tools: ["web"]
+    });
+    assert.equal(scheduled.status, "scheduled");
+    if (scheduled.status !== "scheduled") return;
+    assert.deepEqual(scheduled.task.payload.skill_refs, ["synthesis-method"]);
+    assert.deepEqual(scheduled.lease.payload.tools, ["web"]);
+    assert.deepEqual(scheduled.lease.payload.connections, []);
+    assert.equal(Object.prototype.hasOwnProperty.call(scheduled.lease.payload, "skill_refs"), false);
   } finally {
     await close(env);
   }
