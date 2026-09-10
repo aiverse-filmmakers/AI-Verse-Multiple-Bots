@@ -1,9 +1,11 @@
 import type { DelegateInput, CoordinationGateway } from "./gateway.js";
+import { normalizeMemoryRecallRequest, type MemoryRecallRequest } from "./memory-recall-contract.js";
 import type { StoredObject } from "./types.js";
 import { validateProtocolObject } from "./validator.js";
 
 export interface ArtifactAwareDelegateInput extends DelegateInput {
   inputArtifactRefs?: string[];
+  memoryRecall?: MemoryRecallRequest;
 }
 
 export interface ArtifactAwareDelegationResult {
@@ -40,26 +42,33 @@ export function delegateWithArtifacts(
   input: ArtifactAwareDelegateInput
 ): ArtifactAwareDelegationResult {
   const inputArtifacts = validateDelegationInputArtifacts(gateway, input.workspaceId, input.inputArtifactRefs);
+  const memoryRecall = normalizeMemoryRecallRequest(input.memoryRecall);
   const delegated = gateway.delegate(input);
-  if (inputArtifacts.length === 0) return { ...delegated, inputArtifacts };
+  if (inputArtifacts.length === 0 && !memoryRecall) return { ...delegated, inputArtifacts };
 
   const current = gateway.store.getObject(delegated.task.id);
-  if (!current || current.kind !== "task") throw new Error(`Delegated Task ${delegated.task.id} disappeared before Artifact attachment`);
+  if (!current || current.kind !== "task") throw new Error(`Delegated Task ${delegated.task.id} disappeared before execution-context attachment`);
   if (current.payload.status !== "assigned" && current.payload.status !== "waiting_approval") {
-    throw new Error(`Task ${current.id} cannot receive input Artifacts from status ${String(current.payload.status)}`);
+    throw new Error(`Task ${current.id} cannot receive execution context from status ${String(current.payload.status)}`);
   }
 
   const queued = gateway.executionQueue?.getByItem(current.id);
   if (queued && queued.state !== "queued") {
-    throw new Error(`Task ${current.id} execution was claimed before input Artifacts could be attached`);
+    throw new Error(`Task ${current.id} execution was claimed before execution context could be attached`);
   }
 
   const refs = inputArtifacts.map((artifact) => artifact.id);
+  const timestamp = new Date().toISOString();
   const updatedTask = gateway.store.putObject("task", validateProtocolObject({
     ...current.payload,
     input_artifact_refs: refs,
-    input_artifacts_attached_at: new Date().toISOString(),
-    input_artifacts_attached_by: input.createdBy
+    ...(memoryRecall ? { memory_recall: memoryRecall } : {}),
+    execution_context_attached_at: timestamp,
+    execution_context_attached_by: input.createdBy,
+    ...(refs.length > 0 ? {
+      input_artifacts_attached_at: timestamp,
+      input_artifacts_attached_by: input.createdBy
+    } : {})
   }, "task"));
 
   gateway.emit({
@@ -68,7 +77,9 @@ export function delegateWithArtifacts(
     workspaceId: input.workspaceId,
     taskId: current.id,
     correlationId: input.rootObjectiveId,
-    summary: `Attached ${refs.length} input Artifact${refs.length === 1 ? "" : "s"} to ${current.id}`
+    summary: memoryRecall
+      ? `Attached ${refs.length} input Artifact${refs.length === 1 ? "" : "s"} and bounded memory recall to ${current.id}`
+      : `Attached ${refs.length} input Artifact${refs.length === 1 ? "" : "s"} to ${current.id}`
   });
 
   return {
