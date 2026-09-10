@@ -288,7 +288,6 @@ export class TeamRunDecisionPolicy {
       }
     }, "artifact");
 
-    this.store.putObject("artifact", artifactPayload);
     const event: CoordinationEvent = {
       schema_version: "1.0",
       id: `evt_collaboration_decision_${inputDigest.slice(0, 32)}`,
@@ -302,7 +301,18 @@ export class TeamRunDecisionPolicy {
         ? `Adaptive policy selected ${selection.topology} with a lifetime ceiling of ${selection.workerCount} temporary Worker identities`
         : `Adaptive policy kept objective ${input.rootObjectiveId} with the durable Bot`
     };
-    this.store.appendEvent(event, `collaboration-decision:${artifactId}`);
+
+    try {
+      this.store.atomicMutation({
+        preconditions: [{ id: leader.id, kind: "bot", status: "active" }],
+        objects: [{ kind: "artifact", payload: artifactPayload }],
+        events: [event]
+      });
+    } catch (error) {
+      const raced = this.store.getObject(artifactId);
+      if (raced) return this.view(raced);
+      throw error;
+    }
 
     const stored = this.store.getObject(artifactId);
     if (!stored) throw new Error(`Collaboration decision ${artifactId} was not persisted`);
@@ -428,12 +438,23 @@ export class TeamRunDecisionPolicy {
     const maxTasks = numberLimit(budget.max_tasks) ?? Number.POSITIVE_INFINITY;
     const maxMessages = numberLimit(budget.max_messages) ?? Number.POSITIVE_INFINITY;
     const maxRounds = numberLimit(budget.max_rounds) ?? Number.POSITIVE_INFINITY;
+    const maxHops = numberLimit(budget.max_hops) ?? Number.POSITIVE_INFINITY;
     const parallelWanted = signals.parallel_safe && signals.independent_workstreams >= 2;
     const verificationRequired = signals.verification_need === "required";
     const verificationRecommended = signals.verification_need === "recommended";
     const discussionWanted = signals.discussion_needed;
     const handoffWanted = signals.ownership_transfer_needed;
     const verifierFeasible = verificationRequired && workerIdentityCapacity >= 1 && maxTasks >= 1;
+
+    if (handoffWanted && maxHops < 1) {
+      return {
+        mode: "single",
+        topology: "single",
+        workerCount: 0,
+        executionStatus: "blocked",
+        reasons: [reason("HANDOFF_HOP_BUDGET_UNAVAILABLE", "Ownership transfer is required but the Team Run hop budget does not permit even one handoff.")]
+      };
+    }
 
     const discussionTasks = signals.discussion_participants * signals.discussion_rounds;
     const discussionMessages = discussionTasks + 2;
