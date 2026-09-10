@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { BudgetError, normalizeBudget, type BudgetEnvelope, type RuntimeUsage } from "./budget.js";
+import { normalizeBudget, type BudgetEnvelope, type RuntimeUsage } from "./budget.js";
 import { ExecutionQueue } from "./execution-queue.js";
 import { CoordinationGateway } from "./gateway.js";
 import { TeamRunCoordinator, type TeamRunStatus, type WorkerStatus } from "./team-runs.js";
@@ -66,6 +66,12 @@ function isOptimisticConflict(error: unknown): boolean {
   return error instanceof Error && error.message.includes("changed since it was read");
 }
 
+function isLeaseActive(lease: StoredObject, now = Date.now()): boolean {
+  if (typeof lease.payload.revoked_at === "string" || typeof lease.payload.termination_revoked_at === "string") return false;
+  const expiry = Date.parse(String(lease.payload.expires_at ?? ""));
+  return !Number.isFinite(expiry) || expiry > now;
+}
+
 export type TeamRunTerminationOutcome = "canceled" | "budget_exhausted";
 
 export interface TeamRunTaskCanceler {
@@ -102,9 +108,23 @@ export interface TeamRunTerminationResult {
   approval_ids_canceled: string[];
   handoff_ids_canceled: string[];
   capability_lease_ids_revoked: string[];
+  environment_lease_ids_revoked: string[];
+  shared_environment_lease_ids_preserved: string[];
   room_ids_closed: string[];
   thread_ids_closed: string[];
   already_terminal: boolean;
+}
+
+interface TerminationTargets {
+  taskIds: string[];
+  workerIds: string[];
+  approvalIds: string[];
+  handoffIds: string[];
+  capabilityLeaseIds: string[];
+  environmentLeaseIds: string[];
+  sharedEnvironmentLeaseIds: string[];
+  roomIds: string[];
+  threadIds: string[];
 }
 
 /**
@@ -142,9 +162,7 @@ export class TeamRunControl {
       if (roomId && round !== null) roundKeys.add(`${roomId}:${round}`);
     }
 
-    const temporaryRoomIds = new Set(this.gateway.store.listObjects("room", workspaceId)
-      .filter((room) => room.payload.temporary === true && String(room.payload.run_id ?? asObject(room.payload.discussion).run_id ?? "") === run.id)
-      .map((room) => room.id));
+    const temporaryRoomIds = new Set(this.runTemporaryRooms(run).map((room) => room.id));
     const messageCount = this.gateway.store.listObjects("message", workspaceId)
       .filter((message) => typeof message.payload.room_id === "string" && temporaryRoomIds.has(message.payload.room_id)).length;
 
@@ -260,26 +278,30 @@ export class TeamRunControl {
 
     const existingTermination = asObject(run.payload.termination);
     const alreadyTerminal = TERMINAL_RUN_STATES.has(initialStatus);
-    if (!alreadyTerminal || existingTermination.state !== "completed" || this.hasTerminalResidue(run)) {
-      run = this.fenceTermination(run, outcome, actorId, reason, triggerTaskId);
+    if (alreadyTerminal && existingTermination.state === "completed" && !this.hasTerminalResidue(run)) {
+      return this.resultFromRun(run, outcome, true);
     }
+
+    const targets = this.captureTerminationTargets(run);
+    run = this.fenceTermination(run, outcome, actorId, reason, triggerTaskId);
     this.emitTerminationStarted(run, outcome, actorId, reason, triggerTaskId);
 
     const leaderId = String(run.payload.leader_id);
-    for (const task of this.runTasks(run)) {
-      if (TERMINAL_TASK_STATES.has(String(task.payload.status))) continue;
+    for (const taskId of targets.taskIds) {
+      const task = this.gateway.store.getObject(taskId);
+      if (!task || task.kind !== "task" || TERMINAL_TASK_STATES.has(String(task.payload.status))) continue;
       try {
         await this.taskCanceler.cancelTask(task.id, leaderId, `Team Run ${run.id} ${outcome}: ${reason}`);
       } catch {
-        // The terminal run fence already prevents new execution. A final CAS
-        // normalization below cancels any Task that lost a concurrent race.
+        // The terminal run fence already prevents new successful execution. The
+        // final CAS normalization below cancels any Task that lost a race.
       }
     }
 
     let result: TeamRunTerminationResult | null = null;
     for (let attempt = 0; attempt < OPTIMISTIC_RETRY_LIMIT; attempt += 1) {
       try {
-        result = this.normalizeTerminalState(run.id, outcome, actorId, reason, triggerTaskId, alreadyTerminal);
+        result = this.normalizeTerminalState(run.id, outcome, actorId, reason, triggerTaskId, alreadyTerminal, targets);
         break;
       } catch (error) {
         if (!isOptimisticConflict(error) || attempt === OPTIMISTIC_RETRY_LIMIT - 1) throw error;
@@ -351,7 +373,8 @@ export class TeamRunControl {
     actorId: string,
     reason: string,
     triggerTaskId: string | null,
-    alreadyTerminal: boolean
+    alreadyTerminal: boolean,
+    targets: TerminationTargets
   ): TeamRunTerminationResult {
     const run = this.requireRun(runId);
     const status = String(run.payload.status) as TeamRunStatus;
@@ -372,11 +395,29 @@ export class TeamRunControl {
       .filter((handoff) => taskIds.has(String(handoff.payload.task_id ?? handoff.payload.work_item_id ?? "")) && ACTIVE_HANDOFF_STATES.has(String(handoff.payload.status)));
     const capabilityLeases = this.gateway.store.listObjects("capability_lease", workspaceId)
       .filter((lease) => taskIds.has(String(lease.payload.task_id ?? "")) && lease.payload.termination_revoked_at === undefined);
-    const temporaryRooms = this.gateway.store.listObjects("room", workspaceId)
-      .filter((room) => room.payload.temporary === true && String(room.payload.run_id ?? asObject(room.payload.discussion).run_id ?? "") === run.id && String(room.payload.status) !== "closed");
-    const roomIds = new Set(temporaryRooms.map((room) => room.id));
+
+    const allWorkspaceTasks = this.gateway.store.listObjects("task", workspaceId);
+    const environmentLeases: StoredObject[] = [];
+    const sharedEnvironmentLeaseIds = new Set<string>(targets.sharedEnvironmentLeaseIds);
+    const environmentRefs = new Set<string>();
+    for (const task of tasks) if (typeof task.payload.environment_lease_id === "string") environmentRefs.add(task.payload.environment_lease_id);
+    for (const worker of workers) if (typeof worker.payload.environment_lease_id === "string") environmentRefs.add(worker.payload.environment_lease_id);
+    for (const leaseId of environmentRefs) {
+      const lease = this.gateway.store.getObject(leaseId);
+      if (!lease || lease.kind !== "environment_lease") continue;
+      const externalRef = allWorkspaceTasks.some((task) => task.payload.environment_lease_id === lease.id && String(task.payload.run_id ?? "") !== run.id);
+      if (externalRef) {
+        sharedEnvironmentLeaseIds.add(lease.id);
+        continue;
+      }
+      if (lease.payload.termination_revoked_at === undefined) environmentLeases.push(lease);
+    }
+
+    const allTemporaryRooms = this.runTemporaryRooms(run);
+    const temporaryRooms = allTemporaryRooms.filter((room) => String(room.payload.status) !== "closed");
+    const allRoomIds = new Set(allTemporaryRooms.map((room) => room.id));
     const temporaryThreads = this.gateway.store.listObjects("thread", workspaceId)
-      .filter((thread) => roomIds.has(String(thread.payload.room_id ?? "")) && String(thread.payload.status) !== "closed");
+      .filter((thread) => allRoomIds.has(String(thread.payload.room_id ?? "")) && String(thread.payload.status) !== "closed");
 
     const taskObjects = liveTasks.map((task) => ({
       kind: "task" as const,
@@ -431,6 +472,17 @@ export class TeamRunControl {
         revocation_reason: `Team Run ${run.id} ${outcome}: ${reason}`
       }, "capability_lease")
     }));
+    const environmentLeaseObjects = environmentLeases.map((lease) => ({
+      kind: "environment_lease" as const,
+      payload: validateProtocolObject({
+        ...lease.payload,
+        expires_at: timestamp,
+        revoked_at: timestamp,
+        termination_revoked_at: timestamp,
+        termination_run_id: run.id,
+        revocation_reason: `Team Run ${run.id} ${outcome}: ${reason}`
+      }, "environment_lease")
+    }));
     const roomObjects = temporaryRooms.map((room) => {
       const discussion = asObject(room.payload.discussion);
       return {
@@ -464,14 +516,17 @@ export class TeamRunControl {
 
     const snapshot = this.budgetSnapshot(run.id);
     const priorTermination = asObject(run.payload.termination);
+    const priorSummary = asObject(priorTermination.summary);
     const summary: JsonObject = {
-      task_ids_canceled: uniqueSorted(liveTasks.map((task) => task.id)),
-      worker_ids_canceled: uniqueSorted(liveWorkers.map((worker) => worker.id)),
-      approval_ids_canceled: uniqueSorted(pendingApprovals.map((approval) => approval.id)),
-      handoff_ids_canceled: uniqueSorted(activeHandoffs.map((handoff) => handoff.id)),
-      capability_lease_ids_revoked: uniqueSorted(capabilityLeases.map((lease) => lease.id)),
-      room_ids_closed: uniqueSorted(temporaryRooms.map((room) => room.id)),
-      thread_ids_closed: uniqueSorted(temporaryThreads.map((thread) => thread.id))
+      task_ids_canceled: uniqueSorted([...stringArray(priorSummary.task_ids_canceled), ...targets.taskIds, ...liveTasks.map((task) => task.id)]),
+      worker_ids_canceled: uniqueSorted([...stringArray(priorSummary.worker_ids_canceled), ...targets.workerIds, ...liveWorkers.map((worker) => worker.id)]),
+      approval_ids_canceled: uniqueSorted([...stringArray(priorSummary.approval_ids_canceled), ...targets.approvalIds, ...pendingApprovals.map((approval) => approval.id)]),
+      handoff_ids_canceled: uniqueSorted([...stringArray(priorSummary.handoff_ids_canceled), ...targets.handoffIds, ...activeHandoffs.map((handoff) => handoff.id)]),
+      capability_lease_ids_revoked: uniqueSorted([...stringArray(priorSummary.capability_lease_ids_revoked), ...targets.capabilityLeaseIds, ...capabilityLeases.map((lease) => lease.id)]),
+      environment_lease_ids_revoked: uniqueSorted([...stringArray(priorSummary.environment_lease_ids_revoked), ...targets.environmentLeaseIds, ...environmentLeases.map((lease) => lease.id)]),
+      shared_environment_lease_ids_preserved: uniqueSorted([...stringArray(priorSummary.shared_environment_lease_ids_preserved), ...sharedEnvironmentLeaseIds]),
+      room_ids_closed: uniqueSorted([...stringArray(priorSummary.room_ids_closed), ...targets.roomIds, ...temporaryRooms.map((room) => room.id)]),
+      thread_ids_closed: uniqueSorted([...stringArray(priorSummary.thread_ids_closed), ...targets.threadIds, ...temporaryThreads.map((thread) => thread.id)])
     };
     const updatedRun = validateProtocolObject({
       ...run.payload,
@@ -506,6 +561,7 @@ export class TeamRunControl {
       ...pendingApprovals.map((approval) => ({ id: approval.id, kind: "approval" as const, status: "pending", updatedAt: approval.updatedAt })),
       ...activeHandoffs.map((handoff) => ({ id: handoff.id, kind: "handoff" as const, status: String(handoff.payload.status), updatedAt: handoff.updatedAt })),
       ...capabilityLeases.map((lease) => ({ id: lease.id, kind: "capability_lease" as const, updatedAt: lease.updatedAt })),
+      ...environmentLeases.map((lease) => ({ id: lease.id, kind: "environment_lease" as const, updatedAt: lease.updatedAt })),
       ...temporaryRooms.map((room) => ({ id: room.id, kind: "room" as const, status: String(room.payload.status), updatedAt: room.updatedAt })),
       ...temporaryThreads.map((thread) => ({ id: thread.id, kind: "thread" as const, status: String(thread.payload.status), updatedAt: thread.updatedAt }))
     ];
@@ -518,23 +574,61 @@ export class TeamRunControl {
         ...approvalObjects,
         ...handoffObjects,
         ...leaseObjects,
+        ...environmentLeaseObjects,
         ...roomObjects,
         ...threadObjects
       ],
       events: []
     });
 
+    const stored = this.requireRun(run.id);
+    return this.resultFromRun(stored, outcome, alreadyTerminal);
+  }
+
+  private captureTerminationTargets(run: StoredObject): TerminationTargets {
+    const tasks = this.runTasks(run);
+    const taskIds = new Set(tasks.map((task) => task.id));
+    const workers = this.teams.listWorkers(run.id);
+    const workspaceId = String(run.payload.workspace_id);
+    const capabilityLeaseIds = this.gateway.store.listObjects("capability_lease", workspaceId)
+      .filter((lease) => taskIds.has(String(lease.payload.task_id ?? "")) && lease.payload.termination_revoked_at === undefined)
+      .map((lease) => lease.id);
+
+    const environmentRefs = new Set<string>();
+    for (const task of tasks) if (typeof task.payload.environment_lease_id === "string") environmentRefs.add(task.payload.environment_lease_id);
+    for (const worker of workers) if (typeof worker.payload.environment_lease_id === "string") environmentRefs.add(worker.payload.environment_lease_id);
+    const allWorkspaceTasks = this.gateway.store.listObjects("task", workspaceId);
+    const environmentLeaseIds: string[] = [];
+    const sharedEnvironmentLeaseIds: string[] = [];
+    for (const leaseId of environmentRefs) {
+      const lease = this.gateway.store.getObject(leaseId);
+      if (!lease || lease.kind !== "environment_lease") continue;
+      const externalRef = allWorkspaceTasks.some((task) => task.payload.environment_lease_id === lease.id && String(task.payload.run_id ?? "") !== run.id);
+      if (externalRef) sharedEnvironmentLeaseIds.push(lease.id);
+      else if (lease.payload.termination_revoked_at === undefined) environmentLeaseIds.push(lease.id);
+    }
+
+    const allRooms = this.runTemporaryRooms(run);
+    const roomIds = allRooms.filter((room) => String(room.payload.status) !== "closed").map((room) => room.id);
+    const allRoomIds = new Set(allRooms.map((room) => room.id));
+    const threadIds = this.gateway.store.listObjects("thread", workspaceId)
+      .filter((thread) => allRoomIds.has(String(thread.payload.room_id ?? "")) && String(thread.payload.status) !== "closed")
+      .map((thread) => thread.id);
+
     return {
-      run: this.requireRun(run.id),
-      outcome,
-      task_ids_canceled: uniqueSorted(liveTasks.map((task) => task.id)),
-      worker_ids_canceled: uniqueSorted(liveWorkers.map((worker) => worker.id)),
-      approval_ids_canceled: uniqueSorted(pendingApprovals.map((approval) => approval.id)),
-      handoff_ids_canceled: uniqueSorted(activeHandoffs.map((handoff) => handoff.id)),
-      capability_lease_ids_revoked: uniqueSorted(capabilityLeases.map((lease) => lease.id)),
-      room_ids_closed: uniqueSorted(temporaryRooms.map((room) => room.id)),
-      thread_ids_closed: uniqueSorted(temporaryThreads.map((thread) => thread.id)),
-      already_terminal: alreadyTerminal
+      taskIds: tasks.filter((task) => !TERMINAL_TASK_STATES.has(String(task.payload.status))).map((task) => task.id),
+      workerIds: workers.filter((worker) => !TERMINAL_WORKER_STATES.has(String(worker.payload.status) as WorkerStatus)).map((worker) => worker.id),
+      approvalIds: this.gateway.store.listObjects("approval", workspaceId)
+        .filter((approval) => taskIds.has(String(approval.payload.task_id ?? "")) && approval.payload.status === "pending")
+        .map((approval) => approval.id),
+      handoffIds: this.gateway.store.listObjects("handoff", workspaceId)
+        .filter((handoff) => taskIds.has(String(handoff.payload.task_id ?? handoff.payload.work_item_id ?? "")) && ACTIVE_HANDOFF_STATES.has(String(handoff.payload.status)))
+        .map((handoff) => handoff.id),
+      capabilityLeaseIds,
+      environmentLeaseIds,
+      sharedEnvironmentLeaseIds,
+      roomIds,
+      threadIds
     };
   }
 
@@ -570,9 +664,29 @@ export class TeamRunControl {
     if (this.gateway.store.listObjects("handoff", run.workspaceId ?? undefined).some((handoff) => taskIds.has(String(handoff.payload.task_id ?? handoff.payload.work_item_id ?? "")) && ACTIVE_HANDOFF_STATES.has(String(handoff.payload.status)))) return true;
     if (objectArray(run.payload.fanouts).some((fanout) => ACTIVE_FANOUT_STATES.has(String(fanout.status)))) return true;
     if (typeof run.payload.active_fanout_id === "string" || typeof run.payload.active_verification_task_id === "string" || typeof run.payload.active_synthesis_task_id === "string") return true;
-    return this.gateway.store.listObjects("room", run.workspaceId ?? undefined).some((room) => room.payload.temporary === true
-      && String(room.payload.run_id ?? asObject(room.payload.discussion).run_id ?? "") === run.id
-      && String(room.payload.status) !== "closed");
+    if (this.gateway.store.listObjects("capability_lease", run.workspaceId ?? undefined).some((lease) => taskIds.has(String(lease.payload.task_id ?? "")) && isLeaseActive(lease))) return true;
+
+    const allWorkspaceTasks = this.gateway.store.listObjects("task", run.workspaceId ?? undefined);
+    const environmentRefs = new Set<string>();
+    for (const task of tasks) if (typeof task.payload.environment_lease_id === "string") environmentRefs.add(task.payload.environment_lease_id);
+    for (const worker of this.teams.listWorkers(run.id)) if (typeof worker.payload.environment_lease_id === "string") environmentRefs.add(worker.payload.environment_lease_id);
+    for (const leaseId of environmentRefs) {
+      const lease = this.gateway.store.getObject(leaseId);
+      if (!lease || lease.kind !== "environment_lease" || !isLeaseActive(lease)) continue;
+      const externalRef = allWorkspaceTasks.some((task) => task.payload.environment_lease_id === lease.id && String(task.payload.run_id ?? "") !== run.id);
+      if (!externalRef) return true;
+    }
+
+    const allRooms = this.runTemporaryRooms(run);
+    if (allRooms.some((room) => String(room.payload.status) !== "closed")) return true;
+    const roomIds = new Set(allRooms.map((room) => room.id));
+    return this.gateway.store.listObjects("thread", run.workspaceId ?? undefined)
+      .some((thread) => roomIds.has(String(thread.payload.room_id ?? "")) && String(thread.payload.status) !== "closed");
+  }
+
+  private runTemporaryRooms(run: StoredObject): StoredObject[] {
+    return this.gateway.store.listObjects("room", String(run.payload.workspace_id))
+      .filter((room) => room.payload.temporary === true && String(room.payload.run_id ?? asObject(room.payload.discussion).run_id ?? "") === run.id);
   }
 
   private runTasks(run: StoredObject): StoredObject[] {
@@ -590,6 +704,8 @@ export class TeamRunControl {
       approval_ids_canceled: stringArray(summary.approval_ids_canceled),
       handoff_ids_canceled: stringArray(summary.handoff_ids_canceled),
       capability_lease_ids_revoked: stringArray(summary.capability_lease_ids_revoked),
+      environment_lease_ids_revoked: stringArray(summary.environment_lease_ids_revoked),
+      shared_environment_lease_ids_preserved: stringArray(summary.shared_environment_lease_ids_preserved),
       room_ids_closed: stringArray(summary.room_ids_closed),
       thread_ids_closed: stringArray(summary.thread_ids_closed),
       already_terminal: alreadyTerminal
