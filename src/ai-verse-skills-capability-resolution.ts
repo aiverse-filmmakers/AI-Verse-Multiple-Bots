@@ -41,21 +41,21 @@ const capabilities = [];
 for (const requestedRef of refs) {
   const result = module.selectCapability({
     osRoot,
-    scope: `workspace:${workspaceId}`,
+    scope: "workspace:" + workspaceId,
     query: requestedRef,
     limit: 200
   });
   if (!result || result.status !== "selected" || !result.selection) {
     const reason = result && typeof result.reason === "string" ? result.reason : "capability unavailable";
-    throw new Error(`[CAPABILITY_UNAVAILABLE] ${requestedRef}: ${reason}`);
+    throw new Error("[CAPABILITY_UNAVAILABLE] " + requestedRef + ": " + reason);
   }
   const selection = result.selection;
   const packagePath = selection.locator && selection.locator.package_path;
   if (typeof packagePath !== "string" || !packagePath) {
-    throw new Error(`[RESOLVER_CONTRACT_INVALID] ${requestedRef} has no package locator`);
+    throw new Error("[RESOLVER_CONTRACT_INVALID] " + requestedRef + " has no package locator");
   }
   if (!selection.digest || selection.digest.algorithm !== "aiverse-package-sha256-v1" || typeof selection.digest.value !== "string") {
-    throw new Error(`[RESOLVER_CONTRACT_INVALID] ${requestedRef} has unsupported package digest`);
+    throw new Error("[RESOLVER_CONTRACT_INVALID] " + requestedRef + " has unsupported package digest");
   }
   let instructions;
   try {
@@ -67,7 +67,7 @@ for (const requestedRef of refs) {
     const realPackage = fs.realpathSync(packagePath);
     const realSkill = fs.realpathSync(skillPath);
     const rel = path.relative(realPackage, realSkill);
-    if (!rel || rel === ".." || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel) || !fs.statSync(realSkill).isFile()) {
+    if (!rel || rel === ".." || rel.startsWith(".." + path.sep) || path.isAbsolute(rel) || !fs.statSync(realSkill).isFile()) {
       throw new Error("SKILL.md escapes its selected package");
     }
     instructions = fs.readFileSync(realSkill, "utf8");
@@ -76,7 +76,8 @@ for (const requestedRef of refs) {
       throw new Error("package digest changed while instructions were being loaded");
     }
   } catch (error) {
-    throw new Error(`[PACKAGE_INTEGRITY_FAILED] ${requestedRef}: ${error instanceof Error ? error.message : String(error)}`);
+    const detail = error && typeof error.message === "string" ? error.message : String(error);
+    throw new Error("[PACKAGE_INTEGRITY_FAILED] " + requestedRef + ": " + detail);
   }
   capabilities.push({
     requested_ref: requestedRef,
@@ -103,7 +104,7 @@ process.stdout.write(JSON.stringify({
   workspace_id: workspaceId,
   capabilities
 }));
-`;
+`
 
 export interface AiVerseSkillsCapabilityResolutionOptions {
   timeoutMs?: number;
