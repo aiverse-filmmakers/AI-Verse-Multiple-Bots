@@ -5,6 +5,7 @@ import type { RecoveryPolicy } from "./execution-queue.js";
 import { ExecutionQueue } from "./execution-queue.js";
 import { CoordinationGateway } from "./gateway.js";
 import { BotRunner } from "./runner.js";
+import { parseTaskSkillRefs } from "./skills-capability-runtime.js";
 import { TeamRunCoordinator, type TeamRunStatus } from "./team-runs.js";
 import type { CoordinationEvent, JsonObject, StoredObject } from "./types.js";
 import { validateProtocolObject } from "./validator.js";
@@ -37,6 +38,7 @@ export interface FanoutWorkerInput {
   requiredConstraints?: string[];
   expectedOutput?: JsonObject;
   inputArtifactRefs?: string[];
+  skillRefs?: string[];
   tools?: string[];
   connections?: string[];
   parentTaskId?: string;
@@ -584,7 +586,9 @@ export class TeamRunFanout {
   private planWorker(run: StoredObject, leader: StoredObject, spec: FanoutWorkerInput, budget: BudgetEnvelope, fanoutId: string): PlannedWorker {
     if (!spec.roleTitle.trim()) throw new Error("Worker role title cannot be empty");
     if (!spec.objective.trim()) throw new Error("Worker objective cannot be empty");
-    this.assertLeaderAuthority(leader, spec.tools ?? [], spec.connections ?? []);
+    const workspaceId = String(run.payload.workspace_id);
+    const skillRefs = parseTaskSkillRefs(spec.skillRefs, workspaceId);
+    this.assertLeaderAuthority(leader, spec.tools ?? [], spec.connections ?? [], skillRefs);
 
     const workerId = spec.workerId ?? createId("worker");
     if (!workerId.startsWith("worker_")) throw new Error(`Temporary Worker ID must start with worker_: ${workerId}`);
@@ -600,6 +604,7 @@ export class TeamRunFanout {
       requiredConstraints: spec.requiredConstraints,
       tools: spec.tools,
       connections: spec.connections,
+      skillRefs,
       parentTaskId: spec.parentTaskId,
       maxHops: spec.maxHops,
       deadlineAt: spec.deadlineAt,
@@ -650,6 +655,7 @@ export class TeamRunFanout {
       constraints_digest: constraintsDigest(requiredConstraints),
       expected_output: spec.expectedOutput ?? { contract: "artifact-or-structured-result" },
       input_artifact_refs: artifactRefs,
+      ...(skillRefs.length > 0 ? { skill_refs: skillRefs } : {}),
       lease_id: leaseId,
       environment_lease_id: null,
       response_target: { kind: "bot", id: String(run.payload.leader_id) },
@@ -676,6 +682,7 @@ export class TeamRunFanout {
       workspace_id: String(run.payload.workspace_id),
       role: { title: spec.roleTitle.trim(), objective: spec.objective.trim() },
       runtime: spec.runtime ?? {},
+      ...(skillRefs.length > 0 ? { capabilities: { skill_refs: skillRefs } } : {}),
       capability_lease_id: leaseId,
       environment_lease_id: null,
       budget: prepared.budget,
@@ -808,7 +815,7 @@ export class TeamRunFanout {
     }
   }
 
-  private assertLeaderAuthority(leader: StoredObject, tools: string[], connections: string[]): void {
+  private assertLeaderAuthority(leader: StoredObject, tools: string[], connections: string[], skillRefs: string[] = []): void {
     const permissions = asObject(leader.payload.permissions);
     const allowedTools = Array.isArray(permissions.allowed_tools) ? stringArray(permissions.allowed_tools) : null;
     const allowedConnections = Array.isArray(permissions.allowed_connections) ? stringArray(permissions.allowed_connections) : null;
@@ -818,6 +825,8 @@ export class TeamRunFanout {
     if (allowedConnections && !allowedConnections.includes("*")) {
       for (const connection of connections) if (!allowedConnections.includes(connection)) throw new Error(`Fan-out Worker cannot expand leader connection authority to ${connection}`);
     }
+    const declaredSkills = new Set(stringArray(asObject(leader.payload.capabilities).skill_refs));
+    for (const skillRef of skillRefs) if (!declaredSkills.has(skillRef)) throw new Error(`Fan-out Worker cannot use undeclared leader skill capability ${skillRef}`);
   }
 
   private validateInputArtifacts(refs: string[], workspaceId: string): string[] {

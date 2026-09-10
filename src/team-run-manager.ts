@@ -6,6 +6,7 @@ import { ExecutionQueue } from "./execution-queue.js";
 import { CoordinationGateway } from "./gateway.js";
 import { parseTaskMemoryRecallRequest } from "./memory-recall-runtime.js";
 import type { HistoricalRecallRequest } from "./runtime.js";
+import { parseTaskSkillRefs } from "./skills-capability-runtime.js";
 import { BotRunner } from "./runner.js";
 import { TeamRunCoordinator, type TeamRunStatus } from "./team-runs.js";
 import type { JsonObject, StoredObject } from "./types.js";
@@ -34,6 +35,7 @@ export interface ManagedWorkerTaskInput {
   expectedOutput?: JsonObject;
   inputArtifactRefs?: string[];
   memoryRecall?: HistoricalRecallRequest;
+  skillRefs?: string[];
   tools?: string[];
   connections?: string[];
   parentTaskId?: string;
@@ -74,9 +76,11 @@ export class TeamRunManager {
     if (leaderId !== input.createdBy) throw new Error(`Only Team Run leader ${leaderId} can create managed Worker Tasks`);
     const leader = this.gateway.getBot(leaderId);
     if (!leader || leader.payload.status !== "active") throw new Error(`Team Run leader ${leaderId} is not active`);
+    const workspaceId = String(run.payload.workspace_id);
+    const skillRefs = parseTaskSkillRefs(input.skillRefs, workspaceId);
 
     this.assertNoLiveManagedWorker(run.id);
-    this.assertLeaderAuthority(leader, input.tools ?? [], input.connections ?? []);
+    this.assertLeaderAuthority(leader, input.tools ?? [], input.connections ?? [], skillRefs);
     const effectiveBudget = inheritBudget(run.payload.budget, input.budget);
     const workerCreated = this.teams.createWorker({
       runId: run.id,
@@ -86,6 +90,7 @@ export class TeamRunManager {
       objective: input.objective,
       runtime: input.runtime,
       execution: input.execution,
+      skillRefs,
       budget: effectiveBudget
     });
     const worker = workerCreated.worker;
@@ -100,6 +105,7 @@ export class TeamRunManager {
         requiredConstraints: input.requiredConstraints,
         tools: input.tools,
         connections: input.connections,
+        skillRefs,
         parentTaskId: input.parentTaskId,
         maxHops: input.maxHops,
         deadlineAt: input.deadlineAt,
@@ -149,6 +155,7 @@ export class TeamRunManager {
         expected_output: input.expectedOutput ?? { contract: "artifact-or-structured-result" },
         input_artifact_refs: artifactRefs,
         ...(memoryRecall ? { memory_recall: memoryRecall } : {}),
+        ...(skillRefs.length > 0 ? { skill_refs: skillRefs } : {}),
         lease_id: leaseId,
         environment_lease_id: null,
         response_target: { kind: "bot", id: leaderId },
@@ -256,7 +263,7 @@ export class TeamRunManager {
     }
   }
 
-  private assertLeaderAuthority(leader: StoredObject, tools: string[], connections: string[]): void {
+  private assertLeaderAuthority(leader: StoredObject, tools: string[], connections: string[], skillRefs: string[] = []): void {
     const permissions = asObject(leader.payload.permissions);
     const allowedTools = Array.isArray(permissions.allowed_tools) ? stringArray(permissions.allowed_tools) : null;
     const allowedConnections = Array.isArray(permissions.allowed_connections) ? stringArray(permissions.allowed_connections) : null;
@@ -266,6 +273,8 @@ export class TeamRunManager {
     if (allowedConnections && !allowedConnections.includes("*")) {
       for (const connection of connections) if (!allowedConnections.includes(connection)) throw new Error(`Managed Worker cannot expand leader connection authority to ${connection}`);
     }
+    const declaredSkills = new Set(stringArray(asObject(leader.payload.capabilities).skill_refs));
+    for (const skillRef of skillRefs) if (!declaredSkills.has(skillRef)) throw new Error(`Managed Worker cannot use undeclared leader skill capability ${skillRef}`);
   }
 
   private validateInputArtifacts(refs: string[], workspaceId: string): string[] {

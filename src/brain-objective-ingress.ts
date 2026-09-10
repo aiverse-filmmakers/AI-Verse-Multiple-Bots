@@ -6,6 +6,7 @@ import { normalizeBudget, type BudgetEnvelope } from "./budget.js";
 import { constraintsDigest, normalizeConstraints } from "./constraints.js";
 import { ExecutionQueue } from "./execution-queue.js";
 import { CoordinationGateway, type ApprovalRequirement } from "./gateway.js";
+import { parseTaskSkillRefs } from "./skills-capability-runtime.js";
 import { CoordinationStore } from "./store.js";
 import type { CoordinationEvent, JsonObject, StoredObject } from "./types.js";
 import { validateProtocolObject } from "./validator.js";
@@ -61,6 +62,7 @@ export interface BrainObjectiveIngressInput {
   reason?: string;
   tools?: string[];
   connections?: string[];
+  skillRefs?: string[];
   budget?: BudgetEnvelope;
   maxHops?: number;
   deadlineAt?: string;
@@ -521,6 +523,7 @@ export class BrainObjectiveIngress {
     const objective = requireText(projection.data.objective, "projected Brain objective");
     const tools = [...new Set((input.tools ?? []).map(String).map((value) => value.trim()).filter(Boolean))].sort();
     const connections = [...new Set((input.connections ?? []).map(String).map((value) => value.trim()).filter(Boolean))].sort();
+    const skillRefs = parseTaskSkillRefs(input.skillRefs, input.workspaceId);
     const budget = normalizeBudget(input.budget);
     const rootObjectiveId = projection.root_objective_id;
     const ingressDigest = digestValue({
@@ -548,6 +551,7 @@ export class BrainObjectiveIngress {
       workspace_id: input.workspaceId,
       tools,
       connections,
+      skill_refs: skillRefs,
       budget,
       max_hops: input.maxHops ?? null,
       deadline_at: input.deadlineAt ?? null,
@@ -561,7 +565,7 @@ export class BrainObjectiveIngress {
     });
 
     const existing = this.store.getObject(taskId);
-    if (existing) return this.existingResult(existing, projection, input, leaseId, approvalId, tools, connections, budget, requiredConstraints, requestContractDigest);
+    if (existing) return this.existingResult(existing, projection, input, leaseId, approvalId, tools, connections, skillRefs, budget, requiredConstraints, requestContractDigest);
 
     const prepared = policy.prepareDelegation({
       createdBy: AI_VERSE_BRAIN_INGRESS_ACTOR,
@@ -572,6 +576,7 @@ export class BrainObjectiveIngress {
       requiredConstraints,
       tools,
       connections,
+      skillRefs,
       maxHops: input.maxHops,
       deadlineAt: input.deadlineAt,
       budget
@@ -611,6 +616,7 @@ export class BrainObjectiveIngress {
         strategic_intent_runtime_required: true
       },
       input_artifact_refs: [],
+      ...(skillRefs.length > 0 ? { skill_refs: skillRefs } : {}),
       lease_id: leaseId,
       environment_lease_id: null,
       response_target: null,
@@ -699,7 +705,7 @@ export class BrainObjectiveIngress {
     } catch (error) {
       const raced = this.store.getObject(taskId);
       if (!raced) throw error;
-      return this.existingResult(raced, projection, input, leaseId, approvalId, tools, connections, budget, requiredConstraints, requestContractDigest);
+      return this.existingResult(raced, projection, input, leaseId, approvalId, tools, connections, skillRefs, budget, requiredConstraints, requestContractDigest);
     }
 
     if (!approvalRequired) this.queue.enqueueTask(taskId, input.leaderId, input.workspaceId);
@@ -718,6 +724,7 @@ export class BrainObjectiveIngress {
     approvalId: string,
     tools: string[],
     connections: string[],
+    skillRefs: string[],
     budget: BudgetEnvelope,
     requiredConstraints: string[],
     requestContractDigest: string
@@ -738,10 +745,12 @@ export class BrainObjectiveIngress {
     const expectedBudget = normalizeBudget(task.payload.budget);
     const storedTools = Array.isArray(lease.payload.tools) ? lease.payload.tools.map(String).sort() : [];
     const storedConnections = Array.isArray(lease.payload.connections) ? lease.payload.connections.map(String).sort() : [];
+    const storedSkillRefs = Array.isArray(task.payload.skill_refs) ? task.payload.skill_refs.map(String).sort() : [];
     const storedConstraints = Array.isArray(task.payload.required_constraints) ? task.payload.required_constraints.map(String).sort() : [];
     if (JSON.stringify(expectedBudget) !== JSON.stringify(budget)
       || JSON.stringify(storedTools) !== JSON.stringify(tools)
       || JSON.stringify(storedConnections) !== JSON.stringify(connections)
+      || JSON.stringify(storedSkillRefs) !== JSON.stringify(skillRefs)
       || JSON.stringify(storedConstraints) !== JSON.stringify([...requiredConstraints].sort())) {
       throw new BrainObjectiveIngressError("BRAIN_INGRESS_CONFLICT", `Brain objective ${projection.objective_id} was already ingressed with different authority, constraints, or budget`);
     }

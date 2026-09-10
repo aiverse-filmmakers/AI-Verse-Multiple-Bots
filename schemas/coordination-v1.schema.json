@@ -241,6 +241,13 @@
         },
         "runtime": { "type": "object", "additionalProperties": true },
         "execution": { "$ref": "#/$defs/Execution" },
+        "capabilities": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "skill_refs": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 256 }, "maxItems": 12, "uniqueItems": true }
+          }
+        },
         "capability_lease_id": { "type": ["string", "null"] },
         "environment_lease_id": { "type": ["string", "null"] },
         "status": {
@@ -386,6 +393,7 @@
         "expected_output": { "type": "object", "additionalProperties": true, "minProperties": 1 },
         "input_artifact_refs": { "type": "array", "items": { "$ref": "#/$defs/Id" }, "uniqueItems": true },
         "output_artifact_refs": { "type": "array", "items": { "$ref": "#/$defs/Id" }, "uniqueItems": true },
+        "skill_refs": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 256 }, "maxItems": 12, "uniqueItems": true },
         "lease_id": { "$ref": "#/$defs/Id" },
         "environment_lease_id": { "type": ["string", "null"] },
         "approval_id": { "type": ["string", "null"] },

@@ -5,6 +5,7 @@ import { createId } from "./id.js";
 import { ExecutionQueue } from "./execution-queue.js";
 import { parseTaskMemoryRecallRequest } from "./memory-recall-runtime.js";
 import { CoordinationPolicy } from "./policy.js";
+import { parseTaskSkillRefs } from "./skills-capability-runtime.js";
 import type { HistoricalRecallRequest } from "./runtime.js";
 import { CoordinationStore } from "./store.js";
 import type { AppendedEvent, BotManifest, CoordinationEvent, DeliveryRecord, JsonObject, StoredObject } from "./types.js";
@@ -57,6 +58,7 @@ export interface DelegateInput {
   requiredConstraints?: string[];
   expectedOutput?: JsonObject;
   memoryRecall?: HistoricalRecallRequest;
+  skillRefs?: string[];
   tools?: string[];
   connections?: string[];
   parentTaskId?: string;
@@ -183,6 +185,7 @@ export class CoordinationGateway {
 
   delegate(input: DelegateInput): { task: StoredObject; lease: StoredObject; approval: StoredObject | null; event: AppendedEvent } {
     const memoryRecall = parseTaskMemoryRecallRequest(input.memoryRecall);
+    const skillRefs = parseTaskSkillRefs(input.skillRefs, input.workspaceId);
     const prepared = this.policy?.prepareDelegation({
       createdBy: input.createdBy,
       assigneeId: input.assigneeId,
@@ -192,6 +195,7 @@ export class CoordinationGateway {
       requiredConstraints: input.requiredConstraints,
       tools: input.tools,
       connections: input.connections,
+      skillRefs,
       parentTaskId: input.parentTaskId,
       hop: input.hop,
       maxHops: input.maxHops,
@@ -242,6 +246,7 @@ export class CoordinationGateway {
       expected_output: input.expectedOutput ?? { contract: "artifact-or-structured-result" },
       input_artifact_refs: [],
       ...(memoryRecall ? { memory_recall: memoryRecall } : {}),
+      ...(skillRefs.length > 0 ? { skill_refs: skillRefs } : {}),
       lease_id: leaseId,
       environment_lease_id: null,
       response_target: input.responseTarget ?? null,
@@ -426,6 +431,7 @@ export class CoordinationGateway {
       workspaceId: input.workspaceId,
       tools: stringArray(sourceLease.payload.tools),
       connections: stringArray(sourceLease.payload.connections),
+      skillRefs: stringArray(task.payload.skill_refs),
       environmentPolicy
     });
 
@@ -532,6 +538,7 @@ export class CoordinationGateway {
       workspaceId,
       tools: stringArray(sourceLease.payload.tools),
       connections: stringArray(sourceLease.payload.connections),
+      skillRefs: stringArray(task.payload.skill_refs),
       environmentPolicy
     });
 

@@ -3,6 +3,7 @@ import { URL } from "node:url";
 import { AiVerseBrainObjectiveSource, BrainObjectiveIngress } from "./brain-objective-ingress.js";
 import { BrainObjectiveRuntimeRegistry } from "./brain-objective-runtime.js";
 import { AiVerseMemoryRecallSource } from "./ai-verse-memory-recall.js";
+import { AiVerseSkillsCapabilitySource } from "./ai-verse-skills-capability-resolution.js";
 import { AiVerseOsWorkspaceProjector } from "./ai-verse-os-workspace-projection.js";
 import { delegateWithArtifacts } from "./artifact-delegation.js";
 import type { BudgetEnvelope } from "./budget.js";
@@ -15,6 +16,7 @@ import { CoordinationPolicy } from "./policy.js";
 import { RoomCoordinator } from "./rooms.js";
 import { BotRunner } from "./runner.js";
 import { DeterministicRuntimeAdapter, RuntimeRegistry } from "./runtime.js";
+import { SkillsCapabilityRuntimeRegistry } from "./skills-capability-runtime.js";
 import { CoordinationStore } from "./store.js";
 import { ExecutionSupervisor } from "./supervisor.js";
 
@@ -84,6 +86,7 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
   const workspaceProjector = options.aiVerseOsRoot ? new AiVerseOsWorkspaceProjector(options.aiVerseOsRoot) : undefined;
   const brainObjectiveSource = options.aiVerseOsRoot ? new AiVerseBrainObjectiveSource(options.aiVerseOsRoot) : undefined;
   const memoryRecallSource = options.aiVerseOsRoot ? new AiVerseMemoryRecallSource(options.aiVerseOsRoot) : undefined;
+  const skillsCapabilitySource = options.aiVerseOsRoot ? new AiVerseSkillsCapabilitySource(options.aiVerseOsRoot) : undefined;
   const store = new CoordinationStore(options.dbPath ?? "runtime/ai-verse-bots/coordination.db");
   const executionQueue = new ExecutionQueue(store.dbPath);
   const policy = new CoordinationPolicy(store, { requireRegisteredBots: true });
@@ -92,7 +95,8 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
   const baseRuntimes = new RuntimeRegistry()
     .register(new DeterministicRuntimeAdapter())
     .register(new OpenAICompatibleRuntimeAdapter());
-  const memoryRuntimes = new MemoryRecallRuntimeRegistry(baseRuntimes, memoryRecallSource);
+  const skillsRuntimes = new SkillsCapabilityRuntimeRegistry(baseRuntimes, skillsCapabilitySource);
+  const memoryRuntimes = new MemoryRecallRuntimeRegistry(skillsRuntimes, memoryRecallSource);
   const runtimes = brainObjectiveSource
     ? new BrainObjectiveRuntimeRegistry(memoryRuntimes, brainObjectiveSource)
     : memoryRuntimes;
@@ -198,6 +202,7 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
           reason: typeof body.reason === "string" ? body.reason : undefined,
           tools: Array.isArray(body.tools) ? body.tools.map(String) : [],
           connections: Array.isArray(body.connections) ? body.connections.map(String) : [],
+          skillRefs: Array.isArray(body.skillRefs) ? body.skillRefs.map(String) : [],
           maxHops: typeof body.maxHops === "number" ? body.maxHops : undefined,
           leaseExpiresAt: typeof body.leaseExpiresAt === "string" ? body.leaseExpiresAt : undefined,
           deadlineAt: typeof body.deadlineAt === "string" ? body.deadlineAt : undefined,
@@ -380,6 +385,7 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
           expectedOutput: typeof body.expectedOutput === "object" && body.expectedOutput !== null ? body.expectedOutput as JsonObject : undefined,
           inputArtifactRefs: Array.isArray(body.inputArtifactRefs) ? body.inputArtifactRefs.map(String) : [],
           memoryRecall: body.memoryRecall,
+          skillRefs: body.skillRefs,
           tools: Array.isArray(body.tools) ? body.tools.map(String) : [],
           connections: Array.isArray(body.connections) ? body.connections.map(String) : [],
           parentTaskId: typeof body.parentTaskId === "string" ? body.parentTaskId : undefined,
@@ -502,6 +508,7 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
     brainObjectiveSource,
     brainIngress,
     memoryRecallSource,
+    skillsCapabilitySource,
     supervisor,
     recovery: supervisor.recovery,
     server,

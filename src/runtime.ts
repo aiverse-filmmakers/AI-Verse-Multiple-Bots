@@ -75,6 +75,45 @@ export interface HistoricalRecallSource {
   recall(workspaceId: string, request: HistoricalRecallRequest): Promise<HistoricalRecallProjection>;
 }
 
+export interface ResolvedSkillCapability extends JsonObject {
+  requested_ref: string;
+  id: string;
+  name: string;
+  description: string;
+  provider: string;
+  visibility: string;
+  version: string;
+  generation_id: string;
+  path: string;
+  digest_algorithm: string;
+  digest: string;
+  readiness: string;
+  permission: string;
+  approval: string;
+  operators: string[];
+  dependencies: string[];
+  instructions: string;
+  instruction_digest: string;
+}
+
+/**
+ * Ephemeral task-scoped skill instructions resolved by the host capability resolver.
+ * Resolution never grants tool, connection, permission, or approval authority.
+ */
+export interface SkillsCapabilityProjection {
+  schema_version: "1.0";
+  provider: string;
+  workspace_id: string;
+  request_digest: string;
+  resolution_digest: string;
+  resolved_at: string;
+  capabilities: ResolvedSkillCapability[];
+}
+
+export interface SkillsCapabilitySource {
+  resolve(workspaceId: string, skillRefs: string[]): Promise<SkillsCapabilityProjection>;
+}
+
 export interface RuntimeExecutionContext {
   /** Canonical execution identity. Durable Bots and temporary Workers both use this field. */
   principal: StoredObject;
@@ -93,6 +132,8 @@ export interface RuntimeExecutionContext {
   strategicIntent?: StrategicIntentProjection | null;
   /** Ephemeral, lower-authority historical evidence returned only for an explicit Task recall request. */
   historicalRecall?: HistoricalRecallProjection | null;
+  /** Ephemeral task-scoped method instructions selected by the host capability resolver. Never an authority grant. */
+  skillsCapabilityResolution?: SkillsCapabilityProjection | null;
   signal: AbortSignal;
 }
 
@@ -158,6 +199,9 @@ export class DeterministicRuntimeAdapter implements RuntimeAdapter {
           : {}),
         ...(context.historicalRecall
           ? { historical_recall_digest: context.historicalRecall.recall_digest }
+          : {}),
+        ...(context.skillsCapabilityResolution
+          ? { skills_capability_resolution_digest: context.skillsCapabilityResolution.resolution_digest }
           : {}),
         result: `Completed: ${objective}`
       },

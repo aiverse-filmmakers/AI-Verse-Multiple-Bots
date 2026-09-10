@@ -4,6 +4,7 @@ import { createId } from "./id.js";
 import { ExecutionQueue, type RecoveryPolicy } from "./execution-queue.js";
 import { CoordinationGateway } from "./gateway.js";
 import { BotRunner } from "./runner.js";
+import { parseTaskSkillRefs } from "./skills-capability-runtime.js";
 import { TeamRunCoordinator, type TeamRunStatus, type WorkerStatus } from "./team-runs.js";
 import type { JsonObject, StoredObject } from "./types.js";
 import { validateProtocolObject } from "./validator.js";
@@ -56,6 +57,7 @@ export interface DiscussionSpeakerInput {
   workerId?: string;
   runtime?: JsonObject;
   execution?: JsonObject;
+  skillRefs?: string[];
   tools?: string[];
   connections?: string[];
   budget?: BudgetEnvelope;
@@ -120,7 +122,8 @@ export class TeamRunDiscussion {
     if (new Set(speakerKeys).size !== speakerKeys.length) throw new Error("Discussion speaker keys must be unique");
     for (const speaker of input.speakers) {
       if (!speaker.roleTitle.trim() || !speaker.objective.trim()) throw new Error(`Discussion speaker ${speaker.key} requires roleTitle and objective`);
-      this.assertLeaderAuthority(leader, speaker.tools ?? [], speaker.connections ?? []);
+      const skillRefs = parseTaskSkillRefs(speaker.skillRefs, String(run.payload.workspace_id));
+      this.assertLeaderAuthority(leader, speaker.tools ?? [], speaker.connections ?? [], skillRefs);
     }
 
     const existingOpen = this.gateway.store.listObjects("room", String(run.payload.workspace_id)).find((room) => {
@@ -184,6 +187,7 @@ export class TeamRunDiscussion {
           objective: speaker.objective,
           runtime: speaker.runtime,
           execution: speaker.execution,
+          skillRefs: parseTaskSkillRefs(speaker.skillRefs, String(run.payload.workspace_id)),
           lifecycle: {
             origin: "discussion_setup",
             discussion_opening_id: roomId,
@@ -246,7 +250,8 @@ export class TeamRunDiscussion {
           speaker_keys: speakerKeys,
           speaker_grants: input.speakers.map((speaker) => ({
             tools: [...new Set(speaker.tools ?? [])],
-            connections: [...new Set(speaker.connections ?? [])]
+            connections: [...new Set(speaker.connections ?? [])],
+            skill_refs: parseTaskSkillRefs(speaker.skillRefs, String(run.payload.workspace_id))
           })),
           turn_plan: turnPlan,
           next_turn_index: 0,
@@ -394,7 +399,8 @@ export class TeamRunDiscussion {
     const timestamp = nowIso();
     const tools = this.speakerGrant(room, speakerIndex, "tools");
     const connections = this.speakerGrant(room, speakerIndex, "connections");
-    this.assertLeaderAuthority(leader, tools, connections);
+    const skillRefs = this.speakerGrant(room, speakerIndex, "skill_refs");
+    this.assertLeaderAuthority(leader, tools, connections, skillRefs);
     const leasePayload = validateProtocolObject({
       schema_version: "1.0",
       id: leaseId,
@@ -438,6 +444,7 @@ export class TeamRunDiscussion {
         speaker_key: speakerKey
       },
       input_artifact_refs: candidates,
+      ...(skillRefs.length > 0 ? { skill_refs: skillRefs } : {}),
       lease_id: leaseId,
       environment_lease_id: null,
       response_target: { kind: "bot", id: leaderId },
@@ -980,12 +987,14 @@ export class TeamRunDiscussion {
     this.gateway.store.atomicMutation({ objects, events: [] });
   }
 
-  private assertLeaderAuthority(leader: StoredObject, tools: string[], connections: string[]): void {
+  private assertLeaderAuthority(leader: StoredObject, tools: string[], connections: string[], skillRefs: string[] = []): void {
     const permissions = asObject(leader.payload.permissions);
     const allowedTools = Array.isArray(permissions.allowed_tools) ? stringArray(permissions.allowed_tools) : null;
     const allowedConnections = Array.isArray(permissions.allowed_connections) ? stringArray(permissions.allowed_connections) : null;
     if (allowedTools && !allowedTools.includes("*")) for (const tool of tools) if (!allowedTools.includes(tool)) throw new Error(`Discussion Worker cannot expand leader tool authority to ${tool}`);
     if (allowedConnections && !allowedConnections.includes("*")) for (const connection of connections) if (!allowedConnections.includes(connection)) throw new Error(`Discussion Worker cannot expand leader connection authority to ${connection}`);
+    const declaredSkills = new Set(stringArray(asObject(leader.payload.capabilities).skill_refs));
+    for (const skillRef of skillRefs) if (!declaredSkills.has(skillRef)) throw new Error(`Discussion Worker cannot use undeclared leader skill capability ${skillRef}`);
   }
 
   private requireRoom(roomId: string): StoredObject {

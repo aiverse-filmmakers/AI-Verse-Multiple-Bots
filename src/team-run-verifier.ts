@@ -5,6 +5,7 @@ import { createId } from "./id.js";
 import { ExecutionQueue, type RecoveryPolicy } from "./execution-queue.js";
 import { CoordinationGateway } from "./gateway.js";
 import { BotRunner } from "./runner.js";
+import { parseTaskSkillRefs } from "./skills-capability-runtime.js";
 import { TeamRunCoordinator, type TeamRunStatus } from "./team-runs.js";
 import type { JsonObject, StoredObject } from "./types.js";
 import { validateProtocolObject } from "./validator.js";
@@ -25,6 +26,7 @@ export interface ScheduleVerificationInput {
   workerId?: string;
   runtime?: JsonObject;
   execution?: JsonObject;
+  skillRefs?: string[];
   tools?: string[];
   connections?: string[];
   budget?: BudgetEnvelope;
@@ -141,7 +143,8 @@ export class TeamRunVerifier {
     }
 
     const reports = requested.map((ref) => this.requireVerificationReport(ref, latestRun));
-    this.assertLeaderAuthority(leader, input.tools ?? [], input.connections ?? []);
+    const skillRefs = parseTaskSkillRefs(input.skillRefs, String(latestRun.payload.workspace_id));
+    this.assertLeaderAuthority(leader, input.tools ?? [], input.connections ?? [], skillRefs);
     this.assertWorkerCapacity(latestRun);
 
     const leaderExecution = asObject(leader.payload.execution);
@@ -182,6 +185,7 @@ export class TeamRunVerifier {
       },
       runtime: input.runtime ?? {},
       execution: workerExecution,
+      ...(skillRefs.length > 0 ? { capabilities: { skill_refs: skillRefs } } : {}),
       capability_lease_id: leaseId,
       environment_lease_id: null,
       budget: effectiveBudget,
@@ -229,6 +233,7 @@ export class TeamRunVerifier {
         required_finding_fields: ["finding_id", "status", "conclusion"]
       },
       input_artifact_refs: sourceArtifactRefs,
+      ...(skillRefs.length > 0 ? { skill_refs: skillRefs } : {}),
       lease_id: leaseId,
       environment_lease_id: null,
       response_target: { kind: "bot", id: leaderId },
@@ -647,13 +652,15 @@ export class TeamRunVerifier {
     if (workers.length >= budget.max_workers) throw new Error(`Team Run ${run.id} has no remaining temporary Worker capacity for verifier work (${workers.length}/${budget.max_workers})`);
   }
 
-  private assertLeaderAuthority(leader: StoredObject, tools: string[], connections: string[]): void {
+  private assertLeaderAuthority(leader: StoredObject, tools: string[], connections: string[], skillRefs: string[] = []): void {
     const permissions = asObject(leader.payload.permissions);
     if (permissions.can_create_workers === false) throw new Error(`Team Run leader ${leader.id} cannot create verifier Workers`);
     const allowedTools = Array.isArray(permissions.allowed_tools) ? stringArray(permissions.allowed_tools) : null;
     const allowedConnections = Array.isArray(permissions.allowed_connections) ? stringArray(permissions.allowed_connections) : null;
     if (allowedTools && !allowedTools.includes("*")) for (const tool of tools) if (!allowedTools.includes(tool)) throw new Error(`Verifier Worker cannot expand leader tool authority to ${tool}`);
     if (allowedConnections && !allowedConnections.includes("*")) for (const connection of connections) if (!allowedConnections.includes(connection)) throw new Error(`Verifier Worker cannot expand leader connection authority to ${connection}`);
+    const declaredSkills = new Set(stringArray(asObject(leader.payload.capabilities).skill_refs));
+    for (const skillRef of skillRefs) if (!declaredSkills.has(skillRef)) throw new Error(`Verifier Worker cannot use undeclared leader skill capability ${skillRef}`);
   }
 
   private requireActiveLeader(leaderId: string, workspaceId: string): StoredObject {

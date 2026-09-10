@@ -1,5 +1,6 @@
 import { BudgetError, normalizeBudget, type BudgetEnvelope } from "./budget.js";
 import { createId } from "./id.js";
+import { parseTaskSkillRefs } from "./skills-capability-runtime.js";
 import { CoordinationStore } from "./store.js";
 import type { AppendedEvent, CoordinationEvent, JsonObject, StoredObject } from "./types.js";
 import { validateProtocolObject } from "./validator.js";
@@ -75,6 +76,7 @@ export interface CreateWorkerInput {
   runtime?: JsonObject;
   execution?: JsonObject;
   lifecycle?: JsonObject;
+  skillRefs?: string[];
   capabilityLeaseId?: string | null;
   environmentLeaseId?: string | null;
   budget?: BudgetEnvelope;
@@ -190,6 +192,12 @@ export class TeamRunCoordinator {
     }
     if (!input.roleTitle.trim()) throw new Error("Worker role title cannot be empty");
     if (!input.objective.trim()) throw new Error("Worker objective cannot be empty");
+    const workspaceId = String(run.payload.workspace_id);
+    const skillRefs = parseTaskSkillRefs(input.skillRefs, workspaceId);
+    const declaredSkills = new Set(stringArray(asObject(leader.payload.capabilities).skill_refs));
+    for (const skillRef of skillRefs) {
+      if (!declaredSkills.has(skillRef)) throw new Error(`Team Run leader ${leader.id} does not declare skill capability ${skillRef}`);
+    }
 
     const currentWorkers = this.listWorkers(run.id).filter((worker) => worker.payload.status !== "expired");
     const runBudget = normalizeBudget(run.payload.budget);
@@ -220,6 +228,7 @@ export class TeamRunCoordinator {
       workspace_id: String(run.payload.workspace_id),
       role: { title: input.roleTitle.trim(), objective: input.objective.trim() },
       runtime: input.runtime ?? {},
+      ...(skillRefs.length > 0 ? { capabilities: { skill_refs: skillRefs } } : {}),
       capability_lease_id: input.capabilityLeaseId ?? null,
       environment_lease_id: input.environmentLeaseId ?? null,
       budget: workerBudget,

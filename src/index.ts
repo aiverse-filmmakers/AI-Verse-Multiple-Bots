@@ -1,4 +1,5 @@
 export * from "./ai-verse-memory-recall.js";
+export * from "./ai-verse-skills-capability-resolution.js";
 export * from "./ai-verse-os-registration.js";
 export * from "./ai-verse-os-workspace-projection.js";
 export * from "./artifact-delegation.js";
@@ -17,6 +18,7 @@ export * from "./policy.js";
 export * from "./recovery.js";
 export * from "./rooms.js";
 export * from "./runner.js";
+export * from "./skills-capability-runtime.js";
 export * from "./runtime.js";
 export * from "./store.js";
 export * from "./supervisor.js";
