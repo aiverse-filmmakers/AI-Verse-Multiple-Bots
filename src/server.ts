@@ -2,6 +2,7 @@ import { createServer } from "node:http";
 import { URL } from "node:url";
 import { AiVerseBrainObjectiveSource, BrainObjectiveIngress } from "./brain-objective-ingress.js";
 import { BrainObjectiveRuntimeRegistry } from "./brain-objective-runtime.js";
+import { AiVerseMemoryRecallSource, MemoryRecallRuntimeRegistry } from "./ai-verse-memory-recall.js";
 import { AiVerseOsWorkspaceProjector } from "./ai-verse-os-workspace-projection.js";
 import { delegateWithArtifacts } from "./artifact-delegation.js";
 import type { BudgetEnvelope } from "./budget.js";
@@ -81,6 +82,7 @@ function optionalMaxAttempts(value: unknown): number | undefined {
 export function createGatewayServer(options: GatewayServerOptions = {}) {
   const workspaceProjector = options.aiVerseOsRoot ? new AiVerseOsWorkspaceProjector(options.aiVerseOsRoot) : undefined;
   const brainObjectiveSource = options.aiVerseOsRoot ? new AiVerseBrainObjectiveSource(options.aiVerseOsRoot) : undefined;
+  const memoryRecallSource = options.aiVerseOsRoot ? AiVerseMemoryRecallSource.fromInstalledOs(options.aiVerseOsRoot) : null;
   const store = new CoordinationStore(options.dbPath ?? "runtime/ai-verse-bots/coordination.db");
   const executionQueue = new ExecutionQueue(store.dbPath);
   const policy = new CoordinationPolicy(store, { requireRegisteredBots: true });
@@ -89,9 +91,10 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
   const baseRuntimes = new RuntimeRegistry()
     .register(new DeterministicRuntimeAdapter())
     .register(new OpenAICompatibleRuntimeAdapter());
+  const memoryRuntimes = new MemoryRecallRuntimeRegistry(baseRuntimes, memoryRecallSource);
   const runtimes = brainObjectiveSource
-    ? new BrainObjectiveRuntimeRegistry(baseRuntimes, brainObjectiveSource)
-    : baseRuntimes;
+    ? new BrainObjectiveRuntimeRegistry(memoryRuntimes, brainObjectiveSource)
+    : memoryRuntimes;
   const runner = new BotRunner(
     store,
     gateway,
@@ -375,6 +378,7 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
           requiredConstraints: Array.isArray(body.requiredConstraints) ? body.requiredConstraints.map(String) : [],
           expectedOutput: typeof body.expectedOutput === "object" && body.expectedOutput !== null ? body.expectedOutput as JsonObject : undefined,
           inputArtifactRefs: Array.isArray(body.inputArtifactRefs) ? body.inputArtifactRefs.map(String) : [],
+          memoryRecall: body.memoryRecall,
           tools: Array.isArray(body.tools) ? body.tools.map(String) : [],
           connections: Array.isArray(body.connections) ? body.connections.map(String) : [],
           parentTaskId: typeof body.parentTaskId === "string" ? body.parentTaskId : undefined,
@@ -496,6 +500,7 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
     runner,
     brainObjectiveSource,
     brainIngress,
+    memoryRecallSource,
     supervisor,
     recovery: supervisor.recovery,
     server,
