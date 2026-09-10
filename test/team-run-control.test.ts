@@ -43,8 +43,8 @@ function setup(runtime: RuntimeAdapter, dbPath = ":memory:") {
   const store = new CoordinationStore(dbPath);
   const queue = new ExecutionQueue(store.dbPath);
   const gateway = new CoordinationGateway(store, queue, new CoordinationPolicy(store, { requireRegisteredBots: true }));
-  gateway.createBot(bot("bot_leader", runtime.id));
-  gateway.createBot(bot("bot_peer", runtime.id));
+  if (!gateway.getBot("bot_leader")) gateway.createBot(bot("bot_leader", runtime.id));
+  if (!gateway.getBot("bot_peer")) gateway.createBot(bot("bot_peer", runtime.id));
   const teams = new TeamRunCoordinator(store);
   const runner = new BotRunner(store, gateway, queue, new RuntimeRegistry().register(runtime), `runner_${randomUUID()}`, 2, 50);
   const supervisor = new ExecutionSupervisor(gateway, queue, runner, 0);
