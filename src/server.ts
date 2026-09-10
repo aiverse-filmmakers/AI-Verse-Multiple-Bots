@@ -1,5 +1,7 @@
 import { createServer } from "node:http";
 import { URL } from "node:url";
+import { AiVerseBrainObjectiveSource, BrainObjectiveIngress } from "./brain-objective-ingress.js";
+import { BrainObjectiveRuntimeRegistry } from "./brain-objective-runtime.js";
 import { AiVerseOsWorkspaceProjector } from "./ai-verse-os-workspace-projection.js";
 import { delegateWithArtifacts } from "./artifact-delegation.js";
 import type { BudgetEnvelope } from "./budget.js";
@@ -78,14 +80,18 @@ function optionalMaxAttempts(value: unknown): number | undefined {
 
 export function createGatewayServer(options: GatewayServerOptions = {}) {
   const workspaceProjector = options.aiVerseOsRoot ? new AiVerseOsWorkspaceProjector(options.aiVerseOsRoot) : undefined;
+  const brainObjectiveSource = options.aiVerseOsRoot ? new AiVerseBrainObjectiveSource(options.aiVerseOsRoot) : undefined;
   const store = new CoordinationStore(options.dbPath ?? "runtime/ai-verse-bots/coordination.db");
   const executionQueue = new ExecutionQueue(store.dbPath);
   const policy = new CoordinationPolicy(store, { requireRegisteredBots: true });
   const gateway = new CoordinationGateway(store, executionQueue, policy);
   const rooms = new RoomCoordinator(store, gateway);
-  const runtimes = new RuntimeRegistry()
+  const baseRuntimes = new RuntimeRegistry()
     .register(new DeterministicRuntimeAdapter())
     .register(new OpenAICompatibleRuntimeAdapter());
+  const runtimes = brainObjectiveSource
+    ? new BrainObjectiveRuntimeRegistry(baseRuntimes, brainObjectiveSource)
+    : baseRuntimes;
   const runner = new BotRunner(
     store,
     gateway,
@@ -93,6 +99,9 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
     runtimes,
     workspaceProjector ? { workspaceProjector } : undefined
   );
+  const brainIngress = brainObjectiveSource
+    ? new BrainObjectiveIngress(store, gateway, executionQueue, brainObjectiveSource)
+    : undefined;
   const supervisor = new ExecutionSupervisor(gateway, executionQueue, runner);
   supervisor.start();
 
@@ -172,6 +181,28 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
 
       if (method === "GET" && url.pathname === "/v1/recovery/dead-letters") {
         json(res, 200, { executions: supervisor.recovery.listDeadLetters(url.searchParams.get("workspace") ?? undefined) });
+        return;
+      }
+
+      if (method === "POST" && url.pathname === "/v1/brain/objectives/ingest") {
+        if (!brainIngress) throw new Error("Brain objective ingress requires native AI-Verse OS mode via serve --os-root PATH");
+        const body = await readJson(req);
+        const result = brainIngress.ingest({
+          leaderId: requiredString(body, "leaderId"),
+          workspaceId: requiredString(body, "workspaceId"),
+          objectiveId: requiredString(body, "objectiveId"),
+          reason: typeof body.reason === "string" ? body.reason : undefined,
+          tools: Array.isArray(body.tools) ? body.tools.map(String) : [],
+          connections: Array.isArray(body.connections) ? body.connections.map(String) : [],
+          maxHops: typeof body.maxHops === "number" ? body.maxHops : undefined,
+          leaseExpiresAt: typeof body.leaseExpiresAt === "string" ? body.leaseExpiresAt : undefined,
+          deadlineAt: typeof body.deadlineAt === "string" ? body.deadlineAt : undefined,
+          budget: typeof body.budget === "object" && body.budget !== null && !Array.isArray(body.budget)
+            ? body.budget as BudgetEnvelope
+            : undefined,
+          approval: optionalApproval(body.approval)
+        });
+        json(res, result.created ? 201 : 200, result);
         return;
       }
 
@@ -463,6 +494,8 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
     rooms,
     runtimes,
     runner,
+    brainObjectiveSource,
+    brainIngress,
     supervisor,
     recovery: supervisor.recovery,
     server,

@@ -22,6 +22,16 @@ export interface WorkspaceStateProjector {
   project(workspaceId: string): WorkspaceStateProjection;
 }
 
+/** Generic runtime-only strategic context. Host adapters remain responsible for canonical ownership and freshness. */
+export interface StrategicIntentProjection extends JsonObject {
+  schema_version: string;
+  provider: string;
+  workspace_id: string;
+  root_objective_id: string;
+  intent_digest: string;
+  data: JsonObject;
+}
+
 export interface RuntimeExecutionContext {
   /** Canonical execution identity. Durable Bots and temporary Workers both use this field. */
   principal: StoredObject;
@@ -36,6 +46,8 @@ export interface RuntimeExecutionContext {
   inputArtifacts: StoredObject[];
   /** Ephemeral, read-only host workspace context. Never canonical Multiple Bots state. */
   workspaceProjection?: WorkspaceStateProjection | null;
+  /** Ephemeral, read-only strategic context supplied by an explicit host adapter. Never canonical Multiple Bots state. */
+  strategicIntent?: StrategicIntentProjection | null;
   signal: AbortSignal;
 }
 
@@ -95,6 +107,9 @@ export class DeterministicRuntimeAdapter implements RuntimeAdapter {
         lease_id: context.capabilityLease.id,
         ...(context.workspaceProjection
           ? { workspace_projection_digest: context.workspaceProjection.projection_digest }
+          : {}),
+        ...(context.strategicIntent
+          ? { strategic_intent_digest: context.strategicIntent.intent_digest }
           : {}),
         result: `Completed: ${objective}`
       },

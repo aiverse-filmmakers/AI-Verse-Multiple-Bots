@@ -6,7 +6,7 @@
 
 **Overall status:** IN PROGRESS
 
-**Directional phase progress:** approximately 20%
+**Directional phase progress:** approximately 30%
 
 This file is the implementation ledger for Phase 3. The canonical product roadmap remains `BUILD-MAP.md`.
 
@@ -18,8 +18,8 @@ Attach the completed host-neutral persistent-teammate and squad package to AI-Ve
 
 1. AI-Verse OS installer/registration contract — **COMPLETE**
 2. workspace-scoped state projection — **COMPLETE**
-3. Brain initiative/goal ingress — **NEXT**
-4. Memory context/recall adapter — **NOT STARTED**
+3. Brain initiative/goal ingress — **COMPLETE**
+4. Memory context/recall adapter — **NEXT**
 5. Skills capability resolution — **NOT STARTED**
 6. Automations wake/schedule integration — **NOT STARTED**
 7. OS write-command boundary — **NOT STARTED**
@@ -112,24 +112,77 @@ The 8 Phase 3.2 acceptance tests prove:
 7. a real temporary TeamRun Worker receives the same scoped projection contract without durable promotion or host-text persistence
 8. an invalid explicit AI-Verse OS root fails before the Gateway allocates coordination state
 
+## Slice 3.3 - Brain initiative/goal ingress
+
+**Implementation status:** COMPLETE
+
+Phase 3.3 lets AI-Verse Brain supply bounded strategic objectives to the coordination layer while Brain remains the canonical owner of strategic state.
+
+Implemented:
+
+- public `AiVerseBrainObjectiveSource` and `BrainObjectiveIngress`
+- compatible AI-Verse OS v2 + enabled Brain installation requirement
+- exact workspace-level direction ownership requirement through `.aiverse/direction/ownership.json`
+- bounded canonical projection of objective, criteria, constraints, boundaries, stop conditions, dependencies, risks and serving initiative/intent context
+- path-safe, non-symlink, size-bounded Brain object reads with exact workspace identity/scope checks
+- fresh ingress only from `READY` Brain objectives
+- executable continuation only while objective/parent lifecycle remains valid
+- deterministic semantic root objective `brain:objective:<id>@sha256:<intent-digest>`
+- lifecycle-only `READY -> RUNNING` revisions preserve the semantic root when strategic meaning is unchanged
+- semantic edits produce a new intent digest/root and stale queued work fails closed
+- Brain constraints/boundaries/stop conditions become immutable Task constraints
+- deterministic Task/capability-lease/Approval identities and atomic ingress settlement
+- requested tools/connections cannot exceed durable leader authority
+- exact request-contract digest binds leader, workspace, tools/connections, budget, hops, deadline, lease expiry, reason and Approval details
+- repeated identical ingress is idempotent; changed execution/Approval terms fail with `BRAIN_INGRESS_CONFLICT`
+- runtime-only `BrainObjectiveRuntimeRegistry` re-reads current Brain state immediately before execution
+- direction-owner revocation, Brain disable/install invalidation, objective cancellation/supersession, parent invalidation or semantic drift blocks execution before successful Artifact publication
+- durable Bots and temporary Team Run Workers share the same Brain-root freshness fence
+- OpenAI-compatible runtime receives strategic intent explicitly as lower-authority read-only context
+- persisted coordination state retains only bounded provenance/digests and derived Task constraints rather than a second copy of Brain canonical objects
+- native Gateway exposes one Brain objective ingress command in AI-Verse mode
+- standalone mode remains independent of Brain state
+
+### 3.3 acceptance proof
+
+Final PR-head GitHub Actions run **289** passed the full **202/202 test suite** with **0 failures, 0 canceled, and 0 skipped** on exact head `328de54dc0506437d725f2a90dd1f35efe0c0d8a`.
+
+Phase 3.3 acceptance coverage proves:
+
+1. Brain requires explicit direction ownership for the exact workspace
+2. lifecycle-only READY-to-RUNNING revision preserves semantic root when intent is unchanged
+3. fresh ingress is deterministic/idempotent and persists provenance rather than full Brain state
+4. runtime execution re-reads current Brain intent and publishes only strategic provenance
+5. semantic objective edits fail before runtime Artifact creation
+6. objective cancellation or direction-owner revocation prevents execution
+7. only READY objectives may enter and requested authority cannot exceed durable leader grants
+8. native Gateway ingress remains idempotent
+9. temporary Team Run Workers inherit the Brain root and revalidate current strategic intent before execution
+10. repeated ingress is idempotent only for the exact requested execution and Approval contract
+
+See `AI-VERSE-BRAIN-OBJECTIVE-INGRESS.md` for the canonical Phase 3.3 boundary.
+
 ## Ownership boundary
 
-Phase 3.1 and 3.2 do not make Multiple Bots the source of truth for any AI-Verse OS domain state.
+Phase 3.1 through 3.3 do not make Multiple Bots the source of truth for any AI-Verse OS or Brain domain state.
 
 ```text
 AI-Verse OS
   owns operator/workspace/current-context/knowledge/decision/routing state
+
+AI-Verse Brain
+  owns strategic intent, initiatives, objectives, criteria and strategic lifecycle
 
 AI-Verse Multiple Bots
   owns Bot/Worker coordination identity, Messages, Tasks, Rooms, Handoffs,
   Team Runs, coordination Artifacts/events/leases/budgets/cancellation/recovery
 
 Phase 3 adapters
-  project only the minimum scoped host data needed for execution
+  project only the minimum scoped host/Brain data needed for execution
   and route candidate writes back through OS-owned boundaries
 ```
 
-Workspace projection data is ephemeral execution context. Multiple Bots may retain only bounded provenance needed to explain which host sources/digests informed an Artifact; it does not retain copied canonical workspace text.
+Workspace projection and current Brain strategic projection are ephemeral execution context. Multiple Bots may retain only bounded provenance needed to explain which host/Brain sources and digests informed an Artifact; it does not retain copied canonical workspace or Brain objects.
 
 Registration also does not auto-create AI-Verse OS durable agents. Durable Multiple Bots Bots and temporary Workers remain package identities unless a later explicit adapter maps them.
 
@@ -139,6 +192,6 @@ Phase 3.1 defines and implements safe registration after extension-owned files h
 
 ## Next gate
 
-**Phase 3.3 - Brain initiative/goal ingress.**
+**Phase 3.4 - Memory context/recall adapter.**
 
-The next slice must let AI-Verse Brain supply bounded initiative/goal intent into the coordination layer without copying Brain canonical state into the Multiple Bots database, while preserving workspace, root-objective, constraints, authority, provenance and idempotency.
+The next slice must let durable Bots and temporary Workers request bounded, workspace-correct historical recall from AI-Verse Memory without moving Memory ownership into the coordination database. Retrieval must be explicit, provenance-bearing, authority-scoped and safe for both standalone/no-Memory mode and AI-Verse native mode.
