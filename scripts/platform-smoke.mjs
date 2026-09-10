@@ -161,6 +161,17 @@ export function main(argv = process.argv.slice(2)) {
       { cwd: REPO_ROOT }
     );
 
+    runStep(
+      "Multiple Bots real installed Memory recall",
+      process.execPath,
+      [
+        resolve(REPO_ROOT, "scripts", "platform-memory-smoke.mjs"),
+        "--os-root", roots.os,
+        "--python", isolatedPython
+      ],
+      { cwd: REPO_ROOT }
+    );
+
     console.log("\nAI-Verse platform-wide smoke: PASS");
     for (const key of REQUIRED_REPOS) {
       console.log(`  ${key}: ${lock.repositories[key].commit}`);
