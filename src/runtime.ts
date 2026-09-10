@@ -32,6 +32,18 @@ export interface StrategicIntentProjection extends JsonObject {
   data: JsonObject;
 }
 
+/** Generic runtime-only historical recall. Canonical memory remains owned by the host memory engine. */
+export interface HistoricalRecallProjection extends JsonObject {
+  schema_version: string;
+  provider: string;
+  workspace_id: string;
+  request_digest: string;
+  projection_digest: string;
+  recalled_at: string;
+  sources: JsonObject[];
+  data: JsonObject;
+}
+
 export interface RuntimeExecutionContext {
   /** Canonical execution identity. Durable Bots and temporary Workers both use this field. */
   principal: StoredObject;
@@ -48,6 +60,8 @@ export interface RuntimeExecutionContext {
   workspaceProjection?: WorkspaceStateProjection | null;
   /** Ephemeral, read-only strategic context supplied by an explicit host adapter. Never canonical Multiple Bots state. */
   strategicIntent?: StrategicIntentProjection | null;
+  /** Ephemeral, read-only historical recall supplied only for an explicit Task request. Never canonical Multiple Bots state. */
+  memoryRecall?: HistoricalRecallProjection | null;
   signal: AbortSignal;
 }
 
@@ -110,6 +124,9 @@ export class DeterministicRuntimeAdapter implements RuntimeAdapter {
           : {}),
         ...(context.strategicIntent
           ? { strategic_intent_digest: context.strategicIntent.intent_digest }
+          : {}),
+        ...(context.memoryRecall
+          ? { memory_recall_projection_digest: context.memoryRecall.projection_digest }
           : {}),
         result: `Completed: ${objective}`
       },
