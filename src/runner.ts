@@ -1,6 +1,7 @@
 import { assertUsageWithinBudget, BudgetError, type RuntimeUsage } from "./budget.js";
 import { ExecutionQueue } from "./execution-queue.js";
 import { CoordinationGateway } from "./gateway.js";
+import { normalizeMemoryRecallRequest, type MemoryRecallProvider } from "./memory-recall-contract.js";
 import { PrincipalRunner as BasePrincipalRunner, type CancelResult, type RunResult } from "./principal-runner.js";
 import { RuntimeRegistry, type RuntimeAdapter, type RuntimeExecutionContext, type RuntimeExecutionResult, type WorkspaceStateProjector } from "./runtime.js";
 import { CoordinationStore } from "./store.js";
@@ -108,6 +109,93 @@ class WorkspaceProjectedRuntimeRegistry extends RuntimeRegistry {
   }
 }
 
+class MemoryRecallRuntimeRegistry extends RuntimeRegistry {
+  private readonly recalled = new Map<string, RuntimeAdapter>();
+
+  constructor(readonly base: RuntimeRegistry, readonly provider?: MemoryRecallProvider) {
+    super();
+  }
+
+  override register(adapter: RuntimeAdapter): this {
+    this.base.register(adapter);
+    return this;
+  }
+
+  override has(id: string): boolean {
+    return this.base.has(id);
+  }
+
+  override get(id: string): RuntimeAdapter {
+    const existing = this.recalled.get(id);
+    if (existing) return existing;
+    const inner = this.base.get(id);
+    const provider = this.provider;
+    const recalled: RuntimeAdapter = {
+      id: inner.id,
+      async execute(context: RuntimeExecutionContext): Promise<RuntimeExecutionResult> {
+        const request = normalizeMemoryRecallRequest(context.task.payload.memory_recall);
+        if (!request) return inner.execute(context);
+        if (!provider) {
+          throw new Error(`Task ${context.task.id} requests memory recall but no MemoryRecallProvider is configured`);
+        }
+        const taskWorkspaceId = context.task.workspaceId;
+        const principalWorkspaceId = context.principal.workspaceId;
+        if (!taskWorkspaceId || !principalWorkspaceId || taskWorkspaceId !== principalWorkspaceId) {
+          throw new Error(`Memory recall requires Task ${context.task.id} and ${context.principal.id} to share one explicit workspace`);
+        }
+        const rootObjectiveId = typeof context.task.payload.root_objective_id === "string"
+          ? context.task.payload.root_objective_id
+          : "";
+        if (!rootObjectiveId) throw new Error(`Memory recall Task ${context.task.id} has no root objective`);
+
+        const projection = await provider.recall({
+          workspaceId: taskWorkspaceId,
+          principalId: context.principal.id,
+          principalKind: context.principalKind,
+          taskId: context.task.id,
+          rootObjectiveId,
+          request,
+          signal: context.signal
+        });
+        if (projection.workspace_id !== taskWorkspaceId) {
+          throw new Error(`Memory recall provider returned ${projection.workspace_id} for Task workspace ${taskWorkspaceId}`);
+        }
+        if (JSON.stringify(projection.request) !== JSON.stringify(request)) {
+          throw new Error(`Memory recall provider changed the requested recall contract for Task ${context.task.id}`);
+        }
+        if (!Array.isArray(projection.sources) || projection.sources.length > request.limit) {
+          throw new Error(`Memory recall provider exceeded the requested source limit for Task ${context.task.id}`);
+        }
+
+        const result = await inner.execute({ ...context, memoryRecall: projection });
+        const receipt: JsonObject = {
+          kind: "memory_recall_projection",
+          provider: projection.provider,
+          schema_version: projection.schema_version,
+          workspace_id: projection.workspace_id,
+          query_digest: projection.query_digest,
+          projection_digest: projection.projection_digest,
+          source_count: projection.sources.length,
+          sources: projection.sources.map((source) => ({
+            ref: source.ref,
+            digest: source.digest,
+            scope: source.scope,
+            kind: source.kind,
+            type: source.type
+          }))
+        };
+        return {
+          ...result,
+          receipts: [...(result.receipts ?? []), receipt]
+        };
+      },
+      ...(inner.cancel ? { cancel: (taskId: string) => inner.cancel!(taskId) } : {})
+    };
+    this.recalled.set(id, recalled);
+    return recalled;
+  }
+}
+
 class TeamRunGuardedRuntimeRegistry extends RuntimeRegistry {
   private readonly guarded = new Map<string, RuntimeAdapter>();
 
@@ -189,6 +277,7 @@ export interface PrincipalRunnerOptions {
   executionLeaseSeconds?: number;
   heartbeatIntervalMs?: number;
   workspaceProjector?: WorkspaceStateProjector;
+  memoryRecallProvider?: MemoryRecallProvider;
 }
 
 /**
@@ -219,11 +308,12 @@ export class PrincipalRunner extends BasePrincipalRunner {
           heartbeatIntervalMs
         };
     const projectedRuntimes = new WorkspaceProjectedRuntimeRegistry(runtimes, options.workspaceProjector);
+    const contextualRuntimes = new MemoryRecallRuntimeRegistry(projectedRuntimes, options.memoryRecallProvider);
     super(
       store,
       gateway,
       queue,
-      new TeamRunGuardedRuntimeRegistry(projectedRuntimes, store),
+      new TeamRunGuardedRuntimeRegistry(contextualRuntimes, store),
       options.runnerId,
       options.executionLeaseSeconds,
       options.heartbeatIntervalMs
