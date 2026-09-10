@@ -19,7 +19,7 @@ function flag(name: string): string | undefined {
 }
 
 function usage(): never {
-  console.error(`AI-Verse Multiple Bots CLI\n\nCommands:\n  init [--db PATH]\n  doctor [--db PATH]\n  bot create --id ID --name NAME --workspace ID --role TITLE --mission TEXT [--db PATH]\n  bot list [--workspace ID] [--db PATH]\n  events [--after N] [--limit N] [--db PATH]\n  serve [--host HOST] [--port N] [--db PATH]\n  os detect [--root PATH]\n  os plan [--root PATH]\n  os register [--root PATH]\n`);
+  console.error(`AI-Verse Multiple Bots CLI\n\nCommands:\n  init [--db PATH]\n  doctor [--db PATH]\n  bot create --id ID --name NAME --workspace ID --role TITLE --mission TEXT [--db PATH]\n  bot list [--workspace ID] [--db PATH]\n  events [--after N] [--limit N] [--db PATH]\n  serve [--host HOST] [--port N] [--db PATH] [--os-root PATH]\n  os detect [--root PATH]\n  os plan [--root PATH]\n  os register [--root PATH]\n`);
   process.exit(2);
   throw new Error("unreachable");
 }
@@ -45,9 +45,20 @@ const dbPath = flag("db") ?? "runtime/ai-verse-bots/coordination.db";
 if (args[0] === "serve") {
   const host = flag("host") ?? "127.0.0.1";
   const port = Number(flag("port") ?? "8787");
-  const service = createGatewayServer({ host, port, dbPath: resolve(dbPath) });
+  const osRoot = flag("os-root");
+  const service = createGatewayServer({
+    host,
+    port,
+    dbPath: resolve(dbPath),
+    ...(osRoot ? { aiVerseOsRoot: resolve(osRoot) } : {})
+  });
   const address = await service.listen();
-  console.log(JSON.stringify({ ok: true, gateway: `http://${address.host}:${address.port}`, db: service.store.dbPath }, null, 2));
+  console.log(JSON.stringify({
+    ok: true,
+    gateway: `http://${address.host}:${address.port}`,
+    db: service.store.dbPath,
+    ai_verse_os_root: osRoot ? resolve(osRoot) : null
+  }, null, 2));
   process.on("SIGINT", async () => { await service.close(); process.exit(0); });
   process.on("SIGTERM", async () => { await service.close(); process.exit(0); });
 } else if (args[0] === "os") {
