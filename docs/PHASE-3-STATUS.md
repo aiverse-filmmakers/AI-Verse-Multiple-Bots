@@ -145,7 +145,7 @@ Implemented:
 
 ### 3.3 acceptance proof
 
-GitHub Actions run 285 passed the full **202/202 test suite** with **0 failures, 0 canceled, and 0 skipped** on the hardened Phase 3.3 implementation.
+Final PR-head GitHub Actions run **289** passed the full **202/202 test suite** with **0 failures, 0 canceled, and 0 skipped** on exact head `328de54dc0506437d725f2a90dd1f35efe0c0d8a`.
 
 Phase 3.3 acceptance coverage proves:
 
