@@ -45,7 +45,15 @@ function nativeHostFixture(withMemory = true): string {
 
 function stored(id: string, kind: string, workspaceId: string, payload: JsonObject): StoredObject {
   const now = "2026-09-10T12:00:00.000Z";
-  return { id, kind: kind as any, workspaceId, payload, createdAt: now, updatedAt: now };
+  return {
+    id,
+    kind: kind as any,
+    workspaceId,
+    status: typeof payload.status === "string" ? payload.status : null,
+    payload,
+    createdAt: now,
+    updatedAt: now
+  };
 }
 
 function runtimeContext(memoryRecall?: JsonObject): RuntimeExecutionContext {
@@ -225,7 +233,9 @@ test("AI-Verse Memory source uses argument-vector native workspace recall and ac
     const recalled = await source.recall("ws-alpha", { query: "past lesson", limit: 2 });
     assert.equal(calls.length, 1);
     assert.equal(calls[0]?.file, "python-test");
-    assert.deepEqual(calls[0]?.args.slice(-7), ["recall", "past lesson", "--workspace", "ws-alpha", "--limit", "2"].slice(-7));
+    const recallIndex = calls[0]?.args.indexOf("recall") ?? -1;
+    assert.ok(recallIndex >= 0);
+    assert.deepEqual(calls[0]?.args.slice(recallIndex), ["recall", "past lesson", "--workspace", "ws-alpha", "--limit", "2"]);
     assert.equal(calls[0]?.options.shell, undefined);
     assert.deepEqual(recalled.items.map((item) => item.scope), ["workspace:ws-alpha", "operator"]);
     assert.equal(recalled.items.length, 2);
