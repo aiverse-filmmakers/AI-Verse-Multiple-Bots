@@ -162,11 +162,41 @@ function inside(path: string, root: string): boolean {
   return candidate === base || candidate.startsWith(`${base}${sep}`);
 }
 
-function regularNonSymlink(path: string, label: string): void {
-  if (!existsSync(path)) throw new AiVerseMemoryRecallError("MEMORY_UNAVAILABLE", `${label} is missing: ${path}`);
-  const stat = lstatSync(path);
-  if (stat.isSymbolicLink()) throw new AiVerseMemoryRecallError("MEMORY_UNSAFE_INSTALL", `${label} must not be a symlink: ${path}`);
-  if (!stat.isFile()) throw new AiVerseMemoryRecallError("MEMORY_UNSAFE_INSTALL", `${label} must be a regular file: ${path}`);
+function assertRegularFileInsideRoot(
+  root: string,
+  path: string,
+  label: string,
+  missingCode = "MEMORY_UNAVAILABLE",
+  unsafeCode = "MEMORY_UNSAFE_INSTALL"
+): void {
+  const base = resolve(root);
+  const candidate = resolve(path);
+  if (candidate === base || !inside(candidate, base)) {
+    throw new AiVerseMemoryRecallError(unsafeCode, `${label} must stay inside the AI-Verse OS root: ${path}`);
+  }
+
+  const suffix = candidate.slice(base.length + 1);
+  const parts = suffix.split(sep).filter(Boolean);
+  let current = base;
+  for (const part of parts) {
+    current = resolve(current, part);
+    if (!existsSync(current)) {
+      throw new AiVerseMemoryRecallError(missingCode, `${label} is missing: ${path}`);
+    }
+    if (lstatSync(current).isSymbolicLink()) {
+      throw new AiVerseMemoryRecallError(unsafeCode, `${label} path must not contain symlinks: ${path}`);
+    }
+  }
+
+  const stat = lstatSync(candidate);
+  if (!stat.isFile()) {
+    throw new AiVerseMemoryRecallError(unsafeCode, `${label} must be a regular file: ${path}`);
+  }
+  const realRoot = realpathSync(base);
+  const realFile = realpathSync(candidate);
+  if (!inside(realFile, realRoot)) {
+    throw new AiVerseMemoryRecallError(unsafeCode, `${label} resolves outside the AI-Verse OS root: ${path}`);
+  }
 }
 
 function parseVersion(value: string): [number, number, number] | null {
@@ -232,9 +262,9 @@ export function detectAiVerseMemoryInstallation(rootInput: string): AiVerseMemor
   }
 
   try {
-    regularNonSymlink(entrypoint, "AI-Verse Memory entrypoint");
-    regularNonSymlink(implementation, "AI-Verse Memory implementation");
-    regularNonSymlink(compatibilityGate, "AI-Verse Memory compatibility gate");
+    assertRegularFileInsideRoot(root, entrypoint, "AI-Verse Memory entrypoint");
+    assertRegularFileInsideRoot(root, implementation, "AI-Verse Memory implementation");
+    assertRegularFileInsideRoot(root, compatibilityGate, "AI-Verse Memory compatibility gate");
     const providerVersion = parseEngineVersion(implementation);
     if (!providerVersion || !versionAtLeast(providerVersion, AI_VERSE_MEMORY_MIN_NATIVE_VERSION)) {
       return {
@@ -287,40 +317,63 @@ function safeRelativeSourcePath(value: unknown, workspaceId: string, scope: stri
   return normalized;
 }
 
+function canonicalSourceOwnership(path: string, workspaceId: string): { kind: string; scope: string } {
+  const parts = path.split("/");
+  const last = parts.at(-1) ?? "";
+  const markdown = last.toLowerCase().endsWith(".md");
+
+  if (parts[0] === "operator") {
+    if (parts.length >= 3 && parts[1] === "profile" && markdown) return { kind: "profile", scope: "operator" };
+    if (parts.length >= 3 && parts[1] === "context" && markdown) return { kind: "context", scope: "operator" };
+    if (parts.length >= 3 && parts[1] === "decisions" && markdown) return { kind: "decision", scope: "operator" };
+    if (parts[1] === "memory") {
+      if (parts.length >= 4 && parts[2] === "atomic" && markdown) return { kind: "memory", scope: "operator" };
+      if (parts.length === 3 && markdown) return { kind: "memory_summary", scope: "operator" };
+    }
+  }
+
+  if (parts[0] === "workspaces" && parts[1] === workspaceId) {
+    const scope = `workspace:${workspaceId}`;
+    if (parts.length === 3 && parts[2] === "WORKSPACE.yaml") return { kind: "workspace_manifest", scope };
+    if (parts.length >= 4 && parts[2] === "context" && markdown) return { kind: "context", scope };
+    if (parts.length >= 4 && parts[2] === "decisions" && markdown) return { kind: "decision", scope };
+    if (parts[2] === "memory") {
+      if (parts.length >= 5 && parts[3] === "atomic" && markdown) return { kind: "memory", scope };
+      if (parts.length === 4 && markdown) return { kind: "memory_summary", scope };
+    }
+  }
+
+  throw new AiVerseMemoryRecallError(
+    "MEMORY_SCOPE_VIOLATION",
+    `Memory source ${path} is outside canonical AI-Verse Memory source roots for workspace ${workspaceId}`
+  );
+}
+
 function validateSourceFile(
   root: string,
   path: string,
+  workspaceId: string,
   kind: string,
   scope: string,
   sourceIdentity: string,
   sourceVersion: string
 ): void {
-  const parts = path.split("/");
-  let current = root;
-  for (const part of parts) {
-    current = resolve(current, part);
-    if (!existsSync(current)) {
-      throw new AiVerseMemoryRecallError("MEMORY_SOURCE_MISSING", `Memory source no longer exists: ${path}`);
-    }
-    if (lstatSync(current).isSymbolicLink()) {
-      throw new AiVerseMemoryRecallError("MEMORY_SOURCE_UNSAFE", `Memory source path must not contain symlinks: ${path}`);
-    }
-  }
-  const stat = lstatSync(current);
-  if (!stat.isFile()) {
-    throw new AiVerseMemoryRecallError("MEMORY_SOURCE_UNSAFE", `Memory source must be a regular file: ${path}`);
-  }
-  const realRoot = realpathSync(root);
-  const realSource = realpathSync(current);
-  if (!inside(realSource, realRoot)) {
-    throw new AiVerseMemoryRecallError("MEMORY_SOURCE_UNSAFE", `Memory source resolves outside the AI-Verse OS root: ${path}`);
+  const ownership = canonicalSourceOwnership(path, workspaceId);
+  if (ownership.kind !== kind || ownership.scope !== scope) {
+    throw new AiVerseMemoryRecallError(
+      "MEMORY_PROVENANCE_INVALID",
+      `Memory source ${path} is canonically ${ownership.scope}/${ownership.kind}, not ${scope}/${kind}`
+    );
   }
 
-  const expectedIdentity = prefixedSha256(`${kind}\n${scope}\n${path}`);
+  const sourcePath = resolve(root, ...path.split("/"));
+  assertRegularFileInsideRoot(root, sourcePath, `Memory source ${path}`, "MEMORY_SOURCE_MISSING", "MEMORY_SOURCE_UNSAFE");
+
+  const expectedIdentity = prefixedSha256(`${ownership.kind}\n${ownership.scope}\n${path}`);
   if (sourceIdentity !== expectedIdentity) {
     throw new AiVerseMemoryRecallError("MEMORY_PROVENANCE_INVALID", `Memory source identity does not match canonical source ${path}`);
   }
-  const expectedVersion = prefixedSha256(readFileSync(current, "utf8"));
+  const expectedVersion = prefixedSha256(readFileSync(sourcePath, "utf8"));
   if (sourceVersion !== expectedVersion) {
     throw new AiVerseMemoryRecallError("MEMORY_SOURCE_CHANGED", `Memory source ${path} changed during or after recall; retry with fresh Memory state`);
   }
@@ -421,7 +474,13 @@ export class AiVerseMemoryRecallSource implements HistoricalRecallSource {
     }
 
     const workspaceManifest = resolve(this.root, "workspaces", workspace, "WORKSPACE.yaml");
-    regularNonSymlink(workspaceManifest, `AI-Verse workspace ${workspace} manifest`);
+    assertRegularFileInsideRoot(
+      this.root,
+      workspaceManifest,
+      `AI-Verse workspace ${workspace} manifest`,
+      "MEMORY_UNAVAILABLE",
+      "MEMORY_SOURCE_UNSAFE"
+    );
     const request = normalizeRequest(requestInput, this.maxResults);
     const args = [
       "-c",
@@ -519,7 +578,7 @@ export class AiVerseMemoryRecallSource implements HistoricalRecallSource {
       if ((kind === "memory" && freshness !== "historical") || (kind !== "memory" && freshness !== "fresh")) {
         throw new AiVerseMemoryRecallError("MEMORY_PROVENANCE_INVALID", `Memory result ${id} has freshness ${freshness} inconsistent with ${kind}`);
       }
-      validateSourceFile(this.root, path, kind, scope, sourceIdentity, sourceVersion);
+      validateSourceFile(this.root, path, workspace, kind, scope, sourceIdentity, sourceVersion);
 
       const itemBase = {
         id,
