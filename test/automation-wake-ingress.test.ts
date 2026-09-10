@@ -136,10 +136,6 @@ function teamRunWake(invocationId = "run-invocation-001") {
     target: { kind: "team_run" as const, leaderId: "bot_automation", topology: "manager" as const },
     objective: "Coordinate the scheduled weekly research review.",
     reason: "Weekly review automation fired",
-    requiredConstraints: ["Keep all work inside the workspace"],
-    skillRefs: ["deep-research"],
-    tools: ["read-local"],
-    connections: ["drive"],
     budget: {
       max_workers: 2,
       max_tasks: 6,
@@ -303,6 +299,24 @@ test("Bot wake preserves Approval gating and creates no executable queue item un
   }
 });
 
+test("Bot wake target must be an active registered durable Bot in the exact workspace", () => {
+  const root = hostFixture();
+  const env = harness(root);
+  try {
+    assert.throws(
+      () => env.ingress.ingest({
+        ...botWake("not-a-bot"),
+        target: { kind: "bot", botId: "worker_fake" }
+      }),
+      (error: unknown) => error instanceof AutomationWakeIngressError && error.code === "AUTOMATION_TARGET_UNAVAILABLE"
+    );
+    assert.equal(env.store.listObjects("task", WORKSPACE).length, 0);
+  } finally {
+    closeHarness(env);
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("Bot wake cannot exceed durable target authority", () => {
   const root = hostFixture();
   const env = harness(root);
@@ -328,9 +342,9 @@ test("bounded Team Run start stores coordination requirements only, is idempoten
     assert.equal(first.created, true);
     assert.equal(first.run.payload.status, "created");
     assert.equal(first.run.payload.topology, "manager");
-    assert.deepEqual(first.run.payload.required_tools, ["read-local"]);
-    assert.deepEqual(first.run.payload.required_connections, ["drive"]);
-    assert.deepEqual(first.run.payload.required_skill_refs, ["deep-research"]);
+    assert.equal(Object.prototype.hasOwnProperty.call(first.run.payload, "required_tools"), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(first.run.payload, "required_connections"), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(first.run.payload, "required_skill_refs"), false);
     assert.equal(JSON.stringify(first.run.payload).includes("SECRET_AUTOMATION_DEFINITION"), false);
     assert.equal(env.store.listObjects("task", WORKSPACE).length, 0);
     assert.equal(env.store.listObjects("capability_lease", WORKSPACE).length, 0);
@@ -342,6 +356,27 @@ test("bounded Team Run start stores coordination requirements only, is idempoten
     assert.equal(second.created, false);
     assert.equal(second.run.id, first.run.id);
     assert.equal(env.store.listObjects("team_run", WORKSPACE).length, 1);
+  } finally {
+    closeHarness(env);
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("Team Run start rejects Task-only execution fields instead of storing unenforced authority", () => {
+  const root = hostFixture();
+  const env = harness(root);
+  try {
+    assert.throws(
+      () => env.ingress.ingest({ ...teamRunWake("task-fields-on-run"), tools: ["read-local"] }),
+      (error: unknown) => error instanceof AutomationWakeIngressError
+        && error.code === "AUTOMATION_TASK_FIELDS_ON_RUN"
+        && /tools/.test(error.message)
+    );
+    assert.throws(
+      () => env.ingress.ingest({ ...teamRunWake("task-fields-on-run-2"), skillRefs: ["deep-research"] }),
+      (error: unknown) => error instanceof AutomationWakeIngressError && error.code === "AUTOMATION_TASK_FIELDS_ON_RUN"
+    );
+    assert.equal(env.store.listObjects("team_run", WORKSPACE).length, 0);
   } finally {
     closeHarness(env);
     rmSync(root, { recursive: true, force: true });

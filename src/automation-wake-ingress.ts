@@ -264,6 +264,9 @@ function validateProjection(
   if (!HEX64.test(source.source_digest)) {
     throw new AutomationWakeIngressError("AUTOMATION_INVALID_PROJECTION", "automation source digest is invalid");
   }
+  if (typeof source.ref !== "string" || !source.ref.trim() || source.ref.length > 512 || source.ref.includes("\0")) {
+    throw new AutomationWakeIngressError("AUTOMATION_INVALID_PROJECTION", "automation source ref is invalid");
+  }
   const { projection_digest: _ignored, ...base } = projection;
   if (projection.projection_digest !== projectionDigestBase(base)) {
     throw new AutomationWakeIngressError("AUTOMATION_INVALID_PROJECTION", "automation projection digest is invalid");
@@ -454,7 +457,24 @@ export class AutomationWakeIngress {
           "automated Team Run start requires the owning AI-Verse OS automation layer to resolve its run-start approval before invoking Multiple Bots"
         );
       }
-      if (memoryRecall) throw new AutomationWakeIngressError("AUTOMATION_INVALID_INPUT", "memoryRecall belongs to executable Tasks, not Team Run creation");
+      const taskOnlyFields: string[] = [];
+      if (constraints.length > 0) taskOnlyFields.push("requiredConstraints");
+      if (memoryRecall) taskOnlyFields.push("memoryRecall");
+      if (skillRefs.length > 0) taskOnlyFields.push("skillRefs");
+      if (tools.length > 0) taskOnlyFields.push("tools");
+      if (connections.length > 0) taskOnlyFields.push("connections");
+      if (raw.expectedOutput !== undefined) taskOnlyFields.push("expectedOutput");
+      if (raw.maxHops !== undefined) taskOnlyFields.push("maxHops");
+      if (raw.deadlineAt !== undefined) taskOnlyFields.push("deadlineAt");
+      if (raw.leaseExpiresAt !== undefined) taskOnlyFields.push("leaseExpiresAt");
+      if (raw.recoveryPolicy !== undefined) taskOnlyFields.push("recoveryPolicy");
+      if (raw.maxAttempts !== undefined) taskOnlyFields.push("maxAttempts");
+      if (taskOnlyFields.length > 0) {
+        throw new AutomationWakeIngressError(
+          "AUTOMATION_TASK_FIELDS_ON_RUN",
+          `automated Team Run creation cannot accept Task-only execution fields: ${taskOnlyFields.join(", ")}`
+        );
+      }
       const leaderId = boundedId(raw.target.leaderId, "target.leaderId");
       const topology = raw.target.topology ?? "dynamic_squad";
       if (!VALID_TOPOLOGIES.has(topology)) throw new AutomationWakeIngressError("AUTOMATION_INVALID_INPUT", `unsupported automated Team Run topology ${String(topology)}`);
@@ -464,10 +484,6 @@ export class AutomationWakeIngress {
         target: { kind: "team_run", leader_id: leaderId, topology },
         objective,
         reason,
-        required_constraints: constraints,
-        skill_refs: skillRefs,
-        required_tools: tools,
-        required_connections: connections,
         budget
       });
       return this.ingestTeamRun({
@@ -479,10 +495,6 @@ export class AutomationWakeIngress {
         topology,
         objective,
         reason,
-        constraints,
-        skillRefs,
-        tools,
-        connections,
         budget
       });
     }
@@ -522,6 +534,10 @@ export class AutomationWakeIngress {
     const existing = this.store.getObject(taskId);
     if (existing) return this.existingBot(existing, input.projection, input.requestContractDigest, leaseId, approvalId, input.recovery);
 
+    const target = this.gateway.getBot(input.targetId);
+    if (!input.targetId.startsWith("bot_") || !target || target.payload.status !== "active" || target.workspaceId !== input.projection.workspace_id) {
+      throw new AutomationWakeIngressError("AUTOMATION_TARGET_UNAVAILABLE", `automation Bot target ${input.targetId} is not an active durable Bot in workspace ${input.projection.workspace_id}`);
+    }
     const policy = this.gateway.policy;
     if (!policy) throw new AutomationWakeIngressError("AUTOMATION_POLICY_REQUIRED", "automation ingress requires CoordinationPolicy");
     const prepared = policy.prepareDelegation({
@@ -717,10 +733,6 @@ export class AutomationWakeIngress {
     topology: TeamRunTopology;
     objective: string;
     reason: string;
-    constraints: string[];
-    skillRefs: string[];
-    tools: string[];
-    connections: string[];
     budget: BudgetEnvelope;
   }): AutomationWakeIngressResult {
     const suffix = input.identityDigest.slice(0, 32);
@@ -732,21 +744,6 @@ export class AutomationWakeIngress {
     const existing = this.store.getObject(runId);
     if (existing) return this.existingTeamRun(existing, input.projection, input.requestContractDigest);
 
-    const policy = this.gateway.policy;
-    if (!policy) throw new AutomationWakeIngressError("AUTOMATION_POLICY_REQUIRED", "automation ingress requires CoordinationPolicy");
-    policy.prepareDelegation({
-      createdBy: AI_VERSE_AUTOMATION_INGRESS_ACTOR,
-      assigneeId: input.leaderId,
-      workspaceId: input.projection.workspace_id,
-      rootObjectiveId: input.rootObjectiveId,
-      objective: input.objective,
-      requiredConstraints: input.constraints,
-      tools: input.tools,
-      connections: input.connections,
-      skillRefs: input.skillRefs,
-      maxHops: Number(input.budget.max_hops),
-      budget: input.budget
-    });
     const leader = this.gateway.getBot(input.leaderId);
     if (!leader || leader.payload.status !== "active" || leader.workspaceId !== input.projection.workspace_id) {
       throw new AutomationWakeIngressError("AUTOMATION_TARGET_UNAVAILABLE", `Team Run leader ${input.leaderId} is not active in workspace ${input.projection.workspace_id}`);
@@ -768,11 +765,6 @@ export class AutomationWakeIngress {
       topology: input.topology,
       status: "created",
       budget: input.budget,
-      required_constraints: input.constraints,
-      constraints_digest: constraintsDigest(input.constraints),
-      required_tools: input.tools,
-      required_connections: input.connections,
-      ...(input.skillRefs.length > 0 ? { required_skill_refs: input.skillRefs } : {}),
       automation_reason: input.reason,
       automation_ingress: this.ingressMetadata(input.projection, input.identityDigest, input.requestContractDigest, "team_run"),
       created_at: timestamp,
