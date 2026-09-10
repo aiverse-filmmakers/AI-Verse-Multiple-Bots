@@ -1,8 +1,6 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { rmSync } from "node:fs";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
 import test from "node:test";
 import { ExecutionQueue } from "../src/execution-queue.js";
 import { CoordinationGateway } from "../src/gateway.js";
@@ -383,7 +381,7 @@ test("aggregate runtime budget exhaustion uses the same canonical terminal casca
 });
 
 test("terminal Team Run residue is recovered after database reopen before queued work can execute", async () => {
-  const dbPath = join(tmpdir(), `ai-verse-teamrun-control-${randomUUID()}.db`);
+  const dbPath = `/tmp/ai-verse-teamrun-control-${randomUUID()}.db`;
   const runtime = new NoopRuntime();
   let taskId = "";
   let runId = "";
