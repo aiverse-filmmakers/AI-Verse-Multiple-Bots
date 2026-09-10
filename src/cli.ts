@@ -1,6 +1,13 @@
 #!/usr/bin/env node
 import process from "node:process";
 import { resolve } from "node:path";
+import {
+  AiVerseOsRegistrationError,
+  detectAiVerseOsCompatibility,
+  findAiVerseOsRoot,
+  planAiVerseOsRegistration,
+  registerAiVerseOsExtension
+} from "./ai-verse-os-registration.js";
 import { CoordinationGateway } from "./gateway.js";
 import { CoordinationStore } from "./store.js";
 import { createGatewayServer } from "./server.js";
@@ -12,9 +19,25 @@ function flag(name: string): string | undefined {
 }
 
 function usage(): never {
-  console.error(`AI-Verse Multiple Bots CLI\n\nCommands:\n  init [--db PATH]\n  doctor [--db PATH]\n  bot create --id ID --name NAME --workspace ID --role TITLE --mission TEXT [--db PATH]\n  bot list [--workspace ID] [--db PATH]\n  events [--after N] [--limit N] [--db PATH]\n  serve [--host HOST] [--port N] [--db PATH]\n`);
+  console.error(`AI-Verse Multiple Bots CLI\n\nCommands:\n  init [--db PATH]\n  doctor [--db PATH]\n  bot create --id ID --name NAME --workspace ID --role TITLE --mission TEXT [--db PATH]\n  bot list [--workspace ID] [--db PATH]\n  events [--after N] [--limit N] [--db PATH]\n  serve [--host HOST] [--port N] [--db PATH]\n  os detect [--root PATH]\n  os plan [--root PATH]\n  os register [--root PATH]\n`);
   process.exit(2);
   throw new Error("unreachable");
+}
+
+function requestedOsRoot(): string {
+  const explicit = flag("root");
+  if (explicit) return resolve(explicit);
+  return findAiVerseOsRoot(process.cwd()) ?? resolve(process.cwd());
+}
+
+function reportOsError(error: unknown): void {
+  const registrationError = error instanceof AiVerseOsRegistrationError ? error : null;
+  console.error(JSON.stringify({
+    ok: false,
+    code: registrationError?.code ?? "AI_VERSE_OS_REGISTRATION_ERROR",
+    error: error instanceof Error ? error.message : String(error)
+  }, null, 2));
+  process.exitCode = 1;
 }
 
 const args = process.argv.slice(2);
@@ -27,6 +50,23 @@ if (args[0] === "serve") {
   console.log(JSON.stringify({ ok: true, gateway: `http://${address.host}:${address.port}`, db: service.store.dbPath }, null, 2));
   process.on("SIGINT", async () => { await service.close(); process.exit(0); });
   process.on("SIGTERM", async () => { await service.close(); process.exit(0); });
+} else if (args[0] === "os") {
+  const root = requestedOsRoot();
+  try {
+    if (args[1] === "detect") {
+      const compatibility = detectAiVerseOsCompatibility(root);
+      console.log(JSON.stringify({ ok: compatibility.status === "compatible", compatibility }, null, 2));
+      if (compatibility.status === "incompatible") process.exitCode = 1;
+    } else if (args[1] === "plan") {
+      console.log(JSON.stringify({ ok: true, plan: planAiVerseOsRegistration(root) }, null, 2));
+    } else if (args[1] === "register") {
+      console.log(JSON.stringify({ ok: true, registration: registerAiVerseOsExtension(root) }, null, 2));
+    } else {
+      usage();
+    }
+  } catch (error) {
+    reportOsError(error);
+  }
 } else {
   const store = new CoordinationStore(resolve(dbPath));
   const gateway = new CoordinationGateway(store);
