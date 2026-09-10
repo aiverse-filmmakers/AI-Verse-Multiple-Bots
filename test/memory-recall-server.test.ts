@@ -43,6 +43,7 @@ test("HTTP delegation normalizes Memory recall before Task creation, rejects sco
   const workspaceId = "ws_http_memory";
   const service = createGatewayServer({ dbPath: ":memory:", port: 0 });
   const address = await service.listen();
+  await service.supervisor.stop();
   try {
     assert.equal((await httpJson(address.port, "POST", "/v1/bots", bot("bot_http_memory_a", workspaceId))).status, 201);
     assert.equal((await httpJson(address.port, "POST", "/v1/bots", bot("bot_http_memory_b", workspaceId))).status, 201);
