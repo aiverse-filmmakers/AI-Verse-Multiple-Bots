@@ -1,3 +1,4 @@
+import { normalizeMemoryRecallDirective } from "./ai-verse-memory-recall.js";
 import { inheritBudget, type BudgetEnvelope } from "./budget.js";
 import { constraintsDigest, normalizeConstraints } from "./constraints.js";
 import { createId } from "./id.js";
@@ -31,6 +32,7 @@ export interface ManagedWorkerTaskInput {
   requiredConstraints?: string[];
   expectedOutput?: JsonObject;
   inputArtifactRefs?: string[];
+  memoryRecall?: unknown;
   tools?: string[];
   connections?: string[];
   parentTaskId?: string;
@@ -65,6 +67,8 @@ export class TeamRunManager {
   ) {}
 
   createWorkerTask(input: ManagedWorkerTaskInput): ManagedWorkerTaskResult {
+    // Validate the recall request before creating any temporary identity or Task.
+    const memoryRecall = normalizeMemoryRecallDirective(input.memoryRecall);
     const run = this.ensureRunning(input.runId, input.createdBy);
     const leaderId = String(run.payload.leader_id ?? "");
     if (leaderId !== input.createdBy) throw new Error(`Only Team Run leader ${leaderId} can create managed Worker Tasks`);
@@ -144,6 +148,7 @@ export class TeamRunManager {
         constraints_digest: constraintsDigest(requiredConstraints),
         expected_output: input.expectedOutput ?? { contract: "artifact-or-structured-result" },
         input_artifact_refs: artifactRefs,
+        ...(memoryRecall ? { memory_recall: memoryRecall } : {}),
         lease_id: leaseId,
         environment_lease_id: null,
         response_target: { kind: "bot", id: leaderId },
