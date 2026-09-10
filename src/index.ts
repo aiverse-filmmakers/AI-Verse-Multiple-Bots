@@ -1,3 +1,4 @@
+export * from "./ai-verse-memory-recall.js";
 export * from "./ai-verse-os-registration.js";
 export * from "./ai-verse-os-workspace-projection.js";
 export * from "./artifact-delegation.js";
@@ -10,6 +11,7 @@ export * from "./execution-queue.js";
 export * from "./gateway.js";
 export * from "./id.js";
 export * from "./loop-guard.js";
+export * from "./memory-recall-contract.js";
 export * from "./openai-compatible-runtime.js";
 export * from "./policy.js";
 export * from "./recovery.js";
