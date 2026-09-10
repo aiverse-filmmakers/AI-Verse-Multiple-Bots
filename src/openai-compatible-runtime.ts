@@ -115,6 +115,7 @@ function promptFor(context: RuntimeExecutionContext): { system: string; user: st
   const historicalRecall = context.historicalRecall
     ? {
         provider: context.historicalRecall.provider,
+        provider_version: context.historicalRecall.provider_version ?? null,
         workspace_id: context.historicalRecall.workspace_id,
         query_digest: context.historicalRecall.query_digest,
         recall_digest: context.historicalRecall.recall_digest,
@@ -125,11 +126,15 @@ function promptFor(context: RuntimeExecutionContext): { system: string; user: st
           type: item.type,
           scope: item.scope,
           content: item.content,
+          why: item.why ?? null,
           path: item.path,
+          source_identity: item.source_identity ?? null,
           source: item.source ?? null,
           updated_at: item.updated_at ?? null,
           source_version: item.source_version ?? null,
           freshness: item.freshness ?? null,
+          importance: item.importance ?? null,
+          confidence: item.confidence ?? null,
           digest: item.digest
         }))
       }
