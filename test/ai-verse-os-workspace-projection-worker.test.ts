@@ -189,7 +189,7 @@ test("temporary Worker receives the same live workspace-scoped projection contra
   }
 });
 
-test("invalid explicit AI-Verse OS root fails before the gateway can become usable", () => {
+test("invalid explicit AI-Verse OS root fails before the gateway allocates coordination state", () => {
   const root = `/tmp/ai-verse-invalid-host-${randomUUID()}`;
   const dbPath = `/tmp/ai-verse-invalid-host-${randomUUID()}.db`;
   try {
@@ -198,6 +198,7 @@ test("invalid explicit AI-Verse OS root fails before the gateway can become usab
       (error: unknown) => error instanceof AiVerseOsWorkspaceProjectionError && error.code === "INCOMPATIBLE_AI_VERSE_OS"
     );
     assert.equal(existsSync(root), false);
+    assert.equal(existsSync(dbPath), false);
   } finally {
     rmSync(root, { recursive: true, force: true });
     rmSync(dbPath, { force: true });
