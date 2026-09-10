@@ -14,11 +14,16 @@ declare module "node:crypto" {
   };
 }
 declare module "node:fs" {
+  export function existsSync(path: string): boolean;
+  export function lstatSync(path: string): any;
   export function mkdirSync(path: string, options?: any): void;
   export function readFileSync(path: string, encoding: "utf8"): string;
+  export function renameSync(oldPath: string, newPath: string): void;
   export function rmSync(path: string, options?: any): void;
+  export function writeFileSync(path: string, data: string, options?: any): void;
 }
 declare module "node:path" {
+  export const sep: string;
   export function resolve(...parts: string[]): string;
   export function dirname(path: string): string;
 }
