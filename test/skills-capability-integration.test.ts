@@ -37,8 +37,9 @@ function bot(id: string, skills: string[]): BotManifest {
 }
 
 function fixture() {
-  const store = new CoordinationStore(":memory:");
-  const queue = new ExecutionQueue(":memory:");
+  const dbPath = `/tmp/aiverse-skills-integration-${randomUUID()}.db`;
+  const store = new CoordinationStore(dbPath);
+  const queue = new ExecutionQueue(store.dbPath);
   const policy = new CoordinationPolicy(store, { requireRegisteredBots: true });
   const gateway = new CoordinationGateway(store, queue, policy);
   gateway.createBot(bot("bot_leader", ["deep-research", "evidence-verification"]));
