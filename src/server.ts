@@ -77,6 +77,7 @@ function optionalMaxAttempts(value: unknown): number | undefined {
 }
 
 export function createGatewayServer(options: GatewayServerOptions = {}) {
+  const workspaceProjector = options.aiVerseOsRoot ? new AiVerseOsWorkspaceProjector(options.aiVerseOsRoot) : undefined;
   const store = new CoordinationStore(options.dbPath ?? "runtime/ai-verse-bots/coordination.db");
   const executionQueue = new ExecutionQueue(store.dbPath);
   const policy = new CoordinationPolicy(store, { requireRegisteredBots: true });
@@ -85,7 +86,6 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
   const runtimes = new RuntimeRegistry()
     .register(new DeterministicRuntimeAdapter())
     .register(new OpenAICompatibleRuntimeAdapter());
-  const workspaceProjector = options.aiVerseOsRoot ? new AiVerseOsWorkspaceProjector(options.aiVerseOsRoot) : undefined;
   const runner = new BotRunner(
     store,
     gateway,
