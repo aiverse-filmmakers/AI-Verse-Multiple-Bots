@@ -9,9 +9,10 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "test": "npm run build && node --test dist/test/*.test.js",
+    "test": "npm run build && node --test dist/test/*.test.js test/platform-smoke-harness.test.mjs",
     "start": "node dist/src/cli.js",
-    "doctor": "npm run build && node dist/src/cli.js doctor"
+    "doctor": "npm run build && node dist/src/cli.js doctor",
+    "platform:smoke": "npm run build && node scripts/platform-smoke.mjs"
   },
   "devDependencies": {
     "typescript": "5.8.3"
