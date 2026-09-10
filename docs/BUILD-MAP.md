@@ -309,7 +309,7 @@ Implemented:
 - runtime-only strategic intent injection with provenance-only persistence
 - native Gateway Brain-objective ingress command; standalone mode remains independent
 
-**Verified code gate:** GitHub Actions run 285 passed the full **202/202 tests** with 0 failures, 0 canceled and 0 skipped.
+**Final PR-head verification:** GitHub Actions run 289 passed the full **202/202 tests** with 0 failures, 0 canceled and 0 skipped on exact head `328de54dc0506437d725f2a90dd1f35efe0c0d8a`.
 
 See `docs/AI-VERSE-BRAIN-OBJECTIVE-INGRESS.md` and `docs/PHASE-3-STATUS.md`.
 
