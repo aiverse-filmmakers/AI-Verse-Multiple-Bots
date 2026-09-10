@@ -44,19 +44,24 @@ export interface HistoricalRecallItem {
   type: string;
   scope: string;
   content: string;
+  why?: string | null;
   path: string;
   digest: string;
+  source_identity?: string | null;
   source?: string | null;
   updated_at?: string | null;
   source_version?: string | null;
   freshness?: string | null;
   indexed_at?: string | null;
+  importance?: number | null;
+  confidence?: number | null;
 }
 
 /** Ephemeral historical/contextual evidence. Canonical ownership remains with the host Memory provider. */
 export interface HistoricalRecallProjection {
   schema_version: "1.0";
   provider: string;
+  provider_version?: string | null;
   workspace_id: string;
   query_digest: string;
   recall_digest: string;
