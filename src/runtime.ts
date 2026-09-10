@@ -1,4 +1,5 @@
 import type { RuntimeUsage } from "./budget.js";
+import type { MemoryRecallProjection } from "./memory-recall-contract.js";
 import type { BotManifest, JsonObject, StoredObject } from "./types.js";
 
 export type ExecutionPrincipalKind = "bot" | "worker";
@@ -48,6 +49,8 @@ export interface RuntimeExecutionContext {
   workspaceProjection?: WorkspaceStateProjection | null;
   /** Ephemeral, read-only strategic context supplied by an explicit host adapter. Never canonical Multiple Bots state. */
   strategicIntent?: StrategicIntentProjection | null;
+  /** Ephemeral, task-requested historical recall. Canonical memory remains owned by the configured Memory provider. */
+  memoryRecall?: MemoryRecallProjection | null;
   signal: AbortSignal;
 }
 
@@ -110,6 +113,9 @@ export class DeterministicRuntimeAdapter implements RuntimeAdapter {
           : {}),
         ...(context.strategicIntent
           ? { strategic_intent_digest: context.strategicIntent.intent_digest }
+          : {}),
+        ...(context.memoryRecall
+          ? { memory_recall_projection_digest: context.memoryRecall.projection_digest }
           : {}),
         result: `Completed: ${objective}`
       },
