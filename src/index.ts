@@ -1,3 +1,4 @@
+export * from "./ai-verse-memory-recall.js";
 export * from "./ai-verse-os-registration.js";
 export * from "./ai-verse-os-workspace-projection.js";
 export * from "./artifact-delegation.js";
