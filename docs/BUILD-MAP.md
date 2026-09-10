@@ -16,12 +16,12 @@ The target is an installable persistent-teammate layer that can run standalone o
 Phase 0  Research + Architecture        [COMPLETE]    100%
 Phase 1  Runnable Coordination Core     [COMPLETE]    100%
 Phase 2  Dynamic Multi-Agent Squads     [COMPLETE]    100%
-Phase 3  AI-Verse Native Integration    [IN PROGRESS] ~20%
+Phase 3  AI-Verse Native Integration    [IN PROGRESS] ~30%
 Phase 4  Runtime / A2A Interoperability [NOT STARTED]
 Phase 5  Product + Install + Dashboard  [NOT STARTED]
 ```
 
-**Directional overall first-release progress:** roughly 69% complete.
+**Directional overall first-release progress:** roughly 71% complete.
 
 That overall figure is intentionally approximate because later phases contain different amounts of work. Passed phase gates, not percentages, are authoritative.
 
@@ -229,7 +229,7 @@ None.
 
 **Status:** IN PROGRESS
 
-**Directional phase progress:** approximately 20%.
+**Directional phase progress:** approximately 30%.
 
 Goal: attach the finished host-neutral teammate/squad package to AI-Verse OS without moving or duplicating canonical OS/Brain/Memory/Skills state into this repository.
 
@@ -237,8 +237,8 @@ Goal: attach the finished host-neutral teammate/squad package to AI-Verse OS wit
 
 1. AI-Verse OS installer/registration contract - **COMPLETE**
 2. workspace-scoped state projection - **COMPLETE**
-3. Brain initiative/goal ingress - **NEXT**
-4. Memory context/recall adapter - **NOT STARTED**
+3. Brain initiative/goal ingress - **COMPLETE**
+4. Memory context/recall adapter - **NEXT**
 5. Skills capability resolution - **NOT STARTED**
 6. Automations wake/schedule integration - **NOT STARTED**
 7. OS write-command boundary - **NOT STARTED**
@@ -290,9 +290,32 @@ Implemented:
 
 See `docs/PHASE-3-STATUS.md` for the detailed acceptance proof.
 
+### Phase 3.3 - Brain initiative/goal ingress
+
+Implemented:
+
+- public `AiVerseBrainObjectiveSource`, `BrainObjectiveIngress` and runtime freshness adapter
+- explicit AI-Verse Brain registration/install validation and exact workspace direction-owner gate
+- bounded objective/initiative/intent projection with strict path/scope/source limits
+- fresh ingress from `READY` objectives only
+- deterministic semantic Brain root objective encoded with SHA-256 intent digest
+- lifecycle-only revisions preserve root identity; material strategic edits invalidate old execution
+- immutable Brain constraints/boundaries/stop conditions carried into Task execution
+- deterministic idempotent Task/capability-lease/Approval settlement
+- requested execution authority cannot exceed durable leader grants
+- exact request-contract digest prevents deadline/hop/lease/reason/Approval drift on re-ingress
+- execution-time Brain re-read before durable-Bot or temporary-Worker runtime execution
+- revoked ownership, Brain disablement, canceled/superseded objective, invalid parent or semantic drift fails before successful Artifact publication
+- runtime-only strategic intent injection with provenance-only persistence
+- native Gateway Brain-objective ingress command; standalone mode remains independent
+
+**Verified code gate:** GitHub Actions run 285 passed the full **202/202 tests** with 0 failures, 0 canceled and 0 skipped.
+
+See `docs/AI-VERSE-BRAIN-OBJECTIVE-INGRESS.md` and `docs/PHASE-3-STATUS.md`.
+
 ### Phase 3 boundary
 
-Phase 3 work is additive through explicit host adapters. AI-Verse OS remains canonical for operator/workspace/domain state. Multiple Bots remains canonical for coordination state. Host projections are derived views, not competing truth.
+Phase 3 work is additive through explicit host adapters. AI-Verse OS remains canonical for operator/workspace/domain state. AI-Verse Brain remains canonical for strategic intent and objective lifecycle. Multiple Bots remains canonical for coordination state. Host/Brain projections are derived runtime views, not competing truth.
 
 Production one-command package materialization is still a Phase 5 product responsibility; Phase 3.1 defines safe host registration after extension-owned files exist.
 
@@ -357,9 +380,9 @@ The first finished release must prove at minimum:
 
 ## Next gate
 
-**Phase 3.3 - Brain initiative/goal ingress.**
+**Phase 3.4 - Memory context/recall adapter.**
 
-The next slice must let AI-Verse Brain supply bounded initiative/goal intent into the coordination layer without copying Brain canonical state into the Multiple Bots database, while preserving workspace, root-objective, constraints, authority, provenance and idempotency.
+The next slice must let durable Bots and temporary Workers retrieve bounded, workspace-correct historical context from AI-Verse Memory through an explicit adapter without duplicating Memory's canonical state inside the coordination database. Recall must remain provenance-bearing, authority-scoped and optional so standalone mode continues to work without Memory.
 
 ## How to report progress
 
