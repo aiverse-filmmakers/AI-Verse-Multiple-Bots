@@ -2,15 +2,15 @@
 
 **An installable Persistent Teammate Layer for AI operating systems.**
 
-AI-Verse Multiple Bots gives an AI system a durable roster of specialist Bots that can own jobs, work asynchronously, use real tools, collaborate with each other, share artifacts, hand off responsibility, participate in group Rooms and Threads, and spawn temporary multi-agent squads when one agent is not enough.
+AI-Verse Multiple Bots gives an AI system a durable roster of specialist Bots that can own jobs, work asynchronously, use real tools, collaborate with each other, share artifacts, hand off responsibility, participate in group Rooms and Threads, and create bounded temporary multi-agent squads when one agent is not enough.
 
-It is designed first for AI-Verse OS, but the coordination core is intended to work standalone and through adapters with other agent runtimes.
+It is designed first for AI-Verse OS, while the coordination core remains host-neutral and usable standalone or through adapters with other agent runtimes.
 
 ## North star
 
 > **Give every AI operating system its own team of persistent AI coworkers without creating a second operating system or a second source of truth.**
 
-The target experience is inspired most strongly by xAI's Grok Bot persistent-teammate model, while the execution architecture combines the strongest ideas from Hermes, Grok Multi-Agent, Microsoft Agent Framework, OpenAI Agents SDK, A2A, OpenClaw, AgentScope and other current multi-agent systems.
+The target experience is inspired most strongly by xAI's Grok Bot persistent-teammate model, while the execution architecture combines useful patterns from Hermes, Grok Multi-Agent, Microsoft Agent Framework, OpenAI Agents SDK, A2A, OpenClaw, AgentScope and other current multi-agent systems.
 
 ## Current implementation status
 
@@ -18,26 +18,35 @@ The target experience is inspired most strongly by xAI's Grok Bot persistent-tea
 
 **Phase 1: Runnable Coordination Core: COMPLETE**
 
-**Phase 2: Dynamic Multi-Agent Squads: NEXT**
+**Phase 2: Dynamic Multi-Agent Squads: COMPLETE**
 
-Phase 1 closed on 2026-09-09 with **54/54 GitHub Actions tests passing**. The runnable core now includes:
+**Phase 3: AI-Verse Native Integration: IN PROGRESS**
+
+Phase 2 is merged to `main` and its post-merge gate passed **175/175 tests**. Phase 3.1, the AI-Verse OS installer/registration contract, is implemented and its hardened code gate passed **184/184 tests**.
+
+The current package includes:
 
 - durable Bot registry with collision-safe identity and lifecycle rules
 - persistent Bot-to-Bot messaging and asynchronous mailboxes
 - Room and Thread collaboration with bounded scheduling
-- aggregate Room `max_messages` and `max_rounds` enforcement
-- Task delegation with ownership, constraints, budgets and capability leases
-- Artifact-to-Bot collaboration, including Artifact A as structured input to Bot B
-- safe Handoffs with authority reissue, Approval retargeting and ownership-return policies
+- Task delegation, capability/environment leases, ownership and immutable constraints
+- safe Handoffs with authority reissue, Approval retargeting and ownership settlement
 - first-class Approval gates for consequential work
-- persistent execution queue with cancellation, deadlines, heartbeats and fail-safe recovery
+- persistent execution queue with cancellation, deadlines, heartbeats, dead letters and restart recovery
 - strict workspace, peer, tool and connection policy enforcement
-- deterministic reference runtime
-- zero-dependency OpenAI-compatible HTTP model runtime with secret-safe configuration and normalized receipts
-- real two-Bot model collaboration through the installable Gateway
-- restart-level conformance across messaging, Rooms/Threads, Handoffs, Approvals, model execution and cancellation integrity
+- deterministic and OpenAI-compatible runtime adapters
+- temporary Team Run Workers that never become durable Bots implicitly
+- manager, parallel fan-out, direct handoff, bounded discussion, review/verifier and hybrid squad behavior
+- adaptive single-Bot-vs-squad selection
+- structured disagreement detection and verification debt
+- canonical leader synthesis with provenance
+- squad-wide aggregate budgets, absolute wall-clock deadlines and hierarchical cancellation
+- evidence-preserving terminal cleanup and restart recovery
+- AI-Verse OS v2 compatibility detection and safe local extension registration
+- extension registry preservation, path/symlink safety, concurrent-writer protection and idempotent reinstall
+- CLI surfaces for `os detect`, `os plan`, and `os register`
 
-See [`docs/BUILD-MAP.md`](docs/BUILD-MAP.md) for the canonical project progress map and [`docs/PHASE-1-STATUS.md`](docs/PHASE-1-STATUS.md) for the complete Phase 1 evidence ledger.
+See [`docs/BUILD-MAP.md`](docs/BUILD-MAP.md) for the canonical project progress map, [`docs/PHASE-2-STATUS.md`](docs/PHASE-2-STATUS.md) for the complete squad-core ledger, and [`docs/PHASE-3-STATUS.md`](docs/PHASE-3-STATUS.md) for current native-integration progress.
 
 ## Canonical architecture
 
@@ -45,10 +54,11 @@ For implementation, these are the current source documents:
 
 1. [`docs/PERSISTENT-TEAMMATE-ARCHITECTURE.md`](docs/PERSISTENT-TEAMMATE-ARCHITECTURE.md) is the **canonical product and system architecture**.
 2. [`docs/COORDINATION-PROTOCOL-V1.1.md`](docs/COORDINATION-PROTOCOL-V1.1.md) is the **current coordination protocol direction**.
-3. [`schemas/coordination-v1.schema.json`](schemas/coordination-v1.schema.json) is the **architecture-stage machine-readable companion** and will evolve as implementation tests harden the protocol.
-4. [`templates/bot.yaml`](templates/bot.yaml) and [`templates/room.yaml`](templates/room.yaml) are the current Bot and Room manifest examples.
+3. [`schemas/coordination-v1.schema.json`](schemas/coordination-v1.schema.json) is the machine-readable coordination companion and evolves through implementation tests.
+4. [`docs/AI-VERSE-OS-REGISTRATION-CONTRACT.md`](docs/AI-VERSE-OS-REGISTRATION-CONTRACT.md) is the Phase 3.1 host-registration boundary.
+5. [`templates/bot.yaml`](templates/bot.yaml) and [`templates/room.yaml`](templates/room.yaml) are the current Bot and Room manifest examples.
 
-The earlier [`docs/ARCHITECTURE-BLUEPRINT.md`](docs/ARCHITECTURE-BLUEPRINT.md) and [`docs/COORDINATION-PROTOCOL.md`](docs/COORDINATION-PROTOCOL.md) remain valuable research/background documents, but when they differ from the canonical files above, **the Persistent Teammate Architecture and Protocol v1.1 win**.
+The earlier [`docs/ARCHITECTURE-BLUEPRINT.md`](docs/ARCHITECTURE-BLUEPRINT.md) and [`docs/COORDINATION-PROTOCOL.md`](docs/COORDINATION-PROTOCOL.md) remain research/background documents. Where they differ from the canonical files above, the current architecture/protocol/status documents win.
 
 ## Grok Bot vs Grok Multi-Agent
 
@@ -103,11 +113,11 @@ AI-Verse Memory         -> durable historical memory
 AI-Verse Brain          -> intent, goals, planning, reflection, initiative
 AI-Verse Skills         -> reusable capabilities and operator packs
 AI-Verse Automations    -> schedules, triggers and recurring execution policy
-AI-Verse Multiple Bots  -> Bot identity, Rooms, routing, tasks, handoffs, team runs
+AI-Verse Multiple Bots  -> Bot identity, Rooms, routing, Tasks, Handoffs, Team Runs
 AI-Verse Dashboard      -> visual control and observability
 ```
 
-Important discoveries from Bot work are proposed back through normal AI-Verse write contracts. A Bot conversation never becomes canonical truth merely because an agent said something.
+Important discoveries from Bot work are proposed back through explicit AI-Verse write contracts. A Bot conversation, Worker result, or Team Run Artifact never becomes canonical OS truth merely because it exists.
 
 ## Core primitives
 
@@ -121,7 +131,7 @@ Important discoveries from Bot work are proposed back through normal AI-Verse wr
 
 ### Run-scoped primitives
 
-- **Worker**: temporary specialist created for one bounded task
+- **Worker**: temporary specialist created for bounded Team Run work
 - **Team Run**: bounded multi-agent execution
 - **Task**: delegated unit of work with ownership and lifecycle
 - **Capability Lease**: task-scoped authority
@@ -140,7 +150,7 @@ Important discoveries from Bot work are proposed back through normal AI-Verse wr
 
 A **Bot** is durable because a job deserves a long-lived owner.
 
-A **Worker** is disposable because one task temporarily benefits from additional intelligence.
+A **Worker** is disposable because one bounded run temporarily benefits from additional intelligence.
 
 ```text
 Persistent roster
@@ -157,7 +167,7 @@ One difficult request
       +-- temporary verifier
 ```
 
-Workers disappear when the Team Run completes unless explicitly promoted into a durable Bot.
+Workers terminate with their Team Run lifecycle and never enter the durable Bot registry implicitly. Creating a durable Bot is a separate explicit lifecycle decision, not Worker promotion by side effect.
 
 ## Collaboration patterns
 
@@ -168,7 +178,7 @@ The system does not pretend one swarm pattern fits every task.
 | **Direct Bot Chat** | Operator talks to one durable teammate |
 | **Bot-to-Bot DM** | Asynchronous peer communication |
 | **Delegation** | Bot asks another Bot/Worker for bounded work while retaining ownership |
-| **Handoff** | Active responsibility transfers to another Bot |
+| **Handoff** | Active responsibility transfers to another principal |
 | **Manager** | One leader calls specialists and owns the final result |
 | **Parallel Panel** | Independent agents work simultaneously |
 | **Group Room** | Several durable Bots share visible project/team context |
@@ -202,24 +212,20 @@ Collaboration Gate
            |
       gap/conflict check
            |
-     selective follow-up
+     selective verifier
            |
            v
         synthesis
-           |
-     optional verifier
            |
            v
        final result
 ```
 
-Unlike xAI's public fixed 4-agent/16-agent research configurations, AI-Verse squad size is task-dependent, model-neutral and centrally budgeted.
+AI-Verse squad size is task-dependent, model-neutral, centrally budgeted and bounded by one Team Run control plane.
 
 ## Execution environments
 
-Grok Bot currently uses one persistent cloud computer per user, shared by that user's Bots. That makes handoffs easy but is explicitly not a per-Bot security boundary.
-
-AI-Verse improves this with configurable environment policy:
+AI-Verse supports configurable environment policy:
 
 ```text
 shared_workspace  -> trusted Bots share a workspace execution environment
@@ -242,7 +248,7 @@ The heart of the repository is an event-driven, runtime-neutral **Coordination G
                   |  Coordination Gateway   |
                   +-------------------------+
                    |    |     |     |     |
-             identity routing tasks policy budgets
+             identity routing Tasks policy budgets
                    |    |     |     |     |
                    +----+-----+-----+-----+
                               |
@@ -255,9 +261,7 @@ The heart of the repository is an event-driven, runtime-neutral **Coordination G
       AI-Verse OS       Hermes/OpenClaw/CLI    remote agents
 ```
 
-No desktop or web client owns room scheduling or Bot-to-Bot routing.
-
-Use push events through WebSocket/SSE locally. Polling is fallback only.
+No desktop or web client owns Room scheduling or Bot-to-Bot routing. Push events are primary; polling is fallback only.
 
 ## Rooms and Threads
 
@@ -304,7 +308,7 @@ Every consequential delegation carries structured metadata:
 - immutable required constraints
 - expected output contract
 - referenced Artifacts
-- task ID and correlation ID
+- Task ID and correlation ID
 - capability lease
 - execution environment lease when needed
 - budget
@@ -326,12 +330,10 @@ workspace policy
 INTERSECT
 Bot grants
 INTERSECT
-task capability lease
+Task capability lease
 ```
 
-A peer cannot launder privilege by asking a more powerful Bot to perform something the current task was never authorized to do.
-
-Secrets travel as handles, not raw values.
+A peer cannot launder privilege by asking a more powerful Bot to perform something the current Task was never authorized to do. Secrets travel as handles, not raw values.
 
 ## Approval law
 
@@ -346,15 +348,11 @@ Bot proposes action
   -> receipt
 ```
 
-This mirrors the strongest aspect of Grok Bot's approval/Auto Review model without depending on one provider.
-
 ## Workspace law
 
 Workspace scope is trusted runtime state.
 
-Bots cannot prompt each other into another AI-Verse workspace or invent filesystem roots.
-
-Cross-workspace work is explicit and transfers selected Artifacts/summaries rather than casually joining both contexts.
+Bots cannot prompt each other into another AI-Verse workspace or invent filesystem roots. Cross-workspace work is explicit and transfers selected Artifacts/summaries rather than casually joining both contexts.
 
 ## Context law
 
@@ -369,7 +367,7 @@ Each Bot turn receives only the context packet it needs:
 - selected Room/Thread messages
 - assigned Task
 - Artifact references
-- Skills relevant to the task
+- Skills relevant to the Task
 - permitted tools/connections
 - output contract
 
@@ -390,11 +388,11 @@ Peer Bot message/handoff ──┤
                           Bot
 ```
 
-Multiple Bots does not create a second scheduler. AI-Verse Automations remains canonical for schedules/events, while the Bot UI can project those automations as "this Bot's routines."
+Multiple Bots does not create a second scheduler. AI-Verse Automations remains canonical for schedules/events, while a Bot surface may project those automations as that Bot's routines.
 
 ## Skills and learning workflows
 
-AI-Verse follows the same strong progression Grok Bot uses:
+AI-Verse follows a progressive pattern:
 
 ```text
 perform once
@@ -405,7 +403,7 @@ perform once
    -> optionally bind Automation to responsible Bot
 ```
 
-Teach-by-demonstration can later feed AI-Verse Skills through action traces without moving skill ownership into this repository.
+Teach-by-demonstration can later feed AI-Verse Skills through action traces without moving Skill ownership into this repository.
 
 ## Presence and human attention
 
@@ -431,62 +429,58 @@ handoff_waiting
 failed
 ```
 
-The Dashboard should default to attention state and a short current-action summary. Full traces remain available when the operator wants to inspect them.
+Dashboard clients should default to attention state and a short current-action summary. Full traces remain available for inspection.
 
-## Native AI-Verse OS shape
+## AI-Verse OS integration
+
+AI-Verse OS v2 exposes optional local extensions through:
 
 ```text
 AI-Verse-OS/
-├── agents/
-│   ├── registry.yaml
-│   └── bots/
-│       ├── registry.yaml
-│       ├── bots/
-│       │   └── <bot-id>.yaml
-│       ├── rooms/
-│       │   └── <room-id>.yaml
-│       ├── conversations/
-│       │   ├── dm/
-│       │   └── rooms/
-│       ├── runs/
-│       └── policies/
-│
-├── scripts/
-│   └── ai-verse-bots/
-│
-└── runtime/
-    └── ai-verse-bots/
-        ├── coordination.db
-        ├── cache/
-        ├── sockets/
-        ├── indexes/
-        └── traces/
+└── .aiverse/
+    └── extensions/
+        ├── registry.json
+        ├── registry.json.lock       # transient shared mutation guard
+        └── ai-verse-multiple-bots/
+            ├── INSTRUCTIONS.md
+            ├── engine.mjs
+            └── <future adapters>
 ```
 
-`agents/bots/` is user-owned coordination state. Engine code is system-owned. Runtime indexes/caches are disposable.
+Phase 3.1 implements compatibility detection and safe registration through this local extension hook.
+
+Important boundaries:
+
+- normal Multiple Bots registration does **not** edit tracked AI-Verse OS files
+- it does **not** create or rewrite `agents/registry.yaml`
+- it preserves unknown registry fields and unrelated extension registrations
+- registration does not imply health, permissions, approvals, workspace access or runtime readiness
+- installed extension paths must stay inside the OS root and must not traverse symlinks
+- competing registry writers fail visibly instead of silently overwriting each other
+
+Programmatic host registration is exported as `aiVerseOsRegistrationAdapter`.
+
+CLI surfaces:
+
+```bash
+ai-verse-bots os detect --root /path/to/AI-Verse-OS
+ai-verse-bots os plan --root /path/to/AI-Verse-OS
+ai-verse-bots os register --root /path/to/AI-Verse-OS
+```
+
+`os register` is intentionally a registration operation, not the final member-facing installer. It expects extension-owned files to have already been materialized and verifies them before writing `installed: true`. Clean-machine packaging/materialization remains a Phase 5 product gate.
+
+See [`docs/AI-VERSE-OS-REGISTRATION-CONTRACT.md`](docs/AI-VERSE-OS-REGISTRATION-CONTRACT.md).
 
 ## Standalone mode
 
-Without AI-Verse OS:
-
-```text
-.ai-verse-bots/
-├── registry.yaml
-├── bots/
-├── rooms/
-├── conversations/
-├── runs/
-├── policies/
-└── runtime/
-```
-
-Host integrations can supply their own memory, skills, filesystem, automation and execution backends.
+Without AI-Verse OS, the same coordination core can be hosted independently. Host integrations can supply their own memory, skills, filesystem, automation and execution backends without changing the core protocol.
 
 ## Interoperability
 
 Planned adapters:
 
-1. native AI-Verse runtime
+1. native AI-Verse integration
 2. A2A remote agent
 3. Hermes
 4. OpenClaw
@@ -516,40 +510,42 @@ The policy is not hard-coded into a UI.
 
 ## Research warning: more agents can be worse
 
-2026 controlled research shows fixed multi-agent teams can underperform a strong single agent, waste budget, duplicate effort or average away the strongest expert.
+Controlled multi-agent research shows fixed teams can underperform a strong single agent, waste budget, duplicate effort or average away the strongest expert.
 
-Therefore the system selects the **smallest sufficient topology** and records whether multi-agent coordination actually improved the task class.
+Therefore the system selects the **smallest sufficient topology** and keeps multi-agent work explicitly bounded.
 
 ## Research and architecture documents
 
-- [`docs/GROK-BOT-DEEP-DIVE.md`](docs/GROK-BOT-DEEP-DIVE.md) - real Grok Bot product architecture and AI-Verse lessons
+- [`docs/GROK-BOT-DEEP-DIVE.md`](docs/GROK-BOT-DEEP-DIVE.md) - Grok Bot product benchmark and AI-Verse lessons
 - [`docs/PERSISTENT-TEAMMATE-ARCHITECTURE.md`](docs/PERSISTENT-TEAMMATE-ARCHITECTURE.md) - canonical architecture
-- [`docs/COORDINATION-PROTOCOL-V1.1.md`](docs/COORDINATION-PROTOCOL-V1.1.md) - current protocol
-- [`docs/IMPLEMENTATION-ROADMAP.md`](docs/IMPLEMENTATION-ROADMAP.md) - canonical build sequence and phase history
+- [`docs/COORDINATION-PROTOCOL-V1.1.md`](docs/COORDINATION-PROTOCOL-V1.1.md) - current coordination protocol
 - [`docs/BUILD-MAP.md`](docs/BUILD-MAP.md) - canonical project completion map
-- [`docs/PHASE-1-STATUS.md`](docs/PHASE-1-STATUS.md) - verified Phase 1 implementation ledger
+- [`docs/PHASE-1-STATUS.md`](docs/PHASE-1-STATUS.md) - Phase 1 ledger
+- [`docs/PHASE-2-STATUS.md`](docs/PHASE-2-STATUS.md) - Phase 2 ledger
+- [`docs/PHASE-3-STATUS.md`](docs/PHASE-3-STATUS.md) - current Phase 3 ledger
+- [`docs/AI-VERSE-OS-REGISTRATION-CONTRACT.md`](docs/AI-VERSE-OS-REGISTRATION-CONTRACT.md) - Phase 3.1 host contract
 - [`docs/RESEARCH-2026-09.md`](docs/RESEARCH-2026-09.md) - multi-agent/open-source ecosystem benchmark
-- [`docs/REFERENCE-ADOPTION-MAP.md`](docs/REFERENCE-ADOPTION-MAP.md) - what to adopt, adapt, integrate, study or avoid
-- [`docs/AI-VERSE-INTEGRATION.md`](docs/AI-VERSE-INTEGRATION.md) - contracts with OS, Memory, Brain, Skills, Automations and Dashboard
+- [`docs/REFERENCE-ADOPTION-MAP.md`](docs/REFERENCE-ADOPTION-MAP.md) - adopt/adapt/integrate/study/avoid map
+- [`docs/AI-VERSE-INTEGRATION.md`](docs/AI-VERSE-INTEGRATION.md) - broader AI-Verse integration direction
 
-## Machine-readable starting contracts
+## Machine-readable contracts
 
 - [`schemas/coordination-v1.schema.json`](schemas/coordination-v1.schema.json)
 - [`templates/bot.yaml`](templates/bot.yaml)
 - [`templates/room.yaml`](templates/room.yaml)
+- [`integrations/ai-verse-os/extension.json`](integrations/ai-verse-os/extension.json)
 
-These are architecture-stage contracts and will be tightened through implementation/evaluation rather than treated as frozen API forever.
+Contracts are tightened through implementation/evaluation rather than treated as frozen forever.
 
 ## Implementation progress
 
-Phase 1 delivered the durable coordination substrate and passed its combined release-level gate.
+Phases 0, 1 and 2 are complete. Phase 3 is in progress.
 
 The remaining first-release program is:
 
-1. **Phase 2: Dynamic Multi-Agent Squads** - Team Runs, temporary Workers, adaptive collaboration gate, parallel/supervised topologies, verifier/synthesis and squad budgets.
-2. **Phase 3: AI-Verse Native Integration** - OS, Brain, Memory, Skills and Automations contracts without duplicated canonical state.
-3. **Phase 4: Runtime and Agent Interoperability** - A2A, Hermes, OpenClaw and other managed agent/runtime adapters.
-4. **Phase 5: Product, Installer, Omnichannel and Dashboard** - clean installation, onboarding, secure remote access, Dashboard control surfaces, channel bridges and full release acceptance.
+1. **Phase 3: AI-Verse Native Integration** - 3.1 registration is complete; workspace projection, Brain, Memory, Skills, Automations, write-back, health and lifecycle integration remain.
+2. **Phase 4: Runtime and Agent Interoperability** - A2A, Hermes, OpenClaw and other managed agent/runtime adapters.
+3. **Phase 5: Product, Installer, Omnichannel and Dashboard** - clean installation, onboarding, secure remote access, Dashboard control surfaces, channel bridges and full release acceptance.
 
 The visual Bot roster belongs in AI-Verse Dashboard. Multiple Bots remains the backend coordination authority for Bot identity, routing, Tasks, Handoffs, Rooms, Team Runs and runtime orchestration.
 
