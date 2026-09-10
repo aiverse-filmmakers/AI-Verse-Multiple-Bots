@@ -16,12 +16,12 @@ The target is an installable persistent-teammate layer that can run standalone o
 Phase 0  Research + Architecture        [COMPLETE]    100%
 Phase 1  Runnable Coordination Core     [COMPLETE]    100%
 Phase 2  Dynamic Multi-Agent Squads     [COMPLETE]    100%
-Phase 3  AI-Verse Native Integration    [IN PROGRESS] ~10%
+Phase 3  AI-Verse Native Integration    [IN PROGRESS] ~20%
 Phase 4  Runtime / A2A Interoperability [NOT STARTED]
 Phase 5  Product + Install + Dashboard  [NOT STARTED]
 ```
 
-**Directional overall first-release progress:** roughly 67% complete.
+**Directional overall first-release progress:** roughly 69% complete.
 
 That overall figure is intentionally approximate because later phases contain different amounts of work. Passed phase gates, not percentages, are authoritative.
 
@@ -229,15 +229,15 @@ None.
 
 **Status:** IN PROGRESS
 
-**Directional phase progress:** approximately 10%.
+**Directional phase progress:** approximately 20%.
 
 Goal: attach the finished host-neutral teammate/squad package to AI-Verse OS without moving or duplicating canonical OS/Brain/Memory/Skills state into this repository.
 
 ### Phase 3 slices
 
 1. AI-Verse OS installer/registration contract - **COMPLETE**
-2. workspace-scoped state projection - **NEXT**
-3. Brain initiative/goal ingress - **NOT STARTED**
+2. workspace-scoped state projection - **COMPLETE**
+3. Brain initiative/goal ingress - **NEXT**
 4. Memory context/recall adapter - **NOT STARTED**
 5. Skills capability resolution - **NOT STARTED**
 6. Automations wake/schedule integration - **NOT STARTED**
@@ -268,6 +268,27 @@ Implemented:
 **Verified code gate:** GitHub Actions run 258 passed **184/184 tests**, with 0 failures, 0 canceled and 0 skipped.
 
 See `docs/PHASE-3-STATUS.md` and `docs/AI-VERSE-OS-REGISTRATION-CONTRACT.md`.
+
+### Phase 3.2 - workspace-scoped state projection
+
+Implemented:
+
+- host-neutral `WorkspaceStateProjector` runtime contract plus public `AiVerseOsWorkspaceProjector`
+- live AI-Verse OS v2 workspace resolution through `AI-VERSE.yaml` and `WORKSPACE.yaml`
+- exact workspace identity and active-state enforcement
+- bounded projection of workspace identity, boundaries and declared current-context sections only
+- strict relative-path, traversal, absolute-path, NUL, symlink, source-size, list and section ceilings
+- execution-time compatibility revalidation so host drift fails closed
+- no projection cache; canonical host edits are visible on the next execution
+- common runtime projection path for durable Bots and temporary Workers
+- OpenAI-compatible runtime receives host context as explicit read-only input
+- Artifact receipts persist only provider/schema/workspace/source refs and SHA-256 digests, never copied workspace text
+- explicit `serve --os-root PATH` native mode; standalone mode remains unchanged when omitted
+- invalid explicit host configuration is rejected before coordination-state allocation
+
+**Verified code gate:** GitHub Actions run 271 passed the full **192/192 tests** with 0 failures.
+
+See `docs/PHASE-3-STATUS.md` for the detailed acceptance proof.
 
 ### Phase 3 boundary
 
@@ -336,9 +357,9 @@ The first finished release must prove at minimum:
 
 ## Next gate
 
-**Phase 3.2 - workspace-scoped state projection.**
+**Phase 3.3 - Brain initiative/goal ingress.**
 
-The next slice must expose bounded read-only projections of AI-Verse OS workspace identity/state into Multiple Bots execution context without copying canonical workspace truth into the coordination database.
+The next slice must let AI-Verse Brain supply bounded initiative/goal intent into the coordination layer without copying Brain canonical state into the Multiple Bots database, while preserving workspace, root-objective, constraints, authority, provenance and idempotency.
 
 ## How to report progress
 
