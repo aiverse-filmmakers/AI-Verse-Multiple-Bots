@@ -1,9 +1,13 @@
 import assert from "node:assert/strict";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import test from "node:test";
-import { AiVerseMemoryRecallError, AiVerseMemoryRecallSource } from "../src/ai-verse-memory-recall.js";
+import {
+  AiVerseMemoryRecallError,
+  AiVerseMemoryRecallSource,
+  detectAiVerseMemoryInstallation
+} from "../src/ai-verse-memory-recall.js";
 import { MemoryRecallRuntimeRegistry, parseTaskMemoryRecallRequest } from "../src/memory-recall-runtime.js";
 import { OpenAICompatibleRuntimeAdapter } from "../src/openai-compatible-runtime.js";
 import {
@@ -15,11 +19,24 @@ import {
 } from "../src/runtime.js";
 import type { JsonObject, StoredObject } from "../src/types.js";
 
+const WORKSPACE_MEMORY_PATH = "workspaces/ws-alpha/memory/atomic/2026/09/mem_workspace.md";
+const WORKSPACE_MEMORY_FILE = "# Memory\n\nWorkspace lesson text\n\n# Why it matters\n\nReuse the proven approach.\n";
+const OPERATOR_PROFILE_PATH = "operator/profile/PROFILE.md";
+const OPERATOR_PROFILE_FILE = "# Operator Profile\n\nOperator preference text\n";
+
 function write(root: string, relative: string, content: string): void {
   const path = resolve(root, ...relative.split("/"));
   const parts = relative.split("/");
   if (parts.length > 1) mkdirSync(resolve(root, ...parts.slice(0, -1)), { recursive: true });
   writeFileSync(path, content, { encoding: "utf8" });
+}
+
+function prefixedSha256(value: string): string {
+  return `sha256:${createHash("sha256").update(value).digest("hex")}`;
+}
+
+function sourceIdentity(kind: string, scope: string, path: string): string {
+  return prefixedSha256(`${kind}\n${scope}\n${path}`);
 }
 
 function nativeHostFixture(withMemory = true): string {
@@ -35,12 +52,71 @@ function nativeHostFixture(withMemory = true): string {
   ].join("\n"));
   write(root, "AGENTS.md", "# Runtime\nLoad .aiverse/extensions/registry.json when present.\n");
   write(root, "system/extensions/README.md", "# Extensions\nRegistry: .aiverse/extensions/registry.json\n");
+  write(root, "workspaces/ws-alpha/WORKSPACE.yaml", [
+    'schema_version: "2.0"',
+    'id: "ws-alpha"',
+    'name: "Memory Recall Workspace"',
+    'type: "project"',
+    'status: "active"',
+    'purpose: "Test scoped historical recall."',
+    'current_context: "context/CURRENT.md"',
+    ""
+  ].join("\n"));
+  write(root, WORKSPACE_MEMORY_PATH, WORKSPACE_MEMORY_FILE);
+  write(root, OPERATOR_PROFILE_PATH, OPERATOR_PROFILE_FILE);
   if (withMemory) {
-    write(root, "scripts/ai-verse-memory/memory.py", "# entrypoint\n");
-    write(root, "scripts/ai-verse-memory/memory_engine.py", "# engine\n");
+    write(root, "scripts/ai-verse-memory/memory.py", "# compatibility-gated entrypoint\n");
+    write(root, "scripts/ai-verse-memory/memory_engine.py", 'VERSION = "0.2.0"\n');
     write(root, "scripts/ai-verse-memory/os_compat.py", "# compatibility\n");
   }
   return root;
+}
+
+function validStructuredItems() {
+  return [{
+    id: "mem_workspace",
+    kind: "memory",
+    path: WORKSPACE_MEMORY_PATH,
+    type: "experience",
+    scope: "workspace:ws-alpha",
+    status: "active",
+    importance: 5,
+    confidence: 1,
+    updated_at: "2026-09-09T12:00:00+00:00",
+    source: "session",
+    text: "Workspace lesson text",
+    why: "Reuse the proven approach.",
+    source_identity: sourceIdentity("memory", "workspace:ws-alpha", WORKSPACE_MEMORY_PATH),
+    source_version: prefixedSha256(WORKSPACE_MEMORY_FILE),
+    freshness: "historical",
+    indexed_at: "2026-09-10T12:00:00+00:00"
+  }, {
+    id: "profile_1",
+    kind: "profile",
+    path: OPERATOR_PROFILE_PATH,
+    type: "profile",
+    scope: "operator",
+    status: "active",
+    importance: 5,
+    confidence: 1,
+    updated_at: "2026-09-10T11:00:00+00:00",
+    text: "Operator preference text",
+    why: "",
+    source_identity: sourceIdentity("profile", "operator", OPERATOR_PROFILE_PATH),
+    source_version: prefixedSha256(OPERATOR_PROFILE_FILE),
+    freshness: "fresh",
+    indexed_at: "2026-09-10T12:00:00+00:00"
+  }];
+}
+
+function structuredResponse(items: any[] = validStructuredItems()): string {
+  return JSON.stringify({
+    provider: "ai-verse-memory",
+    provider_version: "0.2.0",
+    mode: "ai-verse-os-v2",
+    workspace_id: "ws-alpha",
+    items
+  });
 }
 
 function stored(id: string, kind: string, workspaceId: string, payload: JsonObject): StoredObject {
@@ -91,6 +167,7 @@ function projection(scope = "workspace:ws-alpha", content = "HISTORICAL_SECRET_M
   return {
     schema_version: "1.0",
     provider: "test-memory",
+    provider_version: "1.0.0",
     workspace_id: "ws-alpha",
     query_digest: "query-digest",
     recall_digest: "recall-digest",
@@ -103,8 +180,10 @@ function projection(scope = "workspace:ws-alpha", content = "HISTORICAL_SECRET_M
       type: "experience",
       scope,
       content,
-      path: "workspaces/ws-alpha/memory/atomic/2026-09/mem_1.md",
+      why: "WHY_SECRET_MARKER",
+      path: WORKSPACE_MEMORY_PATH,
       digest: "item-digest",
+      source_identity: "source-id",
       source_version: "source-v1",
       freshness: "historical"
     }]
@@ -135,7 +214,7 @@ class CaptureRuntime implements RuntimeAdapter {
   }
 }
 
-test("Task Memory recall request is explicit, bounded, and cannot widen workspace scope", () => {
+test("Task Memory recall request is explicit, bounded, strict, and cannot widen workspace scope", () => {
   assert.equal(parseTaskMemoryRecallRequest(undefined), null);
   assert.equal(parseTaskMemoryRecallRequest(false), null);
   assert.deepEqual(parseTaskMemoryRecallRequest({ query: "past lesson", limit: 4 }), {
@@ -144,8 +223,10 @@ test("Task Memory recall request is explicit, bounded, and cannot widen workspac
     include_history: false
   });
   assert.throws(() => parseTaskMemoryRecallRequest({ query: "x", all_workspaces: true }), /cannot widen/i);
-  assert.throws(() => parseTaskMemoryRecallRequest({ query: "x", workspace_id: "ws-beta" }), /cannot widen/i);
+  assert.throws(() => parseTaskMemoryRecallRequest({ query: "x", workspaceId: "ws-beta" }), /cannot widen/i);
   assert.throws(() => parseTaskMemoryRecallRequest({ query: "x", limit: 13 }), /integer from 1 to 12/i);
+  assert.throws(() => parseTaskMemoryRecallRequest({ query: "x", surprise: true }), /unsupported field/i);
+  assert.throws(() => parseTaskMemoryRecallRequest({ query: "bad\0query" }), /NUL/i);
 });
 
 test("no recall request invokes no Memory source and leaves ordinary execution unchanged", async () => {
@@ -176,7 +257,9 @@ test("explicit recall reaches runtime but persisted receipt contains provenance 
   assert.match(persisted, /historical_memory_recall/);
   assert.match(persisted, /recall-digest/);
   assert.match(persisted, /source-v1/);
+  assert.match(persisted, /source-id/);
   assert.equal(persisted.includes("HISTORICAL_SECRET_MARKER"), false);
+  assert.equal(persisted.includes("WHY_SECRET_MARKER"), false);
 });
 
 test("out-of-scope historical result fails before the model runtime can execute", async () => {
@@ -206,26 +289,26 @@ test("explicit recall fails closed when no Memory source is configured", async (
   assert.equal(inner.contexts.length, 0);
 });
 
-test("AI-Verse Memory source uses argument-vector native workspace recall and accepts only workspace plus operator results", async () => {
+test("AI-Verse Memory installation detection is lazy, version-gated, and distinguishes absent from compatible", () => {
+  const compatible = nativeHostFixture();
+  const absent = nativeHostFixture(false);
+  try {
+    const installed = detectAiVerseMemoryInstallation(compatible);
+    assert.equal(installed.status, "compatible");
+    assert.equal(installed.providerVersion, "0.2.0");
+    assert.equal(detectAiVerseMemoryInstallation(absent).status, "absent");
+  } finally {
+    rmSync(compatible, { recursive: true, force: true });
+    rmSync(absent, { recursive: true, force: true });
+  }
+});
+
+test("AI-Verse Memory source uses a shell-free structured bridge and verifies exact workspace/operator provenance", async () => {
   const root = nativeHostFixture();
   const calls: Array<{ file: string; args: string[]; options: any }> = [];
   const execFileImpl = ((file: string, args: string[], options: any, callback: any) => {
     calls.push({ file, args, options });
-    callback(null, [
-      "# Memory recall",
-      "",
-      "Query: past lesson",
-      "Scope: workspace:ws-alpha",
-      "",
-      "## mem_workspace [memory/experience] (workspace:ws-alpha)",
-      "Workspace lesson text",
-      "source=session; updated=2026-09-09T12:00:00+00:00; version=abc123; freshness=historical; path=workspaces/ws-alpha/memory/atomic/2026-09/mem_workspace.md",
-      "",
-      "## profile_1 [profile/profile] (operator)",
-      "Operator preference text",
-      "version=def456; freshness=fresh; path=operator/profile/PROFILE.md",
-      ""
-    ].join("\n"), "");
+    callback(null, structuredResponse(), "");
   }) as any;
 
   try {
@@ -233,40 +316,75 @@ test("AI-Verse Memory source uses argument-vector native workspace recall and ac
     const recalled = await source.recall("ws-alpha", { query: "past lesson", limit: 2 });
     assert.equal(calls.length, 1);
     assert.equal(calls[0]?.file, "python-test");
-    const recallIndex = calls[0]?.args.indexOf("recall") ?? -1;
-    assert.ok(recallIndex >= 0);
-    assert.deepEqual(calls[0]?.args.slice(recallIndex), ["recall", "past lesson", "--workspace", "ws-alpha", "--limit", "2"]);
-    assert.equal(calls[0]?.options.shell, undefined);
+    assert.equal(calls[0]?.args[0], "-c");
+    assert.equal(calls[0]?.args.at(-4), "ws-alpha");
+    assert.equal(calls[0]?.args.at(-3), "past lesson");
+    assert.equal(calls[0]?.args.at(-2), "2");
+    assert.equal(calls[0]?.args.at(-1), "0");
+    assert.equal(calls[0]?.options.shell, false);
     assert.deepEqual(recalled.items.map((item) => item.scope), ["workspace:ws-alpha", "operator"]);
-    assert.equal(recalled.items.length, 2);
+    assert.equal(recalled.provider_version, "0.2.0");
     assert.match(recalled.query_digest, /^[a-f0-9]{64}$/);
     assert.match(recalled.recall_digest, /^[a-f0-9]{64}$/);
     assert.match(recalled.items[0]?.digest ?? "", /^[a-f0-9]{64}$/);
+    assert.match(recalled.items[0]?.source_identity ?? "", /^sha256:[a-f0-9]{64}$/);
+    assert.match(recalled.items[0]?.source_version ?? "", /^sha256:[a-f0-9]{64}$/);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
 });
 
-test("Memory source rejects unrelated workspace output and missing installed engine", async () => {
+test("Memory source detects canonical source mutation after recall instead of accepting stale evidence", async () => {
   const root = nativeHostFixture();
-  const badExec = ((_file: string, _args: string[], _options: any, callback: any) => {
-    callback(null, [
-      "# Memory recall",
-      "",
-      "Query: past lesson",
-      "",
-      "## mem_bad [memory/fact] (workspace:ws-beta)",
-      "Should never cross workspaces",
-      "path=workspaces/ws-beta/memory/atomic/2026-09/mem_bad.md",
-      ""
-    ].join("\n"), "");
+  const execFileImpl = ((_file: string, _args: string[], _options: any, callback: any) => {
+    const response = structuredResponse([validStructuredItems()[0]]);
+    write(root, WORKSPACE_MEMORY_PATH, `${WORKSPACE_MEMORY_FILE}\nchanged after recall\n`);
+    callback(null, response, "");
   }) as any;
 
   try {
-    const source = new AiVerseMemoryRecallSource(root, { execFileImpl: badExec });
-    await assert.rejects(() => source.recall("ws-alpha", { query: "past lesson" }), (error: any) => {
+    const source = new AiVerseMemoryRecallSource(root, { pythonExecutable: "python-test", execFileImpl });
+    await assert.rejects(() => source.recall("ws-alpha", { query: "past lesson", limit: 1 }), (error: any) => {
       assert.ok(error instanceof AiVerseMemoryRecallError);
+      assert.equal(error.code, "MEMORY_SOURCE_CHANGED");
+      return true;
+    });
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("Memory source rejects scope escape, invalid provenance, oversized output, and absent installation", async () => {
+  const root = nativeHostFixture();
+  try {
+    const outOfScope = { ...validStructuredItems()[0], scope: "workspace:ws-beta" };
+    const badScope = new AiVerseMemoryRecallSource(root, {
+      pythonExecutable: "python-test",
+      execFileImpl: ((_file: string, _args: string[], _options: any, callback: any) => callback(null, structuredResponse([outOfScope]), "")) as any
+    });
+    await assert.rejects(() => badScope.recall("ws-alpha", { query: "past lesson" }), (error: any) => {
       assert.equal(error.code, "MEMORY_SCOPE_VIOLATION");
+      return true;
+    });
+
+    const badIdentity = { ...validStructuredItems()[0], source_identity: `sha256:${"0".repeat(64)}` };
+    const badProvenance = new AiVerseMemoryRecallSource(root, {
+      pythonExecutable: "python-test",
+      execFileImpl: ((_file: string, _args: string[], _options: any, callback: any) => callback(null, structuredResponse([badIdentity]), "")) as any
+    });
+    await assert.rejects(() => badProvenance.recall("ws-alpha", { query: "past lesson" }), (error: any) => {
+      assert.equal(error.code, "MEMORY_PROVENANCE_INVALID");
+      return true;
+    });
+
+    const oversized = { ...validStructuredItems()[0], text: "x".repeat(257) };
+    const bounded = new AiVerseMemoryRecallSource(root, {
+      pythonExecutable: "python-test",
+      maxItemChars: 256,
+      execFileImpl: ((_file: string, _args: string[], _options: any, callback: any) => callback(null, structuredResponse([oversized]), "")) as any
+    });
+    await assert.rejects(() => bounded.recall("ws-alpha", { query: "past lesson" }), (error: any) => {
+      assert.equal(error.code, "MEMORY_OUTPUT_TOO_LARGE");
       return true;
     });
   } finally {
@@ -283,6 +401,23 @@ test("Memory source rejects unrelated workspace output and missing installed eng
     });
   } finally {
     rmSync(missing, { recursive: true, force: true });
+  }
+});
+
+test("include_history is explicit and is passed to the Memory bridge without widening workspace scope", async () => {
+  const root = nativeHostFixture();
+  const calls: string[][] = [];
+  const execFileImpl = ((_file: string, args: string[], _options: any, callback: any) => {
+    calls.push(args);
+    callback(null, structuredResponse([validStructuredItems()[0]]), "");
+  }) as any;
+  try {
+    const source = new AiVerseMemoryRecallSource(root, { pythonExecutable: "python-test", execFileImpl });
+    await source.recall("ws-alpha", { query: "historical state", limit: 1, include_history: true });
+    assert.equal(calls[0]?.at(-1), "1");
+    assert.equal(calls[0]?.includes("--all-workspaces"), false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
   }
 });
 
@@ -321,4 +456,5 @@ test("OpenAI-compatible prompting marks historical recall lower authority than c
   assert.match(system, /current workspace context.*take precedence/i);
   assert.match(user, /CURRENT_CANONICAL_MARKER/);
   assert.match(user, /HISTORICAL_SECRET_MARKER/);
+  assert.match(user, /WHY_SECRET_MARKER/);
 });
