@@ -21,11 +21,16 @@ export function parseTaskMemoryRecallRequest(value: unknown): HistoricalRecallRe
   if (value === undefined || value === null || value === false) return null;
   const request = asObject(value);
   if (!request) throw new Error("Task memory_recall must be an object when present");
-  if (request.all_workspaces !== undefined || request.workspace_id !== undefined || request.scope !== undefined) {
-    throw new Error("Task memory_recall cannot widen or override the Task workspace scope");
+  for (const key of ["all_workspaces", "allWorkspaces", "workspace", "workspace_id", "workspaceId", "scope"]) {
+    if (request[key] !== undefined) {
+      throw new Error("Task memory_recall cannot widen or override the Task workspace scope");
+    }
   }
+  const allowed = new Set(["query", "limit", "include_history"]);
+  const unknown = Object.keys(request).filter((key) => !allowed.has(key));
+  if (unknown.length > 0) throw new Error(`Task memory_recall contains unsupported field(s): ${unknown.join(", ")}`);
   const query = typeof request.query === "string" ? request.query.trim() : "";
-  if (!query) throw new Error("Task memory_recall.query is required");
+  if (!query || query.includes("\0")) throw new Error("Task memory_recall.query is required and must not contain NUL bytes");
   if (query.length > MEMORY_RECALL_MAX_QUERY_CHARS) {
     throw new Error(`Task memory_recall.query exceeds ${MEMORY_RECALL_MAX_QUERY_CHARS} characters`);
   }
@@ -106,6 +111,7 @@ export class MemoryRecallRuntimeRegistry extends RuntimeRegistry {
         if (!source) {
           throw new Error(`Task ${context.task.id} explicitly requested historical recall but no Memory recall source is configured`);
         }
+        if (context.signal.aborted) throw context.signal.reason ?? new Error("Task canceled");
 
         const taskWorkspaceId = context.task.workspaceId;
         const principalWorkspaceId = context.principal.workspaceId;
@@ -115,10 +121,12 @@ export class MemoryRecallRuntimeRegistry extends RuntimeRegistry {
 
         const projection = await source.recall(taskWorkspaceId, request);
         validateProjection(projection, taskWorkspaceId, request);
+        if (context.signal.aborted) throw context.signal.reason ?? new Error("Task canceled");
         const result = await inner.execute({ ...context, historicalRecall: projection });
         const receipt: JsonObject = {
           kind: "historical_memory_recall",
           provider: projection.provider,
+          provider_version: projection.provider_version ?? null,
           schema_version: projection.schema_version,
           workspace_id: projection.workspace_id,
           query_digest: projection.query_digest,
@@ -134,6 +142,7 @@ export class MemoryRecallRuntimeRegistry extends RuntimeRegistry {
             scope: item.scope,
             path: item.path,
             digest: item.digest,
+            source_identity: item.source_identity ?? null,
             source_version: item.source_version ?? null,
             freshness: item.freshness ?? null
           }))
