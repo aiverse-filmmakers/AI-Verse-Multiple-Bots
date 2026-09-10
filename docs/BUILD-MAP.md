@@ -15,13 +15,13 @@ The target is an installable persistent-teammate layer that can run standalone o
 ```text
 Phase 0  Research + Architecture        [COMPLETE]    100%
 Phase 1  Runnable Coordination Core     [COMPLETE]    100%
-Phase 2  Dynamic Multi-Agent Squads     [IN PROGRESS] ~93%
+Phase 2  Dynamic Multi-Agent Squads     [IN PROGRESS] ~97%
 Phase 3  AI-Verse Native Integration    [NOT STARTED]
 Phase 4  Runtime / A2A Interoperability [NOT STARTED]
 Phase 5  Product + Install + Dashboard  [NOT STARTED]
 ```
 
-**Directional overall first-release progress:** roughly 62% complete.
+**Directional overall first-release progress:** roughly 63% complete.
 
 That overall figure is intentionally approximate because later phases contain different amounts of work. Passed phase gates, not percentages, are authoritative.
 
@@ -165,9 +165,9 @@ None.
 
 **Status:** IN PROGRESS
 
-**Current phase progress:** approximately 93%.
+**Current phase progress:** approximately 97%.
 
-**Current verification:** GitHub Actions run 213 passed **147/147 tests** at audited PR-head commit `18f36dd6d6f361d5563b430ed51cecb822923526`.
+**Current verification:** GitHub Actions run 227 passed **167/167 tests** at hardened PR-head commit `81daff9b4f1088896eae6117e5bed72d1eb511e2`.
 
 Goal: a durable Bot decides whether to work alone or create bounded temporary Workers, coordinates them through the topology justified by the work, and returns a bounded, auditable result without turning temporary helpers into durable identities.
 
@@ -183,8 +183,8 @@ Major slices:
 8. verifier/critic role - **COMPLETE**
 9. synthesis - **COMPLETE**
 10. Worker cleanup hardening - **COMPLETE**
-11. adaptive `single Bot vs squad` decision policy - **NEXT**
-12. squad budget/cancellation controls - remaining beyond current Worker, fan-out, aggregate usage, direct-handoff, discussion, disagreement, verifier, synthesis, cleanup, cancellation, recovery and CAS foundations
+11. adaptive `single Bot vs squad` decision policy - **COMPLETE**
+12. squad-wide budget/cancellation consolidation - **NEXT**
 
 ### Phase 2 capabilities now implemented
 
@@ -343,113 +343,79 @@ Major slices:
 - stale discussion opening reservations are reaped only through explicit setup lifecycle tags; active/task-bound/ambiguous state fails closed
 - supervisor startup/recovery sweeps recover stale setup and terminal cleanup after database reopen
 
+#### Adaptive collaboration decision policy
+
+- host-neutral `TeamRunDecisionPolicy` decides whether one durable Bot is enough or a bounded squad is justified
+- structured signals cover workstream independence, specialist/stage shape, uncertainty, verification need, discussion, ownership transfer, cost and latency sensitivity
+- simple linear work remains `single` and creates no Team Run
+- only already-supported topologies can be selected
+- Worker identity, Task, concurrency, message, round and verifier capacity are considered before squad creation
+- required verification reserves separate lifetime Worker capacity so earlier fan-out/discussion cannot strand it
+- high cost sensitivity favors serial help unless explicit latency pressure justifies safe parallel work
+- required ownership transfer fails closed when hop budget cannot execute a handoff
+- required tool/connection authority cannot exceed durable leader permissions
+- root objective, workspace, immutable constraints, approvals and bounded budget carry into the selected Team Run
+- deterministic decision Artifact and selected Team Run IDs make equivalent requests idempotent
+- an existing compatible Team Run for the root objective is reused; multiple runs for one objective are treated as orchestration-loop inconsistency
+- decision Artifact integrity is validated before work opens
+- decision Artifact plus audit event settle atomically; selected Team Run plus creation event settle atomically
+- database reopen cannot duplicate a decision or adaptive Team Run
+
 ### Phase 2.6 acceptance gate
 
 **PASSED.**
 
-The eleven discussion acceptance/regression tests prove:
-
-1. temporary discussion Workers remain outside durable Room membership and the Bot registry
-2. a completed discussion turn leaves its Worker reusable and nonterminal until the discussion closes
-3. speaker capability grants reach the turn-scoped capability lease
-4. Worker Room publication cannot cross Team Run boundaries
-5. an existing setup reservation blocks another opener before Worker creation
-6. two Workers can be reused for four ordered turns under `max_workers: 2`
-7. later turns receive prior candidate Artifacts as structured evidence
-8. Team Run message/round/task limits cap the discussion before scheduling
-9. unsupported topologies fail closed instead of opening a discussion
-10. cancellation closes active discussion work and temporary participants
-11. restart after completed-but-unreconciled work resumes without duplicating completed Tasks or Worker turn records
+The eleven discussion acceptance/regression tests prove bounded temporary discussion, Worker isolation, reusable turn lifecycle, scoped grants, cross-run publication protection, setup reservation safety, budget limits, cancellation and restart-safe reconciliation.
 
 ### Phase 2.7 acceptance gate
 
 **PASSED.**
 
-The eleven disagreement acceptance/regression tests prove:
-
-1. incompatible values for the same fact produce a high-severity evidence conflict and require verification
-2. different recommendations remain compatible unless candidates explicitly declare them mutually exclusive
-3. opposed stances on the same declared claim produce a contradiction
-4. material confidence gaps are surfaced without automatically forcing verifier work
-5. estimate differences conflict only when they exceed declared tolerance
-6. unstructured/non-comparable candidates return insufficient evidence rather than invented disagreement
-7. cross-run candidate inputs and bounded input ceilings fail closed before report creation
-8. identical analysis is deterministic and idempotent
-9. default candidate references and disagreement reports survive database reopen
-10. a later compatible subset cannot clear unresolved Team Run verification debt from an earlier conflict
-11. `latest`/`list` ignore disagreement-report references that belong to another Team Run
+The disagreement acceptance/regression tests prove structured conflict detection, compatible alternatives, tolerance/confidence behavior, fail-closed evidence scope, deterministic reports, persistent verification debt and restart-safe report history.
 
 ### Phase 2.8 acceptance gate
 
 **PASSED.**
 
-The fourteen verifier acceptance/regression tests prove:
-
-1. resolved verifier work clears only the verified report debt, creates a canonical verdict, and moves an all-resolved run to synthesis
-2. unresolved verifier work preserves debt and keeps the Team Run verifying
-3. insufficient verifier evidence preserves debt
-4. no pending verification debt skips verifier scheduling without creating Worker or Task records
-5. malformed completed verifier output becomes `verifier_failed` and cannot clear debt
-6. one verifier Task can resolve one report while preserving unrelated unresolved report debt
-7. verifier tool grants cannot expand durable leader authority
-8. active verifier cancellation preserves debt and creates a canceled canonical verdict
-9. repeat reconciliation of the same completed verifier Task is idempotent
-10. completed-but-unreconciled verifier work settles after database reopen without duplicate verdicts
-11. cross-TeamRun resolution evidence fails closed and cannot clear verification debt
-12. exhausted Team Run Worker capacity blocks verifier scheduling before verifier records are created
-13. verifier Workers inherit the leader execution environment policy by default
-14. verifier execution overrides cannot switch the leader environment policy
+The verifier acceptance/regression tests prove bounded verifier creation, debt preservation/clearance, scoped evidence, authority/environment restrictions, cancellation, idempotency and restart-safe settlement.
 
 ### Phase 2.9 acceptance gate
 
 **PASSED.**
 
-The sixteen synthesis acceptance/hardening tests prove:
-
-1. the durable leader creates one canonical final synthesis and completes the Team Run without creating another Worker
-2. unresolved verification debt blocks synthesis before executable work is created
-3. active temporary participation blocks final synthesis
-4. cross-TeamRun source references fail before lifecycle mutation
-5. canonical verification verdicts are accepted while raw verifier runtime output is rejected
-6. malformed synthesis runtime output creates no canonical final and leaves the run retryable
-7. synthesis output cannot cite Artifacts outside its selected source set
-8. Team Run `max_tasks` is enforced before a synthesis Task is created
-9. active synthesis cancellation creates no final Artifact and leaves nonterminal state retryable
-10. repeated settlement is idempotent and later scheduling returns the same final Artifact
-11. completed-but-unreconciled synthesis survives database reopen and creates exactly one canonical final
-12. aggregate Team Run budget exhaustion remains terminal and cannot be resurrected by synthesis settlement
-13. default source collection includes completed Team Run Task output
-14. source-count limits fail before synthesis lifecycle mutation
-15. a poisoned final Artifact pointer fails closed instead of silently re-synthesizing
-16. late Worker creation blocks canonical finalization until that work is explicitly closed, after which the same completed synthesis Task settles once
+The synthesis acceptance/hardening tests prove durable-leader synthesis, verification/live-work gates, canonical evidence boundaries, deterministic final settlement, cancellation, budget exhaustion and restart safety.
 
 ### Phase 2.10 acceptance gate
 
 **PASSED.**
 
-The cleanup acceptance/hardening suite proves:
+The cleanup acceptance/hardening suite proves terminal Worker/transient authority cleanup, shared environment preservation, temporary-surface closure, idempotency, stale setup reaping, restart recovery, unresolved-state blockers and audit preservation.
 
-1. terminal Worker identity, capability authority and residual execution are cleaned while Artifacts and durable Bots remain intact
-2. run-exclusive environment leases are revoked while shared environment leases remain available to other Team Runs
-3. temporary Rooms/Threads close while Messages and Artifacts remain auditable
-4. cleanup is idempotent and emits one canonical completion event
-5. nonterminal runs cannot be cleaned and inconsistent live state blocks visibly
-6. stale explicitly tagged discussion setup is reaped while unrelated Workers survive and capacity is released
-7. fresh reservations stay intact and task-bound stale setup fails closed
-8. supervisor restart recovers terminal cleanup and stale setup state
-9. unresolved Handoffs block cleanup rather than being silently rewritten
-10. stale pending Approvals become non-actionable without deletion
-11. Worker-target mailbox deliveries are canceled while Message audit remains
+### Phase 2.11 acceptance gate
 
-The full package suite now passes **147/147 tests** on the audited Phase 2.10 PR head.
+**PASSED.**
+
+The adaptive decision acceptance/hardening suite proves:
+
+1. simple linear work remains with one durable Bot
+2. genuinely parallel work selects the minimum bounded parallel shape
+3. required verification capacity is reserved independently and cannot be stranded
+4. discussion/parallel/manager choices respect cumulative Worker, Task, message, round and concurrency limits
+5. cost/latency signals select bounded serial vs parallel execution deterministically
+6. unavailable Worker authority, capability authority, task capacity or handoff hop capacity fails closed
+7. root objective, workspace, constraints, approvals and budget boundaries are preserved into adaptive Team Runs
+8. compatible existing Team Runs are reused and duplicate root-objective Team Runs fail closed as an orchestration-loop inconsistency
+9. tampered decision Artifacts cannot open work
+10. decision Artifact and audit event settle atomically with clean retry after interruption
+11. database reopen preserves one deterministic decision and selected Team Run without duplicate events
+
+The full package suite now passes **167/167 tests** on the hardened Phase 2.11 PR head.
 
 ### Next Phase 2 gate
 
-**2.11 - Adaptive single-Bot-vs-squad decision policy**
+**2.12 - Squad-wide budget/cancellation consolidation**
 
-Build an explicit, inspectable decision layer that keeps simple work with one durable Bot and forms the minimum justified bounded squad only when the work shape warrants it. The decision must use structured signals such as independence/parallelism, uncertainty, verification need, authority, cost/latency budget and available topology support; preserve root objective/workspace/constraints; record rationale without hidden chain-of-thought; prevent repeated squad-creation loops; and remain restart-safe/idempotent where state is persisted.
-
-After 2.11, finish Phase 2 with final squad-wide budget/cancellation consolidation.
+Finish Phase 2 by auditing and consolidating the budget/cancellation contract across every supported squad topology. Token, cost, wall-clock, Worker, Task, action, hop, message and round ceilings must remain enforceable regardless of topology or whether current ownership sits with a Worker or run-scoped durable Bot. Cancellation and terminal budget exhaustion must reach all active squad work and prevent later reconciliation/recovery from resurrecting execution, while preserving canonical Artifacts and audit evidence. Add cross-topology and restart/recovery acceptance coverage, then close Phase 2 only when the full package gate is green.
 
 ## Phase 3 - AI-Verse Native Integration
 
