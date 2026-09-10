@@ -1,0 +1,18 @@
+{
+  "schema_version": "1.0",
+  "id": "ai-verse-multiple-bots",
+  "display_name": "AI-Verse Multiple Bots",
+  "host": "ai-verse-os",
+  "package_version": "0.1.0-alpha.1",
+  "supported_host_schema_major": 2,
+  "supported_host_architecture": "unified-workspace",
+  "registry_path": ".aiverse/extensions/registry.json",
+  "installation_root": ".aiverse/extensions/ai-verse-multiple-bots",
+  "instructions": ".aiverse/extensions/ai-verse-multiple-bots/INSTRUCTIONS.md",
+  "engine": ".aiverse/extensions/ai-verse-multiple-bots/engine.mjs",
+  "adapters": [],
+  "tracked_os_files_mutated": [],
+  "registration_grants_permissions": false,
+  "registration_asserts_health": false,
+  "owns_os_canonical_state": false
+}
