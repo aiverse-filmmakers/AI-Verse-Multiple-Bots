@@ -231,7 +231,7 @@ function workspacePathFromArchitecture(root: string): string {
   const lines = architecture.split(/\r?\n/);
   let inPaths = false;
   let value: string | null = null;
-  for (const [index, line] of lines.entries()) {
+  for (const line of lines) {
     if (!line.trim() || line.trimStart().startsWith("#")) continue;
     const indent = line.length - line.trimStart().length;
     if (indent === 0) {
@@ -244,7 +244,6 @@ function workspacePathFromArchitecture(root: string): string {
     if (value !== null) throw new AiVerseOsWorkspaceProjectionError("INVALID_AI_VERSE_OS_PATHS", "AI-VERSE.yaml contains duplicate paths.workspaces");
     value = unquoteScalar(match[1]!, `AI-VERSE.yaml paths.workspaces`);
     if (!value) throw new AiVerseOsWorkspaceProjectionError("INVALID_AI_VERSE_OS_PATHS", "AI-VERSE.yaml paths.workspaces is empty");
-    if (index < 0) break;
   }
   if (!value) throw new AiVerseOsWorkspaceProjectionError("INVALID_AI_VERSE_OS_PATHS", "AI-VERSE.yaml is missing paths.workspaces");
   return normalizeRelativePath(value, "AI-VERSE.yaml paths.workspaces");
@@ -321,6 +320,14 @@ export class AiVerseOsWorkspaceProjector implements WorkspaceStateProjector {
     this.requireActiveWorkspace = options.requireActiveWorkspace ?? true;
     if (!Number.isInteger(this.maxManifestBytes) || this.maxManifestBytes < 1024) throw new Error("maxManifestBytes must be an integer >= 1024");
     if (!Number.isInteger(this.maxCurrentContextBytes) || this.maxCurrentContextBytes < 1024) throw new Error("maxCurrentContextBytes must be an integer >= 1024");
+
+    const compatibility = detectAiVerseOsCompatibility(this.root);
+    if (compatibility.status !== "compatible") {
+      throw new AiVerseOsWorkspaceProjectionError(
+        "INCOMPATIBLE_AI_VERSE_OS",
+        `Workspace projector requires a compatible AI-Verse OS host: ${compatibility.reason}`
+      );
+    }
   }
 
   project(workspaceId: string): WorkspaceStateProjection {
