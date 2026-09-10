@@ -197,7 +197,7 @@ export function detectAiVerseMemoryInstallation(rootInput: string): AiVerseMemor
   try {
     for (const relative of required) assertRegularFile(resolve(root, ...relative.split("/")), relative);
     const engineText = readFileSync(resolve(root, ...MEMORY_ENGINE.split("/")), "utf8");
-    const version = /(?m)^VERSION\s*=\s*["']([^"']+)["']\s*$/.exec(engineText)?.[1] ?? null;
+    const version = /^VERSION\s*=\s*["']([^"']+)["']\s*$/m.exec(engineText)?.[1] ?? null;
     if (!version || !versionAtLeastNativeMinimum(version)) {
       return {
         status: "incompatible",
