@@ -511,6 +511,10 @@ export class AutomationWakeIngress {
     const taskId = `task_automation_${suffix}`;
     const leaseId = `lease_automation_${suffix}`;
     const approvalId = `approval_automation_${suffix}`;
+    const conflictingRun = this.store.getObject(`run_automation_${suffix}`);
+    if (conflictingRun) {
+      throw new AutomationWakeIngressError("AUTOMATION_INGRESS_CONFLICT", `automation invocation ${input.projection.invocation_id} already opened a Team Run`);
+    }
     const existing = this.store.getObject(taskId);
     if (existing) return this.existingBot(existing, input.projection, input.requestContractDigest, leaseId, approvalId, input.recovery);
 
@@ -717,6 +721,10 @@ export class AutomationWakeIngress {
   }): AutomationWakeIngressResult {
     const suffix = input.identityDigest.slice(0, 32);
     const runId = `run_automation_${suffix}`;
+    const conflictingTask = this.store.getObject(`task_automation_${suffix}`);
+    if (conflictingTask) {
+      throw new AutomationWakeIngressError("AUTOMATION_INGRESS_CONFLICT", `automation invocation ${input.projection.invocation_id} already woke a durable Bot`);
+    }
     const existing = this.store.getObject(runId);
     if (existing) return this.existingTeamRun(existing, input.projection, input.requestContractDigest);
 
