@@ -3,6 +3,7 @@ export * from "./ai-verse-skills-capability-resolution.js";
 export * from "./ai-verse-os-registration.js";
 export * from "./ai-verse-os-workspace-projection.js";
 export * from "./artifact-delegation.js";
+export * from "./automation-wake-ingress.js";
 export * from "./brain-objective-ingress.js";
 export * from "./brain-objective-runtime.js";
 export * from "./bot-registry.js";

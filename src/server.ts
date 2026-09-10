@@ -1,6 +1,7 @@
 import { createServer } from "node:http";
 import { URL } from "node:url";
 import { AiVerseBrainObjectiveSource, BrainObjectiveIngress } from "./brain-objective-ingress.js";
+import { AiVerseOsAutomationInvocationSource, AutomationWakeIngress } from "./automation-wake-ingress.js";
 import { BrainObjectiveRuntimeRegistry } from "./brain-objective-runtime.js";
 import { AiVerseMemoryRecallSource } from "./ai-verse-memory-recall.js";
 import { AiVerseSkillsCapabilitySource } from "./ai-verse-skills-capability-resolution.js";
@@ -96,6 +97,7 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
   const brainObjectiveSource = options.aiVerseOsRoot ? new AiVerseBrainObjectiveSource(options.aiVerseOsRoot) : undefined;
   const memoryRecallSource = options.aiVerseOsRoot ? new AiVerseMemoryRecallSource(options.aiVerseOsRoot) : undefined;
   const skillsCapabilitySource = options.aiVerseOsRoot ? new AiVerseSkillsCapabilitySource(options.aiVerseOsRoot) : undefined;
+  const automationInvocationSource = options.aiVerseOsRoot ? new AiVerseOsAutomationInvocationSource(options.aiVerseOsRoot) : undefined;
   const store = new CoordinationStore(options.dbPath ?? "runtime/ai-verse-bots/coordination.db");
   const executionQueue = new ExecutionQueue(store.dbPath);
   const policy = new CoordinationPolicy(store, { requireRegisteredBots: true });
@@ -118,6 +120,9 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
   );
   const brainIngress = brainObjectiveSource
     ? new BrainObjectiveIngress(store, gateway, executionQueue, brainObjectiveSource)
+    : undefined;
+  const automationIngress = automationInvocationSource
+    ? new AutomationWakeIngress(store, gateway, executionQueue, automationInvocationSource)
     : undefined;
   const supervisor = new ExecutionSupervisor(gateway, executionQueue, runner);
   supervisor.start();
@@ -219,6 +224,59 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
             ? body.budget as BudgetEnvelope
             : undefined,
           approval: optionalApproval(body.approval)
+        });
+        json(res, result.created ? 201 : 200, result);
+        return;
+      }
+
+      if (method === "POST" && url.pathname === "/v1/automations/invoke") {
+        if (!automationIngress) throw new Error("Automation invocation ingress requires native AI-Verse OS mode via serve --os-root PATH");
+        const body = await readJson(req);
+        const source = typeof body.source === "object" && body.source !== null && !Array.isArray(body.source)
+          ? body.source as JsonObject
+          : {};
+        const target = typeof body.target === "object" && body.target !== null && !Array.isArray(body.target)
+          ? body.target as JsonObject
+          : {};
+        const targetKind = requiredString(target, "kind");
+        const result = automationIngress.ingest({
+          automationId: requiredString(body, "automationId"),
+          invocationId: requiredString(body, "invocationId"),
+          workspaceId: requiredString(body, "workspaceId"),
+          firedAt: requiredString(body, "firedAt"),
+          source: {
+            kind: requiredString(source, "kind") as any,
+            path: requiredString(source, "path"),
+            digest: requiredString(source, "digest")
+          },
+          target: targetKind === "bot"
+            ? { kind: "bot", botId: requiredString(target, "botId") }
+            : targetKind === "team_run"
+              ? {
+                  kind: "team_run",
+                  leaderId: requiredString(target, "leaderId"),
+                  topology: typeof target.topology === "string" ? target.topology as any : undefined
+                }
+              : { kind: targetKind } as any,
+          objective: requiredString(body, "objective"),
+          reason: typeof body.reason === "string" ? body.reason : undefined,
+          requiredConstraints: optionalStringArray(body.requiredConstraints, "requiredConstraints"),
+          expectedOutput: typeof body.expectedOutput === "object" && body.expectedOutput !== null && !Array.isArray(body.expectedOutput)
+            ? body.expectedOutput as JsonObject
+            : undefined,
+          memoryRecall: body.memoryRecall as any,
+          skillRefs: optionalStringArray(body.skillRefs, "skillRefs"),
+          tools: optionalStringArray(body.tools, "tools"),
+          connections: optionalStringArray(body.connections, "connections"),
+          budget: typeof body.budget === "object" && body.budget !== null && !Array.isArray(body.budget)
+            ? body.budget as BudgetEnvelope
+            : undefined,
+          maxHops: typeof body.maxHops === "number" ? body.maxHops : undefined,
+          deadlineAt: typeof body.deadlineAt === "string" ? body.deadlineAt : undefined,
+          leaseExpiresAt: typeof body.leaseExpiresAt === "string" ? body.leaseExpiresAt : undefined,
+          approval: optionalApproval(body.approval),
+          recoveryPolicy: optionalRecoveryPolicy(body.recoveryPolicy),
+          maxAttempts: optionalMaxAttempts(body.maxAttempts)
         });
         json(res, result.created ? 201 : 200, result);
         return;
@@ -516,6 +574,8 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
     runner,
     brainObjectiveSource,
     brainIngress,
+    automationInvocationSource,
+    automationIngress,
     memoryRecallSource,
     skillsCapabilitySource,
     supervisor,

@@ -229,7 +229,7 @@ None.
 
 **Status:** IN PROGRESS
 
-**Directional phase progress:** approximately 50%.
+**Directional phase progress:** approximately 60%.
 
 Goal: attach the finished host-neutral teammate/squad package to AI-Verse OS without moving or duplicating canonical OS/Brain/Memory/Skills state into this repository.
 
@@ -240,8 +240,8 @@ Goal: attach the finished host-neutral teammate/squad package to AI-Verse OS wit
 3. Brain initiative/goal ingress - **COMPLETE**
 4. Memory context/recall adapter - **COMPLETE**
 5. Skills capability resolution - **COMPLETE**
-6. Automations wake/schedule integration - **NEXT**
-7. OS write-command boundary - **NOT STARTED**
+6. Automations wake/schedule integration - **COMPLETE**
+7. OS write-command boundary - **NEXT**
 8. candidate knowledge/decision write-back - **NOT STARTED**
 9. 4Cs health integration - **NOT STARTED**
 10. uninstall/upgrade without canonical-state damage - **NOT STARTED**
@@ -362,9 +362,34 @@ Implemented:
 
 See `docs/AI-VERSE-SKILLS-CAPABILITY-RESOLUTION.md` and `docs/PHASE-3-STATUS.md`.
 
+### Phase 3.6 - Automations wake/schedule integration
+
+Implemented:
+
+- host-neutral automation invocation projection/source contract plus native `AiVerseOsAutomationInvocationSource`
+- receive-side `AutomationWakeIngress` rather than a competing scheduler
+- native `POST /v1/automations/invoke` command boundary
+- exact active-workspace validation through the canonical workspace projector
+- canonical shared job/trigger and exact-workspace automation source containment
+- exact source SHA-256 binding with source-change/removal retry kill fencing
+- deterministic invocation identity and exact request-contract digest
+- idempotent duplicate delivery with cross-mode and semantic-drift conflict detection
+- durable Bot wakes through the existing Task, policy, capability-lease, Approval, queue and recovery boundaries
+- explicit Bot target activity/workspace/authority enforcement
+- bounded Team Run creation with no automatic Task/lease/Approval/Worker authority
+- mandatory Team Run worker/task/action/wall-clock/hop bounds
+- explicit rejection of Task-only execution fields on Team Run creation
+- unresolved Team Run start approval fails closed to the owning OS automation layer
+- provenance-only persistence; automation definition text and cadence state remain OS-owned
+- standalone coordination remains unchanged and exposes no implicit scheduler
+
+**Verified implementation gate:** GitHub Actions run 34518046084 passed the full **254/254 tests** with 0 failures, 0 canceled and 0 skipped on exact code head `f94daaa9cc98f5356d8a77d90905867ac0034528`.
+
+See `docs/AI-VERSE-AUTOMATION-WAKE-SCHEDULE.md` and `docs/PHASE-3-STATUS.md`.
+
 ### Phase 3 boundary
 
-Phase 3 work is additive through explicit host adapters. AI-Verse OS remains canonical for operator/workspace/domain state and capability-provider resolution. AI-Verse Brain remains canonical for strategic intent and objective lifecycle. AI-Verse Memory remains canonical for historical memory and its rebuildable derived index. AI-Verse Skills remains canonical for reusable capability packages and immutable generations. Multiple Bots remains canonical for coordination state. Host, Brain, Memory and selected Skills projections are scoped runtime views, not competing truth.
+Phase 3 work is additive through explicit host adapters. AI-Verse OS remains canonical for operator/workspace/domain state, capability-provider resolution and automation cadence. AI-Verse Brain remains canonical for strategic intent and objective lifecycle. AI-Verse Memory remains canonical for historical memory and its rebuildable derived index. AI-Verse Skills remains canonical for reusable capability packages and immutable generations. Multiple Bots remains canonical for coordination state created after a bounded host invocation. Host, Brain, Memory, selected Skills and automation invocation projections are scoped views, not competing truth.
 
 Production one-command package materialization is still a Phase 5 product responsibility; Phase 3.1 defines safe host registration after extension-owned files exist.
 

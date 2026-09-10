@@ -6,13 +6,13 @@
 
 **Overall status:** IN PROGRESS
 
-**Directional phase progress:** approximately 50%
+**Directional phase progress:** approximately 60%
 
 This file is the implementation ledger for Phase 3. The canonical product roadmap remains `BUILD-MAP.md`.
 
 ## Phase 3 goal
 
-Attach the completed host-neutral persistent-teammate and squad package to AI-Verse OS through explicit adapters while preserving the ownership boundary: AI-Verse OS remains canonical for operator/workspace/domain state and capability resolution, AI-Verse Brain remains canonical for strategic state, AI-Verse Memory remains canonical for historical memory, AI-Verse Skills remains canonical for reusable capability packages, and Multiple Bots remains canonical only for coordination state.
+Attach the completed host-neutral persistent-teammate and squad package to AI-Verse OS through explicit adapters while preserving the ownership boundary: AI-Verse OS remains canonical for operator/workspace/domain state, capability resolution and automation cadence, AI-Verse Brain remains canonical for strategic state, AI-Verse Memory remains canonical for historical memory, AI-Verse Skills remains canonical for reusable capability packages, and Multiple Bots remains canonical only for coordination state.
 
 ## Slice status
 
@@ -21,8 +21,8 @@ Attach the completed host-neutral persistent-teammate and squad package to AI-Ve
 3. Brain initiative/goal ingress — **COMPLETE**
 4. Memory context/recall adapter — **COMPLETE**
 5. Skills capability resolution — **COMPLETE**
-6. Automations wake/schedule integration — **NEXT**
-7. OS write-command boundary — **NOT STARTED**
+6. Automations wake/schedule integration — **COMPLETE**
+7. OS write-command boundary — **NEXT**
 8. candidate knowledge/decision write-back — **NOT STARTED**
 9. 4Cs health integration — **NOT STARTED**
 10. uninstall/upgrade without canonical-state damage — **NOT STARTED**
@@ -277,9 +277,69 @@ Phase 3.5 acceptance coverage proves:
 
 See `AI-VERSE-SKILLS-CAPABILITY-RESOLUTION.md` for the canonical Phase 3.5 boundary.
 
+## Slice 3.6 - Automations wake/schedule integration
+
+**Implementation status:** COMPLETE
+
+Phase 3.6 adds the receive-side cadence boundary that lets AI-Verse OS Automations wake a durable Bot or open a bounded Team Run without adding a scheduler, trigger engine or competing automation store to Multiple Bots.
+
+Implemented:
+
+- public host-neutral `AutomationInvocationSource`, `AutomationInvocationProjection` and automation ingress contracts
+- public native `AiVerseOsAutomationInvocationSource`
+- exact active-workspace revalidation through the existing Phase 3.2 workspace projector
+- source binding to shared `automations/jobs/`, shared `automations/triggers/` or the exact workspace `automations/` root
+- bounded regular-file, traversal, containment and symlink safety
+- SHA-256 binding to exact UTF-8 automation source text at fire time
+- source mutation/removal replay fence so stale automation definitions cannot silently keep waking work
+- deterministic automation occurrence identity from provider, automation ID, invocation ID and workspace
+- exact request-contract digests for semantic replay protection
+- cross-mode conflict protection so one occurrence cannot become both a Bot Task and a Team Run
+- idempotent duplicate invocation delivery
+- native Gateway `POST /v1/automations/invoke` endpoint available only in AI-Verse OS mode
+- durable Bot target must be registered, active and in the exact invocation workspace
+- Bot wake flows through existing CoordinationPolicy, capability lease, Approval, queue and recovery enforcement
+- requested tools/connections/skills cannot exceed durable target authority
+- automated Bot Approval blocks queueing until the normal operator Approval path releases the Task
+- Team Run start creates coordination state only and grants no Task/lease/Approval/Worker authority
+- automated Team Run requires explicit `max_workers`, `max_tasks`, `max_actions`, `wall_clock_seconds` and `max_hops` bounds
+- Team Run leader must be active in scope and allowed to create Workers
+- unresolved host run-start approval fails closed instead of manufacturing a new approval model
+- Task-only execution fields are rejected on Team Run creation because later executable Tasks own those contracts
+- persisted coordination state contains bounded invocation provenance/digests, never copied automation source text or cadence state
+- no cron parser, RRULE parser, polling loop, timer, watcher or automation database added
+- standalone mode remains independent of AI-Verse Automations
+
+### 3.6 acceptance proof
+
+The hardened implementation gate at exact code head `f94daaa9cc98f5356d8a77d90905867ac0034528` passed GitHub Actions **CI run 34518046084 with 254/254 tests**, **0 failures, 0 canceled, and 0 skipped**.
+
+Phase 3.6 acceptance coverage proves:
+
+1. canonical shared and workspace automation sources are bound to exact workspace and source digest
+2. inactive workspaces cannot drive automated coordination
+3. source mutation, traversal and symlink paths fail closed
+4. Bot wake creates one deterministic Task/lease and persists no automation definition text
+5. duplicate delivery returns the same coordination work
+6. request-contract drift fails rather than duplicating work
+7. one invocation cannot switch between Bot and Team Run modes
+8. Bot wake keeps normal Approval gating and queue semantics
+9. automated work cannot exceed durable Bot authority
+10. Bot targets must be active durable identities in the exact workspace
+11. Team Run start creates no executable Task/lease/Approval/Worker authority
+12. automated Team Runs require explicit hard budgets
+13. Team Run leaders must retain Worker-creation authority
+14. unresolved run-start approval fails closed to the owning host cadence layer
+15. Task-only fields are rejected on Team Run creation instead of being stored as unenforced pseudo-authority
+16. canonical automation-source changes act as a replay kill fence
+17. HTTP automation ingress is native-mode only
+18. the complete pre-existing coordination, squad, recovery, workspace, Brain, Memory and Skills suite remains green
+
+See `AI-VERSE-AUTOMATION-WAKE-SCHEDULE.md` for the canonical Phase 3.6 boundary.
+
 ## Ownership boundary
 
-Phase 3.1 through 3.5 do not make Multiple Bots the source of truth for any AI-Verse OS, Brain, Memory or Skills domain state.
+Phase 3.1 through 3.6 do not make Multiple Bots the source of truth for any AI-Verse OS, Brain, Memory, Skills or Automations domain state.
 
 ```text
 AI-Verse OS
@@ -294,6 +354,10 @@ AI-Verse Memory
 AI-Verse Skills
   owns reusable capability packages, immutable generations and package provenance
 
+AI-Verse OS Automations
+  owns schedules, triggers, recurring routines, cadence policy, kill switches
+  and automation-run history
+
 AI-Verse OS
   owns capability-provider discovery, workspace-scoped selection and operational permission policy
 
@@ -302,12 +366,12 @@ AI-Verse Multiple Bots
   Team Runs, coordination Artifacts/events/leases/budgets/cancellation/recovery
 
 Phase 3 adapters
-  project only the minimum scoped host/Brain/Memory data and selected Skills
-  instructions needed for execution, and route later candidate writes back
-  through explicit owner-controlled boundaries
+  project only the minimum scoped host/Brain/Memory data, selected Skills
+  instructions and one bounded automation invocation needed for coordination,
+  then route later candidate writes back through explicit owner-controlled boundaries
 ```
 
-Workspace projection, current Brain strategic projection, recalled Memory text and selected Skills instructions are ephemeral execution context. Multiple Bots may retain only bounded provenance needed to explain which canonical sources, capability generations and digests informed an Artifact; it does not retain copied canonical workspace, Brain, Memory or Skills package state.
+Workspace projection, current Brain strategic projection, recalled Memory text and selected Skills instructions are ephemeral execution context. Automation source bodies and cadence state also remain host-owned. Multiple Bots may retain only bounded provenance needed to explain which canonical sources, capability generations, automation invocation and digests informed coordination; it does not retain copied canonical workspace, Brain, Memory, Skills package or automation-definition state.
 
 Registration also does not auto-create AI-Verse OS durable agents. Durable Multiple Bots Bots and temporary Workers remain package identities unless a later explicit adapter maps them.
 
@@ -317,6 +381,6 @@ Phase 3.1 defines and implements safe registration after extension-owned files h
 
 ## Next gate
 
-**Phase 3.6 - Automations wake/schedule integration.**
+**Phase 3.7 - OS write-command boundary.**
 
-The next slice must let AI-Verse Automations wake durable Bots or start bounded Team Runs through the same coordination command boundary, without moving schedule/routine ownership into Multiple Bots or bypassing workspace, lease, Approval, budget and cancellation policy.
+The next slice must define the explicit owner-controlled command path for Multiple Bots to request canonical AI-Verse OS writes without directly mutating OS-owned state, preserving workspace scope, permission/Approval enforcement, idempotency and auditable provenance.
