@@ -76,7 +76,7 @@ Two persistent Bots independently exist, communicate asynchronously, delegate ac
 
 **Current phase progress:** 100%.
 
-**Completion verification:** the hardened Phase 2.12 PR-head package suite passed **174/174 tests** with **0 failures, 0 canceled, and 0 skipped** on GitHub Actions run 243. The documentation-only completion commit follows that green code gate.
+**Completion verification:** the hardened Phase 2.12 PR-head package suite passed **175/175 tests** with **0 failures, 0 canceled, and 0 skipped** on GitHub Actions run 248.
 
 Goal achieved: a durable Bot decides whether to work alone or create bounded temporary Workers, coordinates them through the topology justified by the work, detects/verifies material disagreement, returns one canonical result, and enforces a shared run-wide safety contract without turning temporary helpers into durable identities.
 
@@ -206,7 +206,7 @@ Goal achieved: a durable Bot decides whether to work alone or create bounded tem
 - durable Team Run leader can hierarchically cancel any same-run participant-owned Task
 - cancellation/budget exhaustion fences the Team Run before execution drain
 - pending Approvals, active Handoffs and queue work become non-actionable
-- capability and run-exclusive environment authority are revoked
+- active capability and run-exclusive environment authority are revoked without overwriting prior independent revocation attribution
 - shared environments are preserved only while referenced outside the run
 - temporary Rooms/Threads close and active topology pointers clear
 - terminal dead-letter retry/topology reconciliation cannot resurrect execution
@@ -219,7 +219,7 @@ Goal achieved: a durable Bot decides whether to work alone or create bounded tem
 
 The package proves the complete host-neutral squad lifecycle: adaptive single-vs-squad selection, manager/fan-out/handoff/discussion coordination, structured disagreement, selective verification, canonical synthesis, shared run-wide budget/cancellation control, restart recovery and evidence-preserving cleanup.
 
-**Final code gate:** 174 tests passed, 0 failed, 0 canceled, 0 skipped.
+**Final code gate:** 175 tests passed, 0 failed, 0 canceled, 0 skipped.
 
 ### Phase 2 remaining work
 
