@@ -4,6 +4,7 @@ import { createId } from "./id.js";
 import type { RecoveryPolicy } from "./execution-queue.js";
 import { ExecutionQueue } from "./execution-queue.js";
 import { CoordinationGateway } from "./gateway.js";
+import { normalizeMemoryRecallRequest, type MemoryRecallRequest } from "./memory-recall-contract.js";
 import { BotRunner } from "./runner.js";
 import { TeamRunCoordinator, type TeamRunStatus } from "./team-runs.js";
 import type { JsonObject, StoredObject } from "./types.js";
@@ -31,6 +32,7 @@ export interface ManagedWorkerTaskInput {
   requiredConstraints?: string[];
   expectedOutput?: JsonObject;
   inputArtifactRefs?: string[];
+  memoryRecall?: MemoryRecallRequest;
   tools?: string[];
   connections?: string[];
   parentTaskId?: string;
@@ -74,6 +76,7 @@ export class TeamRunManager {
     this.assertNoLiveManagedWorker(run.id);
     this.assertLeaderAuthority(leader, input.tools ?? [], input.connections ?? []);
     const effectiveBudget = inheritBudget(run.payload.budget, input.budget);
+    const memoryRecall = normalizeMemoryRecallRequest(input.memoryRecall);
     const workerCreated = this.teams.createWorker({
       runId: run.id,
       createdBy: leaderId,
@@ -144,6 +147,7 @@ export class TeamRunManager {
         constraints_digest: constraintsDigest(requiredConstraints),
         expected_output: input.expectedOutput ?? { contract: "artifact-or-structured-result" },
         input_artifact_refs: artifactRefs,
+        ...(memoryRecall ? { memory_recall: memoryRecall } : {}),
         lease_id: leaseId,
         environment_lease_id: null,
         response_target: { kind: "bot", id: leaderId },
