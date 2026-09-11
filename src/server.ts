@@ -1,4 +1,6 @@
+import { existsSync } from "node:fs";
 import { createServer } from "node:http";
+import { resolve } from "node:path";
 import { URL } from "node:url";
 import { AiVerseBrainObjectiveSource, BrainObjectiveIngress } from "./brain-objective-ingress.js";
 import { AiVerseOsAutomationInvocationSource, AutomationWakeIngress } from "./automation-wake-ingress.js";
@@ -99,7 +101,9 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
   const memoryRecallSource = options.aiVerseOsRoot ? new AiVerseMemoryRecallSource(options.aiVerseOsRoot) : undefined;
   const skillsCapabilitySource = options.aiVerseOsRoot ? new AiVerseSkillsCapabilitySource(options.aiVerseOsRoot) : undefined;
   const automationInvocationSource = options.aiVerseOsRoot ? new AiVerseOsAutomationInvocationSource(options.aiVerseOsRoot) : undefined;
-  const osWriteCommandSink = options.aiVerseOsRoot ? new AiVerseOsWriteCommandSink(options.aiVerseOsRoot) : undefined;
+  const osWriteCommandSink = options.aiVerseOsRoot && existsSync(resolve(options.aiVerseOsRoot, "scripts/write-command.mjs"))
+    ? new AiVerseOsWriteCommandSink(options.aiVerseOsRoot)
+    : undefined;
   const store = new CoordinationStore(options.dbPath ?? "runtime/ai-verse-bots/coordination.db");
   const executionQueue = new ExecutionQueue(store.dbPath);
   const policy = new CoordinationPolicy(store, { requireRegisteredBots: true });
