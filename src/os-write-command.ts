@@ -340,7 +340,11 @@ export class OsWriteCommandBoundary {
     };
     const artifactId = `artifact_os_write_${identityDigest.slice(0, 32)}`;
     const existing = this.store.getObject(artifactId);
-    if (existing) return this.existing(existing, request);
+    if (existing) {
+      this.assertExisting(existing, request);
+      const replayReceipt = await this.sink.enqueue(request);
+      return this.existing(existing, request, replayReceipt);
+    }
 
     const receipt = await this.sink.enqueue(request);
     const parameterDigest = digestValue(request.parameters);
@@ -413,7 +417,7 @@ export class OsWriteCommandBoundary {
     return { request, receipt, artifact, created: true };
   }
 
-  private existing(artifact: StoredObject, request: OsWriteCommandRequest, receipt?: OsWriteCommandReceipt): OsWriteCommandBoundaryResult {
+  private assertExisting(artifact: StoredObject, request: OsWriteCommandRequest): void {
     if (artifact.kind !== "artifact" || artifact.payload.kind !== "os_write_command_receipt") {
       throw new OsWriteCommandError("OS_WRITE_CONFLICT", `${artifact.id} already exists with another meaning`);
     }
@@ -423,12 +427,10 @@ export class OsWriteCommandBoundary {
       || artifact.payload.idempotency_key !== request.idempotency_key) {
       throw new OsWriteCommandError("OS_WRITE_CONFLICT", "idempotency identity is already bound to a different OS write command");
     }
-    if (!receipt) {
-      throw new OsWriteCommandError(
-        "OS_WRITE_REPLAY_REQUIRED",
-        "write-command receipt already exists locally; replay the exact request through the OS boundary to refresh host-owned runtime state"
-      );
-    }
+  }
+
+  private existing(artifact: StoredObject, request: OsWriteCommandRequest, receipt: OsWriteCommandReceipt): OsWriteCommandBoundaryResult {
+    this.assertExisting(artifact, request);
     return { request, receipt, artifact, created: false };
   }
 
