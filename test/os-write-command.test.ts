@@ -312,6 +312,44 @@ test("operator-scoped writes require an operator-scoped durable Bot", async () =
   }
 });
 
+test("boundary rejects forged sink receipts even for host-neutral adapters", async () => {
+  const env = harness();
+  const forged: OsWriteCommandSink = {
+    async enqueue(request) {
+      return {
+        ...(await env.sink.enqueue(request)),
+        canonical_effect_occurred: true as any
+      };
+    }
+  };
+  const boundary = new OsWriteCommandBoundary(env.store, env.gateway, forged);
+  try {
+    await assert.rejects(
+      () => boundary.request(requestInput({ idempotencyKey: "forged-receipt-001" })),
+      (error: unknown) => error instanceof OsWriteCommandError && error.code === "OS_WRITE_INVALID_RECEIPT"
+    );
+    assert.equal(env.store.listObjects("artifact", WORKSPACE).filter((item) => item.payload.kind === "os_write_command_receipt").length, 0);
+  } finally {
+    closeHarness(env);
+  }
+});
+
+test("write-command request size is bounded before host dispatch", async () => {
+  const env = harness();
+  try {
+    await assert.rejects(
+      () => env.boundary.request(requestInput({
+        idempotencyKey: "oversized-001",
+        parameters: { payload: "x".repeat(140 * 1024) }
+      })),
+      (error: unknown) => error instanceof OsWriteCommandError && error.code === "OS_WRITE_INVALID_INPUT"
+    );
+    assert.equal(env.sink.calls.length, 0);
+  } finally {
+    closeHarness(env);
+  }
+});
+
 test("native sink consumes the OS-owned module and rejects unsafe or forged receipts", async () => {
   const root = hostFixture(true);
   try {

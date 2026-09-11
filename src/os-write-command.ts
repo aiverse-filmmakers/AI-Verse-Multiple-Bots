@@ -174,7 +174,9 @@ const BRIDGE = String.raw`
 import { pathToFileURL } from "node:url";
 const modulePath = process.argv[1];
 const osRoot = process.argv[2];
-const request = JSON.parse(process.argv[3]);
+const chunks = [];
+for await (const chunk of process.stdin) chunks.push(chunk);
+const request = JSON.parse(Buffer.concat(chunks).toString("utf8"));
 const mod = await import(pathToFileURL(modulePath).href);
 if (typeof mod.enqueueWriteCommand !== "function") throw new Error("OS write-command module does not export enqueueWriteCommand");
 const result = mod.enqueueWriteCommand({ osRoot, request });
@@ -184,12 +186,13 @@ process.stdout.write(JSON.stringify(result));
 function runExecFile(
   execFileImpl: typeof execFile,
   args: string[],
+  input: string,
   root: string,
   timeoutMs: number,
   maxBufferBytes: number
 ): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolvePromise, rejectPromise) => {
-    execFileImpl(
+    const child = execFileImpl(
       process.execPath,
       args,
       { cwd: root, encoding: "utf8", timeout: timeoutMs, maxBuffer: maxBufferBytes },
@@ -203,6 +206,7 @@ function runExecFile(
         resolvePromise({ stdout, stderr });
       }
     );
+    child?.stdin?.end(input);
   });
 }
 
@@ -235,7 +239,8 @@ export class AiVerseOsWriteCommandSink implements OsWriteCommandSink {
     try {
       ({ stdout } = await runExecFile(
         this.execFileImpl,
-        ["--input-type=module", "--eval", BRIDGE, this.commandPath, this.root, JSON.stringify(request)],
+        ["--input-type=module", "--eval", BRIDGE, this.commandPath, this.root],
+        JSON.stringify(request),
         this.root,
         this.timeoutMs,
         this.maxBufferBytes
@@ -338,15 +343,18 @@ export class OsWriteCommandBoundary {
       ...base,
       request_fingerprint: computeOsWriteCommandFingerprint(base)
     } as OsWriteCommandRequest;
+    if (byteLength(JSON.stringify(request)) > AI_VERSE_OS_WRITE_COMMAND_MAX_BYTES) {
+      throw new OsWriteCommandError("OS_WRITE_INVALID_INPUT", `write-command request exceeds ${AI_VERSE_OS_WRITE_COMMAND_MAX_BYTES} bytes`);
+    }
     const artifactId = `artifact_os_write_${identityDigest.slice(0, 32)}`;
     const existing = this.store.getObject(artifactId);
     if (existing) {
       this.assertExisting(existing, request);
-      const replayReceipt = await this.sink.enqueue(request);
+      const replayReceipt = validateReceipt(await this.sink.enqueue(request), request);
       return this.existing(existing, request, replayReceipt);
     }
 
-    const receipt = await this.sink.enqueue(request);
+    const receipt = validateReceipt(await this.sink.enqueue(request), request);
     const parameterDigest = digestValue(request.parameters);
     const timestamp = new Date().toISOString();
     const payload = validateProtocolObject({
