@@ -259,7 +259,7 @@ export class AiVerseOsWriteCommandSink implements OsWriteCommandSink {
   }
 }
 
-export function computeOsWriteCommandFingerprint(request: Omit<OsWriteCommandRequest, "request_fingerprint">): string {
+export function computeOsWriteCommandFingerprint(request: JsonObject): string {
   return digestValue(request);
 }
 
@@ -322,7 +322,7 @@ export class OsWriteCommandBoundary {
     validateJson(input.parameters, "parameters");
     const provenance = this.provenance(principal, scope, input.provenance);
     const identityDigest = digestValue({ requested_by: principal.id, scope, idempotency_key: idempotencyKey });
-    const base: Omit<OsWriteCommandRequest, "request_fingerprint"> = {
+    const base: JsonObject = {
       schema_version: "1.0",
       request_id: `mb_write_${identityDigest.slice(0, 32)}`,
       scope,
@@ -334,10 +334,10 @@ export class OsWriteCommandBoundary {
       created_at: createdAt,
       provenance
     };
-    const request: OsWriteCommandRequest = {
+    const request = {
       ...base,
       request_fingerprint: computeOsWriteCommandFingerprint(base)
-    };
+    } as OsWriteCommandRequest;
     const artifactId = `artifact_os_write_${identityDigest.slice(0, 32)}`;
     const existing = this.store.getObject(artifactId);
     if (existing) {

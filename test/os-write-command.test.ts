@@ -3,6 +3,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { request as httpRequest } from "node:http";
 import { resolve } from "node:path";
+import process from "node:process";
 import test from "node:test";
 import {
   AI_VERSE_OS_WRITE_COMMAND_PROVIDER,
