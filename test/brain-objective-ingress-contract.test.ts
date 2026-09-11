@@ -103,6 +103,11 @@ test("Brain re-ingress is idempotent only for the exact requested execution and 
   const gateway = new CoordinationGateway(store, queue, policy);
   gateway.createBot(leader());
   const ingress = new BrainObjectiveIngress(store, gateway, queue, new FixedBrainSource());
+  const futureBase = Date.now() + 24 * 60 * 60 * 1000;
+  const deadline = new Date(futureBase).toISOString();
+  const leaseExpiry = new Date(futureBase + 60 * 60 * 1000).toISOString();
+  const changedDeadline = new Date(futureBase + 30 * 60 * 1000).toISOString();
+  const changedLeaseExpiry = new Date(futureBase + 2 * 60 * 60 * 1000).toISOString();
 
   const base: BrainObjectiveIngressInput = {
     leaderId: "bot_contract-leader",
@@ -113,8 +118,8 @@ test("Brain re-ingress is idempotent only for the exact requested execution and 
     connections: ["drive"],
     budget: { max_actions: 4, max_tasks: 3 },
     maxHops: 3,
-    deadlineAt: "2026-09-11T12:00:00Z",
-    leaseExpiresAt: "2026-09-11T13:00:00Z",
+    deadlineAt: deadline,
+    leaseExpiresAt: leaseExpiry,
     approval: {
       required: true,
       reason: "Operator must approve delivery",
@@ -144,8 +149,8 @@ test("Brain re-ingress is idempotent only for the exact requested execution and 
     const variants: Array<[string, (value: BrainObjectiveIngressInput) => void]> = [
       ["reason", (value) => { value.reason = "Execute with a different audit reason"; }],
       ["maxHops", (value) => { value.maxHops = 4; }],
-      ["deadlineAt", (value) => { value.deadlineAt = "2026-09-11T12:30:00Z"; }],
-      ["leaseExpiresAt", (value) => { value.leaseExpiresAt = "2026-09-11T14:00:00Z"; }],
+      ["deadlineAt", (value) => { value.deadlineAt = changedDeadline; }],
+      ["leaseExpiresAt", (value) => { value.leaseExpiresAt = changedLeaseExpiry; }],
       ["approval reason", (value) => { if (value.approval) value.approval.reason = "A different approval reason"; }],
       ["approval action", (value) => {
         if (value.approval) value.approval.action = { kind: "campaign.deliver", summary: "Deliver a different campaign" };

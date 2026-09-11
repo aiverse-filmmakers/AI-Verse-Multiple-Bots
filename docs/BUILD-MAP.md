@@ -229,7 +229,7 @@ None.
 
 **Status:** IN PROGRESS
 
-**Directional phase progress:** approximately 60%.
+**Directional phase progress:** approximately 70%.
 
 Goal: attach the finished host-neutral teammate/squad package to AI-Verse OS without moving or duplicating canonical OS/Brain/Memory/Skills state into this repository.
 
@@ -241,8 +241,8 @@ Goal: attach the finished host-neutral teammate/squad package to AI-Verse OS wit
 4. Memory context/recall adapter - **COMPLETE**
 5. Skills capability resolution - **COMPLETE**
 6. Automations wake/schedule integration - **COMPLETE**
-7. OS write-command boundary - **NEXT**
-8. candidate knowledge/decision write-back - **NOT STARTED**
+7. OS write-command boundary - **COMPLETE**
+8. candidate knowledge/decision write-back - **NEXT**
 9. 4Cs health integration - **NOT STARTED**
 10. uninstall/upgrade without canonical-state damage - **NOT STARTED**
 
@@ -386,6 +386,33 @@ Implemented:
 **Verified implementation gate:** GitHub Actions run 34518046084 passed the full **254/254 tests** with 0 failures, 0 canceled and 0 skipped on exact code head `f94daaa9cc98f5356d8a77d90905867ac0034528`.
 
 See `docs/AI-VERSE-AUTOMATION-WAKE-SCHEDULE.md` and `docs/PHASE-3-STATUS.md`.
+
+### Phase 3.7 - OS write-command boundary
+
+Implemented:
+
+- AI-Verse OS owner-side write-command contract merged through OS PR #16
+- public Multiple Bots `OsWriteCommandBoundary` and `OsWriteCommandSink`
+- native `AiVerseOsWriteCommandSink` consuming the OS-owned module rather than writing canonical files
+- additive host capability detection so older compatible OS hosts retain existing behavior
+- native `POST /v1/os/write-commands` surface
+- exact Bot/Worker and operator/workspace scope enforcement
+- temporary Workers cannot widen into operator-scoped writes
+- bounded Task/Run/Artifact provenance validation
+- deterministic command identity and SHA-256 immutable request binding
+- 128 KiB request-envelope ceiling
+- shell-free host invocation with request body over stdin
+- strict host receipt validation at the generic boundary
+- exact replay recontacts the OS owner because OS runtime queues are disposable
+- semantic drift under the same idempotency identity fails before host dispatch
+- local Multiple Bots receipt Artifact persists provenance/digests only, never the write payload
+- accepted host receipt must prove no canonical effect occurred
+- no direct operator/workspace/knowledge/decision/Memory/Skills canonical write path introduced
+- calendar-drift hardening for an older Brain ingress acceptance fixture
+
+**Verified implementation gate:** GitHub Actions run 34655489289 passed the full **263/263 tests** with 0 failures, 0 canceled and 0 skipped on exact hardened head `1a823c0f0885c455d8e5a44c2ede29f45fac1864`.
+
+See `docs/AI-VERSE-OS-WRITE-COMMAND-BOUNDARY.md` and `docs/PHASE-3-STATUS.md`.
 
 ### Phase 3 boundary
 

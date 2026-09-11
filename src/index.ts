@@ -15,6 +15,7 @@ export * from "./id.js";
 export * from "./loop-guard.js";
 export * from "./memory-recall-runtime.js";
 export * from "./openai-compatible-runtime.js";
+export * from "./os-write-command.js";
 export * from "./policy.js";
 export * from "./recovery.js";
 export * from "./rooms.js";

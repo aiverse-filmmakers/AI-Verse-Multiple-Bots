@@ -449,7 +449,40 @@ Phase 3.6 adds no cron parser, RRULE parser, timer, watcher, polling loop, recur
 See `AI-VERSE-AUTOMATION-WAKE-SCHEDULE.md` for the complete contract.
 
 
-## 11. Connections contract
+## 11. OS write-command contract
+
+Multiple Bots does not directly mutate AI-Verse OS canonical context, knowledge, decisions or other owner state.
+
+Phase 3.7 routes a bounded request through the OS-owned write-command boundary:
+
+```text
+Multiple Bots
+  -> exact immutable write command
+AI-Verse OS scripts/write-command.mjs
+  -> validates scope / fingerprint / permission / idempotency
+  -> queues under runtime/write-commands/
+  -> canonical_effect_occurred = false
+Later owner handler
+  -> separately validates and performs any canonical effect
+```
+
+Native Multiple Bots exposes:
+
+```text
+POST /v1/os/write-commands
+```
+
+A durable Bot or temporary Worker may request only within its exact scope. Temporary Workers cannot escalate into operator scope.
+
+The OS runtime queue is disposable. Exact replay therefore recontacts the host while Multiple Bots retains one provenance-only receipt Artifact.
+
+The Multiple Bots receipt stores parameter digests and coordination provenance, not the parameter body.
+
+Phase 3.7 does not implement knowledge/decision promotion. Candidate routing/promotion is Phase 3.8.
+
+See `AI-VERSE-OS-WRITE-COMMAND-BOUNDARY.md`.
+
+## 12. Connections contract
 
 Bots may use connected systems only through host-approved connection/tool handles.
 
@@ -468,7 +501,7 @@ A delegated Worker receives only the handles explicitly leased for that task.
 
 A peer Bot cannot forward a raw OAuth token to another Bot.
 
-## 12. Workspace isolation
+## 13. Workspace isolation
 
 Every DM, Room, Task and Team Run has a workspace scope unless explicitly operator-scoped.
 
@@ -504,7 +537,7 @@ therefore room in A may freely search B
 
 The existence of one multi-workspace Bot must never collapse workspace isolation.
 
-## 13. Source-of-truth routing
+## 14. Source-of-truth routing
 
 When a Bot encounters information, routing should follow meaning rather than convenience.
 
@@ -533,7 +566,7 @@ Strategic observation / goal impact
 
 The team layer is therefore a producer and consumer of canonical information, not its final owner.
 
-## 14. Command boundary
+## 15. Command boundary
 
 Recommended namespace:
 
@@ -581,7 +614,7 @@ approvals.resolve
 
 All mutating commands are validated server-side for caller identity, workspace and policy.
 
-## 15. Brain-to-Bots run request
+## 16. Brain-to-Bots run request
 
 Suggested normalized request:
 
@@ -627,7 +660,7 @@ metrics:
   topology: manager_parallel
 ```
 
-## 16. Dashboard event projection
+## 17. Dashboard event projection
 
 The Gateway publishes events. Dashboard subscribes.
 
@@ -648,7 +681,7 @@ Example event:
 
 Dashboard does not need private model reasoning to show meaningful progress.
 
-## 17. Failure propagation between layers
+## 18. Failure propagation between layers
 
 ### Worker fails
 
@@ -674,7 +707,7 @@ Bot can still operate with native runtime abilities. Missing skill references ar
 
 Bots/rooms/team runs continue through the backend Gateway. UI absence cannot stop orchestration.
 
-## 18. Health contract
+## 19. Health contract
 
 `doctor` should check native integration across the five surrounding layers.
 
@@ -696,7 +729,7 @@ Suggested checks:
 - permission intersection test passes;
 - cancellation test passes.
 
-## 19. Uninstall contract
+## 20. Uninstall contract
 
 Default uninstall removes engine/runtime integration while preserving user-owned coordination state.
 
@@ -716,7 +749,7 @@ runtime adapters/registry integration
 
 A separate explicit purge operation can remove Bot/room history after warning the operator.
 
-## 20. Layer diagram
+## 21. Layer diagram
 
 ```text
                       Operator

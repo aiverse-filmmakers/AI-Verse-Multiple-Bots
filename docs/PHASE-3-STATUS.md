@@ -6,7 +6,7 @@
 
 **Overall status:** IN PROGRESS
 
-**Directional phase progress:** approximately 60%
+**Directional phase progress:** approximately 70%
 
 This file is the implementation ledger for Phase 3. The canonical product roadmap remains `BUILD-MAP.md`.
 
@@ -22,8 +22,8 @@ Attach the completed host-neutral persistent-teammate and squad package to AI-Ve
 4. Memory context/recall adapter — **COMPLETE**
 5. Skills capability resolution — **COMPLETE**
 6. Automations wake/schedule integration — **COMPLETE**
-7. OS write-command boundary — **NEXT**
-8. candidate knowledge/decision write-back — **NOT STARTED**
+7. OS write-command boundary — **COMPLETE**
+8. candidate knowledge/decision write-back — **NEXT**
 9. 4Cs health integration — **NOT STARTED**
 10. uninstall/upgrade without canonical-state damage — **NOT STARTED**
 
@@ -337,9 +337,72 @@ Phase 3.6 acceptance coverage proves:
 
 See `AI-VERSE-AUTOMATION-WAKE-SCHEDULE.md` for the canonical Phase 3.6 boundary.
 
+## Slice 3.7 - OS write-command boundary
+
+**Implementation status:** COMPLETE
+
+Phase 3.7 creates an explicit owner-controlled path for Multiple Bots to request canonical AI-Verse OS writes without directly mutating OS-owned truth. The slice establishes transport, scope, immutable request binding, idempotency and provenance only. Candidate promotion semantics remain Phase 3.8.
+
+Implemented:
+
+- host-side AI-Verse OS `scripts/write-command.mjs` contract merged through OS PR #16
+- host runtime queue/receipt storage only under disposable `runtime/write-commands/`
+- host receipts explicitly state `effect_occurred: false` and `canonical_effect_occurred: false`
+- public host-neutral Multiple Bots `OsWriteCommandSink` and `OsWriteCommandBoundary`
+- public native `AiVerseOsWriteCommandSink`
+- existing AI-Verse OS compatibility revalidation before every native dispatch
+- exact host module containment and symlink rejection
+- additive discovery so older compatible hosts do not lose existing native functionality
+- native Gateway `POST /v1/os/write-commands` endpoint only when the owner contract exists
+- active durable Bot or temporary Worker principal requirement
+- exact workspace enforcement for Bot/Worker requests
+- operator scope reserved to operator-scoped durable Bots
+- temporary Workers cannot request operator-scoped writes
+- optional Task/Team Run/Artifact provenance is kind-checked and scope-checked
+- bounded structured command parameters and 128 KiB full request-envelope ceiling
+- deterministic local identity from principal, scope and idempotency key
+- exact SHA-256 request fingerprint over the immutable owner request
+- native command payload sent over subprocess stdin rather than command-line arguments
+- generic boundary revalidates every returned host receipt, including custom sinks
+- exact replay recontacts the host owner to refresh disposable OS runtime command state
+- changed semantics under the same idempotency identity fail locally before second dispatch
+- local `os_write_command_receipt` Artifact stores only parameter digest and provenance, never parameter content
+- no direct canonical OS filesystem write primitive in the Multiple Bots adapter
+- no knowledge or decision promotion logic introduced in this slice
+
+### 3.7 acceptance proof
+
+Host-side owner contract:
+
+- AI-Verse OS PR #16 merged as `28162ea386708b09d565101f902acc3b5b88d150`
+- post-merge OS Write Command Boundary: PASS
+- post-merge Direction Ownership: PASS
+- post-merge OS Brain Permission Contract: PASS
+- post-merge Repository QC: PASS
+- post-merge Four Repo Acceptance: PASS
+
+Multiple Bots hardened implementation gate at exact head `1a823c0f0885c455d8e5a44c2ede29f45fac1864` passed GitHub Actions **CI run 34655489289 with 263/263 tests**, **0 failures, 0 canceled, and 0 skipped**.
+
+Phase 3.7 acceptance coverage proves:
+
+1. owner requests have deterministic exact fingerprints and identities
+2. request payload content is not duplicated into local coordination receipts
+3. exact replay refreshes disposable host runtime state without duplicating local receipts
+4. semantic drift is rejected before another owner dispatch
+5. principal scope cannot widen across workspaces or into operator scope
+6. provenance cannot cross the command scope
+7. native host module paths reject symlinks/escape
+8. older compatible OS hosts keep all pre-3.7 native features
+9. host receipts claiming a canonical effect are rejected
+10. every sink receipt is bound back to the exact request
+11. request size is bounded before host dispatch
+12. the full existing coordination, Brain, Memory, Skills and Automations suite remains green
+
+See `AI-VERSE-OS-WRITE-COMMAND-BOUNDARY.md` for the canonical Phase 3.7 contract.
+
 ## Ownership boundary
 
-Phase 3.1 through 3.6 do not make Multiple Bots the source of truth for any AI-Verse OS, Brain, Memory, Skills or Automations domain state.
+Phase 3.1 through 3.7 do not make Multiple Bots the source of truth for any AI-Verse OS, Brain, Memory, Skills or Automations domain state.
 
 ```text
 AI-Verse OS
@@ -381,6 +444,6 @@ Phase 3.1 defines and implements safe registration after extension-owned files h
 
 ## Next gate
 
-**Phase 3.7 - OS write-command boundary.**
+**Phase 3.8 - candidate knowledge/decision write-back.**
 
-The next slice must define the explicit owner-controlled command path for Multiple Bots to request canonical AI-Verse OS writes without directly mutating OS-owned state, preserving workspace scope, permission/Approval enforcement, idempotency and auditable provenance.
+The next slice must define how bounded coordination outputs become explicit knowledge or decision candidates, route them through the Phase 3.7 owner-controlled write-command boundary, and let AI-Verse OS decide whether/how they become canonical without Multiple Bots silently promoting its own output to truth.
