@@ -13,6 +13,7 @@ import { ExecutionQueue, type RecoveryPolicy } from "./execution-queue.js";
 import { CoordinationGateway, type ApprovalRequirement } from "./gateway.js";
 import { MemoryRecallRuntimeRegistry } from "./memory-recall-runtime.js";
 import { OpenAICompatibleRuntimeAdapter } from "./openai-compatible-runtime.js";
+import { AiVerseOsWriteCommandSink, OsWriteCommandBoundary } from "./os-write-command.js";
 import { CoordinationPolicy } from "./policy.js";
 import { RoomCoordinator } from "./rooms.js";
 import { BotRunner } from "./runner.js";
@@ -98,6 +99,7 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
   const memoryRecallSource = options.aiVerseOsRoot ? new AiVerseMemoryRecallSource(options.aiVerseOsRoot) : undefined;
   const skillsCapabilitySource = options.aiVerseOsRoot ? new AiVerseSkillsCapabilitySource(options.aiVerseOsRoot) : undefined;
   const automationInvocationSource = options.aiVerseOsRoot ? new AiVerseOsAutomationInvocationSource(options.aiVerseOsRoot) : undefined;
+  const osWriteCommandSink = options.aiVerseOsRoot ? new AiVerseOsWriteCommandSink(options.aiVerseOsRoot) : undefined;
   const store = new CoordinationStore(options.dbPath ?? "runtime/ai-verse-bots/coordination.db");
   const executionQueue = new ExecutionQueue(store.dbPath);
   const policy = new CoordinationPolicy(store, { requireRegisteredBots: true });
@@ -123,6 +125,9 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
     : undefined;
   const automationIngress = automationInvocationSource
     ? new AutomationWakeIngress(store, gateway, executionQueue, automationInvocationSource)
+    : undefined;
+  const osWriteCommands = osWriteCommandSink
+    ? new OsWriteCommandBoundary(store, gateway, osWriteCommandSink)
     : undefined;
   const supervisor = new ExecutionSupervisor(gateway, executionQueue, runner);
   supervisor.start();
@@ -277,6 +282,32 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
           approval: optionalApproval(body.approval),
           recoveryPolicy: optionalRecoveryPolicy(body.recoveryPolicy),
           maxAttempts: optionalMaxAttempts(body.maxAttempts)
+        });
+        json(res, result.created ? 201 : 200, result);
+        return;
+      }
+
+      if (method === "POST" && url.pathname === "/v1/os/write-commands") {
+        if (!osWriteCommands) throw new Error("OS write-command boundary requires native AI-Verse OS mode via serve --os-root PATH");
+        const body = await readJson(req);
+        const provenance = typeof body.provenance === "object" && body.provenance !== null && !Array.isArray(body.provenance)
+          ? body.provenance as JsonObject
+          : undefined;
+        const result = await osWriteCommands.request({
+          requestedBy: requiredString(body, "requestedBy"),
+          scope: requiredString(body, "scope"),
+          operation: requiredString(body, "operation"),
+          parameters: typeof body.parameters === "object" && body.parameters !== null && !Array.isArray(body.parameters)
+            ? body.parameters as JsonObject
+            : (() => { throw new Error("parameters must be an object"); })(),
+          idempotencyKey: requiredString(body, "idempotencyKey"),
+          reason: requiredString(body, "reason"),
+          createdAt: requiredString(body, "createdAt"),
+          provenance: provenance ? {
+            taskId: typeof provenance.taskId === "string" ? provenance.taskId : undefined,
+            runId: typeof provenance.runId === "string" ? provenance.runId : undefined,
+            artifactRefs: optionalStringArray(provenance.artifactRefs, "provenance.artifactRefs")
+          } : undefined
         });
         json(res, result.created ? 201 : 200, result);
         return;
@@ -576,6 +607,8 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
     brainIngress,
     automationInvocationSource,
     automationIngress,
+    osWriteCommandSink,
+    osWriteCommands,
     memoryRecallSource,
     skillsCapabilitySource,
     supervisor,
