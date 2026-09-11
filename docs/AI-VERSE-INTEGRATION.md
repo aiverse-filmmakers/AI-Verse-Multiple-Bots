@@ -449,7 +449,40 @@ Phase 3.6 adds no cron parser, RRULE parser, timer, watcher, polling loop, recur
 See `AI-VERSE-AUTOMATION-WAKE-SCHEDULE.md` for the complete contract.
 
 
-## 11. Connections contract
+## 11. OS write-command contract
+
+Multiple Bots does not directly mutate AI-Verse OS canonical context, knowledge, decisions or other owner state.
+
+Phase 3.7 routes a bounded request through the OS-owned write-command boundary:
+
+```text
+Multiple Bots
+  -> exact immutable write command
+AI-Verse OS scripts/write-command.mjs
+  -> validates scope / fingerprint / permission / idempotency
+  -> queues under runtime/write-commands/
+  -> canonical_effect_occurred = false
+Later owner handler
+  -> separately validates and performs any canonical effect
+```
+
+Native Multiple Bots exposes:
+
+```text
+POST /v1/os/write-commands
+```
+
+A durable Bot or temporary Worker may request only within its exact scope. Temporary Workers cannot escalate into operator scope.
+
+The OS runtime queue is disposable. Exact replay therefore recontacts the host while Multiple Bots retains one provenance-only receipt Artifact.
+
+The Multiple Bots receipt stores parameter digests and coordination provenance, not the parameter body.
+
+Phase 3.7 does not implement knowledge/decision promotion. Candidate routing/promotion is Phase 3.8.
+
+See `AI-VERSE-OS-WRITE-COMMAND-BOUNDARY.md`.
+
+## 12. Connections contract
 
 Bots may use connected systems only through host-approved connection/tool handles.
 
