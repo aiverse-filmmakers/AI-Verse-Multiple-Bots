@@ -1,3 +1,4 @@
+export * from "./remote-machine-auth.js";
 export * from "./external-managed-runtime.js";
 export * from "./claude-code-runtime.js";
 export * from "./codex-runtime.js";
