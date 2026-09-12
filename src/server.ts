@@ -15,6 +15,7 @@ import { CandidateWritebackRouter } from "./candidate-writeback.js";
 import type { BotManifest, JsonObject } from "./types.js";
 import { ExecutionQueue, type RecoveryPolicy } from "./execution-queue.js";
 import { FourCsHealthProjector } from "./four-cs-health.js";
+import { HermesStdioRuntimeAdapter } from "./hermes-runtime.js";
 import { CoordinationGateway, type ApprovalRequirement } from "./gateway.js";
 import { MemoryRecallRuntimeRegistry } from "./memory-recall-runtime.js";
 import { OpenAICompatibleRuntimeAdapter } from "./openai-compatible-runtime.js";
@@ -115,7 +116,8 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
   const baseRuntimes = new RuntimeRegistry()
     .register(new DeterministicRuntimeAdapter())
     .register(new OpenAICompatibleRuntimeAdapter())
-    .register(new A2AJsonRpcRuntimeAdapter());
+    .register(new A2AJsonRpcRuntimeAdapter())
+    .register(new HermesStdioRuntimeAdapter());
   const skillsRuntimes = new SkillsCapabilityRuntimeRegistry(baseRuntimes, skillsCapabilitySource);
   const memoryRuntimes = new MemoryRecallRuntimeRegistry(skillsRuntimes, memoryRecallSource);
   const runtimes = brainObjectiveSource
