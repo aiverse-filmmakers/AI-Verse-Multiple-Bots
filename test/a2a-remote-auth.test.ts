@@ -183,12 +183,12 @@ test("A2A remote-machine auth verifies discovery identity and sends bearer only 
   }));
 
   assert.equal(requests.length, 2);
-  assert.equal(requests[0].method, "GET");
-  assert.equal(requests[0].authorization, null);
-  assert.equal(requests[0].redirect, "error");
-  assert.equal(requests[1].method, "POST");
-  assert.equal(requests[1].authorization, "Bearer SUPER_SECRET_BEARER");
-  assert.equal(requests[1].redirect, "error");
+  assert.equal(requests[0]!.method, "GET");
+  assert.equal(requests[0]!.authorization, null);
+  assert.equal(requests[0]!.redirect, "error");
+  assert.equal(requests[1]!.method, "POST");
+  assert.equal(requests[1]!.authorization, "Bearer SUPER_SECRET_BEARER");
+  assert.equal(requests[1]!.redirect, "error");
   assert.equal(resolverCalls, 1);
 
   assert.equal(result.summary, "Authenticated remote result.");
