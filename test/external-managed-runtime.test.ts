@@ -479,7 +479,7 @@ test("external managed Task leases must use exact references, never groups or wi
   }
 });
 
-test("Phase 4.5 external managed runtime is durable-Bot only and defers remote environment leases to Phase 4.7", async () => {
+test("external managed runtime is durable-Bot only and requires a remote lease provider for environment authority", async () => {
   {
     const provider = new FakeManagedProvider();
     const adapter = new ExternalManagedBotRuntimeAdapter(
@@ -509,7 +509,7 @@ test("Phase 4.5 external managed runtime is durable-Bot only and defers remote e
     });
     await assert.rejects(
       () => adapter.execute(runtimeContext("fake-managed", [], [], { environmentLease })),
-      assertExternalCode("EXTERNAL_MANAGED_REMOTE_LEASE_OUT_OF_SCOPE")
+      assertExternalCode("EXTERNAL_MANAGED_REMOTE_LEASE_PROVIDER_REQUIRED")
     );
   }
 });
