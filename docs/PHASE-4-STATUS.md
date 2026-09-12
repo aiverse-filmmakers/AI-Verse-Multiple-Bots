@@ -6,7 +6,7 @@
 
 **Overall status:** IN PROGRESS
 
-**Directional phase progress:** approximately 70%
+**Directional phase progress:** approximately 80%
 
 This file is the implementation ledger for Phase 4. The canonical product roadmap remains `BUILD-MAP.md`.
 
@@ -23,8 +23,8 @@ Make durable Bots and temporary Workers portable across supported local and remo
 5. external managed Bot runtime - **COMPLETE**
 6. remote-machine identity/authentication - **COMPLETE**
 7. remote capability/environment leases - **COMPLETE**
-8. retry/disconnect/reconnect semantics - **NEXT**
-9. compatibility/evaluation suite - **NOT STARTED**
+8. retry/disconnect/reconnect semantics - **COMPLETE**
+9. compatibility/evaluation suite - **NEXT**
 
 ## Slice 4.1 - A2A adapter
 
@@ -423,8 +423,69 @@ Phase 4.7 acceptance coverage proves:
 30. Gateway exposes host-injected remote lease providers/broker
 31. the complete pre-existing Phase 0-4.6 suite remains green
 
+## Slice 4.8 - retry/disconnect/reconnect semantics
+
+**Implementation status:** COMPLETE
+
+Phase 4.8 adds durable remote execution recovery without replacing the existing local execution queue, stale-execution recovery, Task ownership or Artifact settlement model.
+
+Implemented:
+
+- durable SQLite remote recovery journal keyed by local Task id
+- immutable adapter/target/operation recovery identity
+- deterministic target-bound remote operation keys
+- explicit `submitting`, `remote_active` and `completed` recovery states
+- verified remote-result caching across the remote-result/local-commit crash window
+- post-local-commit runtime settlement hook
+- A2A remote Task resume through exact server-issued Task ids
+- bounded transient retry for safe A2A operations
+- fail-closed ambiguous A2A submission handling
+- negotiated AI-Verse A2A remote recovery extension for exactly-once logical submission
+- stable A2A message id and operation key across safe replay
+- restart-aware A2A cancellation
+- external-managed exact Task-key idempotency declaration
+- bounded managed-provider replay only when exact Task-key semantics are declared
+- restart-aware external-managed cancellation
+- recovered remote lease revalidation against current canonical local authority
+- exact-authority/environment lease replacement rules
+- recovery-aware remote lease reacquisition and A2A renewal
+- durable failed remote-lease revocation queue and reconciliation
+- startup, periodic and orderly-shutdown revocation reconciliation
+- dead-letter cleanup of durable remote work
+- bounded recovery configuration and failure normalization
+- explicit recovery contract documentation
+
+See `REMOTE-EXECUTION-RECOVERY.md`.
+
+### 4.8 acceptance proof
+
+The hardened implementation head `08b4c03151a5096960cc33c588357a3294f22998` passed GitHub Actions **CI run 478 (`34721177823`) with 412/412 tests**, **0 failures, 0 canceled and 0 skipped**.
+
+Phase 4.8 acceptance coverage proves:
+
+1. a known remote A2A Task resumes with `GetTask` instead of creating duplicate work
+2. a completed verified remote result survives process loss until local settlement
+3. ambiguous A2A submission fails closed without an exactly-once recovery contract
+4. the negotiated A2A recovery extension safely retries one stable logical submission
+5. recovery extension activation is carried on the A2A transport boundary
+6. A2A cancellation can reconnect from durable recovery state after restart
+7. external-managed replay fails closed without exact Task-key idempotency
+8. exact Task-key providers can retry transient execution with one stable idempotency key
+9. a durable managed submission can safely resume only under that explicit contract
+10. external-managed cancellation can reconnect from durable recovery state
+11. recovery identity cannot drift to another adapter or target
+12. recovered remote leases are revalidated against current canonical local authority
+13. expired or widened recovered grants fail closed
+14. lease replacement preserves exact authority and environment identity
+15. failed remote lease revocation survives restart and reconciles later
+16. duplicate revocation queueing does not create duplicate cleanup work
+17. local stale-execution recovery remains canonical
+18. remote recovery checkpoints are cleared only after local Task/Artifact settlement
+19. dead-letter recovery attempts remote cleanup without weakening local authority
+20. the complete pre-existing Phase 0-4.7 suite remains green
+
 ## Next gate
 
-**Phase 4.8 - retry/disconnect/reconnect semantics.**
+**Phase 4.9 - compatibility/evaluation suite.**
 
-Phase 4.7 is complete. Phase 4.8 has not started.
+Phase 4.8 is complete. Phase 4.9 is the final Phase 4 slice and has not started.
