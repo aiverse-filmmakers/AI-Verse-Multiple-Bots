@@ -19,6 +19,7 @@ import { HermesStdioRuntimeAdapter } from "./hermes-runtime.js";
 import { CoordinationGateway, type ApprovalRequirement } from "./gateway.js";
 import { MemoryRecallRuntimeRegistry } from "./memory-recall-runtime.js";
 import { OpenAICompatibleRuntimeAdapter } from "./openai-compatible-runtime.js";
+import { OpenClawAgentExecRuntimeAdapter } from "./openclaw-runtime.js";
 import { AiVerseOsWriteCommandSink, OsWriteCommandBoundary } from "./os-write-command.js";
 import { CoordinationPolicy } from "./policy.js";
 import { RoomCoordinator } from "./rooms.js";
@@ -117,7 +118,8 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
     .register(new DeterministicRuntimeAdapter())
     .register(new OpenAICompatibleRuntimeAdapter())
     .register(new A2AJsonRpcRuntimeAdapter())
-    .register(new HermesStdioRuntimeAdapter());
+    .register(new HermesStdioRuntimeAdapter())
+    .register(new OpenClawAgentExecRuntimeAdapter());
   const skillsRuntimes = new SkillsCapabilityRuntimeRegistry(baseRuntimes, skillsCapabilitySource);
   const memoryRuntimes = new MemoryRecallRuntimeRegistry(skillsRuntimes, memoryRecallSource);
   const runtimes = brainObjectiveSource
