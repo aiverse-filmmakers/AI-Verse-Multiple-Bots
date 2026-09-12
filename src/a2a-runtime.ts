@@ -471,6 +471,7 @@ export class A2AJsonRpcRuntimeAdapter implements RuntimeAdapter {
         );
       }
     }
+
     let remoteBinding: ReturnType<typeof parseRemoteAuthBinding>;
     try {
       remoteBinding = parseRemoteAuthBinding(runtime);
@@ -489,6 +490,9 @@ export class A2AJsonRpcRuntimeAdapter implements RuntimeAdapter {
 
     const cardUrl = safeUrl(requiredRuntimeString(runtime, "agent_card_url"), "runtime.agent_card_url");
     const interval = pollInterval(runtime);
+    const maxRetryAttempts = retryAttempts(runtime);
+    const retryBaseDelayMs = retryDelayMs(runtime);
+    const leaseRenewalMarginMs = renewalMarginMs(runtime);
     const hasMeaningfulAuthority = runtimeAuthorityNeedsRemoteLease(context);
     if (hasMeaningfulAuthority && !remoteBinding.machineRef) {
       throw new A2ARuntimeError(
@@ -518,16 +522,54 @@ export class A2AJsonRpcRuntimeAdapter implements RuntimeAdapter {
         "runtime.remote_lease_provider requires a configured RemoteLeaseBroker"
       );
     }
+
+    const recoveryTargetKind = remoteBinding.machineRef ? "machine" : "endpoint";
+    const recoveryTargetRef = remoteBinding.machineRef ?? cardUrl.receiptUrl;
+    const operationKey = remoteOperationKey("a2a", context.task.id, recoveryTargetRef);
+    let checkpoint = this.recovery?.get(context.task.id) ?? null;
+    if (checkpoint) {
+      if (
+        checkpoint.adapterId !== "a2a"
+        || checkpoint.targetKind !== recoveryTargetKind
+        || checkpoint.targetRef !== recoveryTargetRef
+        || checkpoint.operationKey !== operationKey
+      ) {
+        throw new A2ARuntimeError(
+          "A2A_RECOVERY_IDENTITY_DRIFT",
+          `Recovered A2A identity for Task ${context.task.id} does not match current runtime configuration`
+        );
+      }
+      if (checkpoint.state === "completed") {
+        if (!checkpoint.result) {
+          throw new A2ARuntimeError(
+            "A2A_RECOVERY_INVALID_CHECKPOINT",
+            "Completed A2A recovery checkpoint is missing its cached result"
+          );
+        }
+        if (checkpoint.leaseGrant && remoteBinding.machineRef) {
+          await this.revokeRecoverably(
+            checkpoint.leaseGrant,
+            context.task.id,
+            { kind: "machine", ref: remoteBinding.machineRef }
+          );
+        }
+        return checkpoint.result;
+      }
+    }
+
     const controller = new AbortController();
     const active: ActiveA2ATask = {
       controller,
-      remoteTaskId: null,
+      remoteTaskId: checkpoint?.remoteOperationId ?? null,
       interface: null,
       cancelRequested: false,
       actionCount: 0,
-      remoteLeaseGrant: null,
-      remoteLeaseTarget: null,
-      leaseRevokeStarted: false
+      remoteLeaseGrant: checkpoint?.leaseGrant ?? null,
+      remoteLeaseTarget: remoteBinding.machineRef
+        ? { kind: "machine", ref: remoteBinding.machineRef }
+        : null,
+      leaseRevokeStarted: false,
+      operationKey
     };
     this.active.set(context.task.id, active);
 
@@ -549,13 +591,56 @@ export class A2AJsonRpcRuntimeAdapter implements RuntimeAdapter {
       active.interface = card.interface;
 
       let remoteLeaseAudit: RemoteLeaseAudit | null = null;
-      if (remoteLeaseProvider && remoteBinding.machineRef) {
+      if (active.remoteLeaseGrant) {
+        if (!remoteLeaseProvider || !remoteBinding.machineRef || !this.remoteLeases) {
+          throw new A2ARuntimeError(
+            "A2A_RECOVERY_LEASE_CONFIG_DRIFT",
+            "Recovered A2A lease no longer has its configured provider and pinned machine"
+          );
+        }
         try {
-          active.remoteLeaseTarget = { kind: "machine", ref: remoteBinding.machineRef };
+          active.remoteLeaseGrant = this.remoteLeases.validateRecoveredGrant(
+            context,
+            active.remoteLeaseGrant
+          );
+        } catch (error) {
+          if (
+            error instanceof RemoteLeaseError
+            && error.code === "REMOTE_LEASE_RECOVERY_EXPIRED"
+          ) {
+            if (!card.remoteRecoveryExtensionSupported) {
+              throw new A2ARuntimeError(
+                "A2A_RECOVERY_LEASE_REACQUISITION_UNSUPPORTED",
+                "Recovered A2A Task needs a fresh remote lease but the remote agent does not advertise the recovery extension"
+              );
+            }
+            const previous = active.remoteLeaseGrant;
+            const replacementGrant = await this.remoteLeases.grant(
+              remoteLeaseProvider,
+              context,
+              active.remoteLeaseTarget as { kind: "machine"; ref: string }
+            );
+            this.remoteLeases.assertRecoveryReplacement(previous, replacementGrant);
+            active.remoteLeaseGrant = replacementGrant;
+            this.recovery?.updateLease(context.task.id, replacementGrant);
+            await this.revokeRecoverably(
+              previous,
+              context.task.id,
+              active.remoteLeaseTarget as { kind: "machine"; ref: string }
+            );
+          } else {
+            if (error instanceof RemoteLeaseError) {
+              throw new A2ARuntimeError(error.code, error.message);
+            }
+            throw error;
+          }
+        }
+      } else if (remoteLeaseProvider && remoteBinding.machineRef) {
+        try {
           active.remoteLeaseGrant = await this.remoteLeases!.grant(
             remoteLeaseProvider,
             context,
-            active.remoteLeaseTarget
+            active.remoteLeaseTarget as { kind: "machine"; ref: string }
           );
         } catch (error) {
           if (error instanceof RemoteLeaseError) throw new A2ARuntimeError(error.code, error.message);
@@ -568,8 +653,17 @@ export class A2AJsonRpcRuntimeAdapter implements RuntimeAdapter {
       const messagePart: JsonObject = card.inputMode === "application/json"
         ? { data: envelope, mediaType: "application/json" }
         : { text: envelopeText, mediaType: "text/plain" };
+      const recoveryMetadata: JsonObject = {
+        operation_key: operationKey,
+        local_task_id: context.task.id,
+        submission_semantics: "exactly_once_when_extension_negotiated"
+      };
+      const messageExtensions = [
+        ...(active.remoteLeaseGrant ? [REMOTE_LEASE_A2A_EXTENSION_URI] : []),
+        ...(card.remoteRecoveryExtensionSupported ? [REMOTE_RECOVERY_A2A_EXTENSION_URI] : [])
+      ];
 
-      const params: JsonObject = {
+      const sendParams: JsonObject = {
         message: {
           messageId: `aiverse:${context.task.id}`,
           role: "ROLE_USER",
@@ -582,9 +676,12 @@ export class A2AJsonRpcRuntimeAdapter implements RuntimeAdapter {
             workspace_id: context.task.workspaceId,
             ...(active.remoteLeaseGrant ? {
               [REMOTE_LEASE_A2A_EXTENSION_URI]: this.remoteLeases!.transportProjection(active.remoteLeaseGrant)
+            } : {}),
+            ...(card.remoteRecoveryExtensionSupported ? {
+              [REMOTE_RECOVERY_A2A_EXTENSION_URI]: recoveryMetadata
             } : {})
           },
-          ...(active.remoteLeaseGrant ? { extensions: [REMOTE_LEASE_A2A_EXTENSION_URI] } : {})
+          ...(messageExtensions.length > 0 ? { extensions: messageExtensions } : {})
         },
         configuration: {
           acceptedOutputModes: card.outputModes,
@@ -596,64 +693,196 @@ export class A2AJsonRpcRuntimeAdapter implements RuntimeAdapter {
           root_objective_id: context.task.payload.root_objective_id ?? null,
           ...(active.remoteLeaseGrant ? {
             [REMOTE_LEASE_A2A_EXTENSION_URI]: this.remoteLeases!.transportProjection(active.remoteLeaseGrant)
+          } : {}),
+          ...(card.remoteRecoveryExtensionSupported ? {
+            [REMOTE_RECOVERY_A2A_EXTENSION_URI]: recoveryMetadata
           } : {})
         }
       };
-      if (card.interface.tenant) params.tenant = card.interface.tenant;
+      if (card.interface.tenant) sendParams.tenant = card.interface.tenant;
 
-      const sendResult = await this.rpc(
-        card.interface,
-        "SendMessage",
-        params,
-        `send:${context.task.id}`,
-        controller.signal,
-        active
-      );
-      const direct = asObject(sendResult.message);
-      const initialTask = asObject(sendResult.task);
-
-      if (direct && initialTask) throw new A2ARuntimeError("A2A_INVALID_RESPONSE", "SendMessage response contained both task and message");
-      if (direct) {
-        if (active.remoteLeaseGrant) {
-          try {
-            remoteLeaseAudit = this.remoteLeases!.verifyReceipt(
-              active.remoteLeaseGrant,
-              remoteLeaseReceiptMetadata(direct)
-            );
-          } catch (error) {
-            if (error instanceof RemoteLeaseError) throw new A2ARuntimeError(error.code, error.message);
-            throw error;
-          }
+      let task: JsonObject;
+      if (checkpoint?.state === "remote_active") {
+        if (!checkpoint.remoteOperationId) {
+          throw new A2ARuntimeError(
+            "A2A_RECOVERY_INVALID_CHECKPOINT",
+            "Recovered active A2A checkpoint is missing its remote Task id"
+          );
         }
-        return this.resultFromMessage(context, card, direct, active.actionCount, active.remoteLeaseGrant, remoteLeaseAudit);
-      }
-      if (!initialTask) throw new A2ARuntimeError("A2A_INVALID_RESPONSE", "SendMessage response contained neither task nor message");
+        active.remoteTaskId = checkpoint.remoteOperationId;
+        const getParams = this.recoveryGetTaskParams(
+          active.remoteTaskId,
+          card.interface,
+          active.remoteLeaseGrant,
+          operationKey
+        );
+        task = await this.rpcWithRetry(
+          card.interface,
+          "GetTask",
+          getParams,
+          `get:${context.task.id}:resume`,
+          controller.signal,
+          active,
+          { safeToRetry: true, attempts: maxRetryAttempts, baseDelayMs: retryBaseDelayMs }
+        );
+        if (typeof task.id !== "string" || task.id !== active.remoteTaskId) {
+          throw new A2ARuntimeError(
+            "A2A_INVALID_RESPONSE",
+            "Recovered GetTask returned a different remote task id"
+          );
+        }
+      } else {
+        if (checkpoint?.state === "submitting" && !card.remoteRecoveryExtensionSupported) {
+          throw new A2ARuntimeError(
+            "A2A_AMBIGUOUS_SUBMISSION",
+            "A prior SendMessage may have crossed the disconnect boundary, and this agent does not advertise exactly-once recovery. Refusing to resend and risk duplicate remote work."
+          );
+        }
 
-      const remoteTaskId = initialTask.id;
-      if (typeof remoteTaskId !== "string" || !remoteTaskId) {
-        throw new A2ARuntimeError("A2A_INVALID_RESPONSE", "Remote A2A Task is missing id");
-      }
-      active.remoteTaskId = remoteTaskId;
-      if (active.cancelRequested || controller.signal.aborted) {
-        await this.cancelRemote(active).catch(() => undefined);
-        throw controller.signal.reason instanceof Error ? controller.signal.reason : new Error("A2A execution canceled");
+        const resume: JsonObject = {
+          agent_card_url: cardUrl.requestUrl,
+          interface: interfaceRecoveryProjection(card.interface)
+        };
+        if (!checkpoint && this.recovery) {
+          checkpoint = this.recovery.begin({
+            localTaskId: context.task.id,
+            adapterId: "a2a",
+            targetKind: recoveryTargetKind,
+            targetRef: recoveryTargetRef,
+            operationKey,
+            resume,
+            leaseGrant: active.remoteLeaseGrant
+          });
+        } else if (checkpoint && this.recovery) {
+          this.recovery.updateResume(context.task.id, resume);
+          this.recovery.updateLease(context.task.id, active.remoteLeaseGrant);
+        }
+
+        const sendResult = await this.rpcWithRetry(
+          card.interface,
+          "SendMessage",
+          sendParams,
+          `send:${context.task.id}`,
+          controller.signal,
+          active,
+          {
+            safeToRetry: card.remoteRecoveryExtensionSupported,
+            attempts: card.remoteRecoveryExtensionSupported ? maxRetryAttempts : 1,
+            baseDelayMs: retryBaseDelayMs
+          }
+        );
+        const direct = asObject(sendResult.message);
+        const initialTask = asObject(sendResult.task);
+        if (direct && initialTask) {
+          throw new A2ARuntimeError(
+            "A2A_INVALID_RESPONSE",
+            "SendMessage response contained both task and message"
+          );
+        }
+        if (direct) {
+          if (active.remoteLeaseGrant) {
+            try {
+              remoteLeaseAudit = this.remoteLeases!.verifyReceipt(
+                active.remoteLeaseGrant,
+                remoteLeaseReceiptMetadata(direct)
+              );
+            } catch (error) {
+              if (error instanceof RemoteLeaseError) throw new A2ARuntimeError(error.code, error.message);
+              throw error;
+            }
+          }
+          const result = this.resultFromMessage(
+            context,
+            card,
+            direct,
+            active.actionCount,
+            active.remoteLeaseGrant,
+            remoteLeaseAudit
+          );
+          this.recovery?.complete(context.task.id, result, {
+            leaseGrant: active.remoteLeaseGrant,
+            resume
+          });
+          return result;
+        }
+        if (!initialTask) {
+          throw new A2ARuntimeError(
+            "A2A_INVALID_RESPONSE",
+            "SendMessage response contained neither task nor message"
+          );
+        }
+
+        const remoteTaskId = initialTask.id;
+        if (typeof remoteTaskId !== "string" || !remoteTaskId) {
+          throw new A2ARuntimeError("A2A_INVALID_RESPONSE", "Remote A2A Task is missing id");
+        }
+        active.remoteTaskId = remoteTaskId;
+        checkpoint = this.recovery?.markRemoteActive(context.task.id, remoteTaskId, {
+          remoteContextId: typeof initialTask.contextId === "string" ? initialTask.contextId : null,
+          resume,
+          leaseGrant: active.remoteLeaseGrant
+        }) ?? checkpoint;
+        if (active.cancelRequested || controller.signal.aborted) {
+          await this.cancelRemote(active).catch(() => undefined);
+          throw controller.signal.reason instanceof Error
+            ? controller.signal.reason
+            : new Error("A2A execution canceled");
+        }
+        task = initialTask;
       }
 
-      let task = initialTask;
       while (!TERMINAL.has(stateOf(task)) && !INTERRUPTED.has(stateOf(task))) {
         await this.sleepImpl(interval, controller.signal);
-        const getParams: JsonObject = { id: remoteTaskId, historyLength: 0 };
-        if (card.interface.tenant) getParams.tenant = card.interface.tenant;
-        task = await this.rpc(
+
+        let previousGrant: RemoteLeaseGrant | null = null;
+        if (
+          active.remoteLeaseGrant
+          && active.remoteLeaseTarget
+          && remoteLeaseProvider
+          && this.remoteLeases
+          && card.remoteRecoveryExtensionSupported
+        ) {
+          const expiry = Date.parse(active.remoteLeaseGrant.expires_at);
+          if (Number.isFinite(expiry) && expiry - Date.now() <= leaseRenewalMarginMs) {
+            previousGrant = active.remoteLeaseGrant;
+            try {
+              const replacementGrant = await this.remoteLeases.grant(
+                remoteLeaseProvider,
+                context,
+                active.remoteLeaseTarget
+              );
+              this.remoteLeases.assertRecoveryReplacement(previousGrant, replacementGrant);
+              active.remoteLeaseGrant = replacementGrant;
+              this.recovery?.updateLease(context.task.id, replacementGrant);
+            } catch (error) {
+              if (error instanceof RemoteLeaseError) {
+                throw new A2ARuntimeError(error.code, error.message);
+              }
+              throw error;
+            }
+          }
+        }
+
+        const getParams = this.recoveryGetTaskParams(
+          active.remoteTaskId as string,
+          card.interface,
+          active.remoteLeaseGrant,
+          operationKey
+        );
+        task = await this.rpcWithRetry(
           card.interface,
           "GetTask",
           getParams,
           `get:${context.task.id}:${active.actionCount}`,
           controller.signal,
-          active
+          active,
+          { safeToRetry: true, attempts: maxRetryAttempts, baseDelayMs: retryBaseDelayMs }
         );
-        if (typeof task.id !== "string" || task.id !== remoteTaskId) {
+        if (typeof task.id !== "string" || task.id !== active.remoteTaskId) {
           throw new A2ARuntimeError("A2A_INVALID_RESPONSE", "GetTask returned a different remote task id");
+        }
+        if (previousGrant && active.remoteLeaseTarget) {
+          await this.revokeRecoverably(previousGrant, context.task.id, active.remoteLeaseTarget);
         }
       }
 
@@ -670,13 +899,34 @@ export class A2AJsonRpcRuntimeAdapter implements RuntimeAdapter {
             throw error;
           }
         }
-        return this.resultFromTask(context, card, task, active.actionCount, active.remoteLeaseGrant, remoteLeaseAudit);
+        const result = this.resultFromTask(
+          context,
+          card,
+          task,
+          active.actionCount,
+          active.remoteLeaseGrant,
+          remoteLeaseAudit
+        );
+        if (this.recovery) {
+          const resume: JsonObject = {
+            agent_card_url: cardUrl.requestUrl,
+            interface: interfaceRecoveryProjection(card.interface)
+          };
+          this.recovery.complete(context.task.id, result, {
+            leaseGrant: active.remoteLeaseGrant,
+            resume
+          });
+        }
+        return result;
       }
       if (state === "TASK_STATE_INPUT_REQUIRED") {
         throw new A2ARuntimeError("A2A_INPUT_REQUIRED", remoteFailureMessage(task));
       }
       if (state === "TASK_STATE_AUTH_REQUIRED") {
-        throw new A2ARuntimeError("A2A_AUTH_REQUIRED", `Remote A2A agent requires authorization: ${remoteFailureMessage(task)}`);
+        throw new A2ARuntimeError(
+          "A2A_AUTH_REQUIRED",
+          `Remote A2A agent requires authorization: ${remoteFailureMessage(task)}`
+        );
       }
       if (state === "TASK_STATE_CANCELED") {
         throw new A2ARuntimeError("A2A_REMOTE_CANCELED", remoteFailureMessage(task));
@@ -688,11 +938,11 @@ export class A2AJsonRpcRuntimeAdapter implements RuntimeAdapter {
     } finally {
       if (active.remoteLeaseGrant && active.remoteLeaseTarget && !active.leaseRevokeStarted) {
         active.leaseRevokeStarted = true;
-        void this.remoteLeases!.revoke(
+        await this.revokeRecoverably(
           active.remoteLeaseGrant,
           context.task.id,
           active.remoteLeaseTarget
-        ).catch(() => undefined);
+        );
       }
       this.active.delete(context.task.id);
       context.signal.removeEventListener("abort", abortFromParent);
