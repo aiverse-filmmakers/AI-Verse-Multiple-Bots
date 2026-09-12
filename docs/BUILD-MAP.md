@@ -17,11 +17,11 @@ Phase 0  Research + Architecture        [COMPLETE]    100%
 Phase 1  Runnable Coordination Core     [COMPLETE]    100%
 Phase 2  Dynamic Multi-Agent Squads     [COMPLETE]    100%
 Phase 3  AI-Verse Native Integration    [COMPLETE]    100%
-Phase 4  Runtime / A2A Interoperability [NOT STARTED]
+Phase 4  Runtime / A2A Interoperability [IN PROGRESS] ~10%
 Phase 5  Product + Install + Dashboard  [NOT STARTED]
 ```
 
-**Directional overall first-release progress:** roughly 79% complete.
+**Directional overall first-release progress:** roughly 81% complete.
 
 That overall figure is intentionally approximate because later phases contain different amounts of work. Passed phase gates, not percentages, are authoritative.
 
@@ -499,21 +499,47 @@ AI-Verse native integration now covers safe registration, exact workspace projec
 
 ## Phase 4 - Runtime and Agent Interoperability
 
-**Status:** NOT STARTED
+**Status:** IN PROGRESS
+
+**Directional phase progress:** approximately 10%.
 
 Goal: make durable Bots/temporary Workers portable across supported local and remote runtimes while preserving protocol identity, authority, cancellation, provenance and recovery.
 
-Remaining major slices:
+### Phase 4 slices
 
-1. A2A adapter
-2. Hermes adapter
-3. OpenClaw adapter
-4. Codex/Claude Code process adapters where appropriate
-5. external managed Bot runtime
-6. remote-machine identity/authentication
-7. remote capability/environment leases
-8. retry/disconnect/reconnect semantics
-9. compatibility/evaluation suite
+1. A2A adapter - **COMPLETE**
+2. Hermes adapter - **NEXT**
+3. OpenClaw adapter - **NOT STARTED**
+4. Codex/Claude Code process adapters where appropriate - **NOT STARTED**
+5. external managed Bot runtime - **NOT STARTED**
+6. remote-machine identity/authentication - **NOT STARTED**
+7. remote capability/environment leases - **NOT STARTED**
+8. retry/disconnect/reconnect semantics - **NOT STARTED**
+9. compatibility/evaluation suite - **NOT STARTED**
+
+### Phase 4.1 - A2A adapter
+
+Implemented:
+
+- public host-neutral `A2AJsonRpcRuntimeAdapter` with runtime id `a2a`
+- fresh A2A v1.0 Agent Card discovery on each execution
+- ordered selection of a `JSONRPC` interface with `protocolVersion: "1.0"`
+- deterministic A2A `messageId` derived from the local Task id
+- structured execution envelope preserving local Bot/Worker identity, workspace, Task constraints, expected output, capability/environment lease authority, host context, selected Skills and input Artifacts
+- `SendMessage` execution with early remote Task return, bounded `GetTask` polling and completed Task Artifact translation
+- direct A2A Message response translation into a normal local runtime result
+- local cancellation that best-effort sends remote `CancelTask` without letting remote latency or failure block local cancellation
+- explicit handling of completed, failed, canceled, rejected, input-required and auth-required remote Task states
+- required A2A authentication, required protocol extensions and unsupported protocol bindings/versions fail closed
+- application/json input preferred with text/plain structured-envelope fallback
+- JSON-RPC request/response id validation and bounded Agent Card/request/response sizes
+- bounded provenance receipts that do not copy runtime workspace/Brain/Memory/Skills/input-Artifact context
+- Gateway registration as a normal host-neutral runtime for durable Bots and temporary Workers
+- no Hermes, OpenClaw, remote auth, remote leases, reconnect/retry or Phase 5 behavior introduced
+
+**Verified implementation gate:** GitHub Actions CI run 389 (`34710078152`) passed the full **294/294 tests** with 0 failures, 0 canceled and 0 skipped on exact implementation head `29f220ef8e6318bf5dfed835e8a0d966c0c51586`.
+
+See `docs/A2A-RUNTIME-ADAPTER.md` and `docs/PHASE-4-STATUS.md`.
 
 ## Phase 5 - Product, Installer, Omnichannel and Dashboard
 
@@ -558,9 +584,9 @@ The first finished release must prove at minimum:
 
 ## Next gate
 
-**Phase 4.1 - A2A adapter.**
+**Phase 4.2 - Hermes adapter.**
 
-Phase 3 is complete. The next planned slice is the first Runtime and Agent Interoperability task: add an A2A adapter while preserving protocol identity, authority, cancellation, provenance and recovery. Phase 4.1 has not started.
+Phase 4.1 is complete. The next canonical slice is the Hermes runtime adapter. Phase 4.2 has not started.
 
 ## How to report progress
 

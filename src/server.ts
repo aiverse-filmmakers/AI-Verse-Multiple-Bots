@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { createServer } from "node:http";
 import { resolve } from "node:path";
 import { URL } from "node:url";
+import { A2AJsonRpcRuntimeAdapter } from "./a2a-runtime.js";
 import { AiVerseBrainObjectiveSource, BrainObjectiveIngress } from "./brain-objective-ingress.js";
 import { AiVerseOsAutomationInvocationSource, AutomationWakeIngress } from "./automation-wake-ingress.js";
 import { BrainObjectiveRuntimeRegistry } from "./brain-objective-runtime.js";
@@ -113,7 +114,8 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
   const rooms = new RoomCoordinator(store, gateway);
   const baseRuntimes = new RuntimeRegistry()
     .register(new DeterministicRuntimeAdapter())
-    .register(new OpenAICompatibleRuntimeAdapter());
+    .register(new OpenAICompatibleRuntimeAdapter())
+    .register(new A2AJsonRpcRuntimeAdapter());
   const skillsRuntimes = new SkillsCapabilityRuntimeRegistry(baseRuntimes, skillsCapabilitySource);
   const memoryRuntimes = new MemoryRecallRuntimeRegistry(skillsRuntimes, memoryRecallSource);
   const runtimes = brainObjectiveSource
