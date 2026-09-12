@@ -788,8 +788,13 @@ export class A2AJsonRpcRuntimeAdapter implements RuntimeAdapter {
     const remoteLeaseExtensionSupported = extensionObjects.some(
       (item) => item.uri === REMOTE_LEASE_A2A_EXTENSION_URI
     );
+    const remoteRecoveryExtensionSupported = extensionObjects.some(
+      (item) => item.uri === REMOTE_RECOVERY_A2A_EXTENSION_URI
+    );
     const unsupportedRequired = extensionObjects.find(
-      (item) => item.required === true && item.uri !== REMOTE_LEASE_A2A_EXTENSION_URI
+      (item) => item.required === true
+        && item.uri !== REMOTE_LEASE_A2A_EXTENSION_URI
+        && item.uri !== REMOTE_RECOVERY_A2A_EXTENSION_URI
     );
     if (unsupportedRequired) {
       throw new A2ARuntimeError(
@@ -851,7 +856,8 @@ export class A2AJsonRpcRuntimeAdapter implements RuntimeAdapter {
       inputMode,
       outputModes: [...new Set(outputModes)].slice(0, 32),
       authenticationRequired: securityRequirements.length > 0,
-      remoteLeaseExtensionSupported
+      remoteLeaseExtensionSupported,
+      remoteRecoveryExtensionSupported
     };
   }
 
@@ -872,13 +878,12 @@ export class A2AJsonRpcRuntimeAdapter implements RuntimeAdapter {
     };
     const body = boundedJson(payload, A2A_REQUEST_MAX_BYTES, `A2A ${method} request`);
     let response: Response;
+    const extensions = extensionList(iface);
     const baseHeaders: Record<string, string> = {
       "content-type": "application/json",
       "accept": "application/json",
       "A2A-Version": iface.protocolVersion,
-      ...(iface.remoteLeaseExtensionSupported ? {
-        "A2A-Extensions": REMOTE_LEASE_A2A_EXTENSION_URI
-      } : {})
+      ...(extensions.length > 0 ? { "A2A-Extensions": extensions.join(",") } : {})
     };
     if (iface.remoteMachineRef) {
       try {
@@ -911,7 +916,12 @@ export class A2AJsonRpcRuntimeAdapter implements RuntimeAdapter {
     }
     const decoded = await this.readJson(response, `A2A ${method} response`, A2A_RESPONSE_MAX_BYTES);
     if (!response.ok) {
-      throw new A2ARuntimeError("A2A_HTTP_ERROR", `A2A ${method} HTTP ${response.status}`);
+      const retryable = new Set([408, 425, 429, 500, 502, 503, 504]).has(response.status);
+      throw new A2ARuntimeError(
+        "A2A_HTTP_ERROR",
+        `A2A ${method} HTTP ${response.status}`,
+        retryable
+      );
     }
     if (decoded.jsonrpc !== "2.0" || decoded.id !== requestId) {
       throw new A2ARuntimeError("A2A_INVALID_RESPONSE", `A2A ${method} returned an invalid JSON-RPC envelope`);
@@ -925,6 +935,36 @@ export class A2AJsonRpcRuntimeAdapter implements RuntimeAdapter {
     const result = asObject(decoded.result);
     if (!result) throw new A2ARuntimeError("A2A_INVALID_RESPONSE", `A2A ${method} response is missing result`);
     return result;
+  }
+
+  private async rpcWithRetry(
+    iface: A2AInterface,
+    method: "SendMessage" | "GetTask" | "CancelTask",
+    params: JsonObject,
+    requestId: string,
+    signal: AbortSignal | undefined,
+    active: ActiveA2ATask | undefined,
+    options: { safeToRetry: boolean; attempts: number; baseDelayMs: number }
+  ): Promise<JsonObject> {
+    let lastError: unknown = null;
+    for (let attempt = 1; attempt <= options.attempts; attempt += 1) {
+      try {
+        return await this.rpc(iface, method, params, requestId, signal, active);
+      } catch (error) {
+        lastError = error;
+        const retryable = error instanceof A2ARuntimeError
+          ? error.retryable
+          : error instanceof TypeError;
+        if (!options.safeToRetry || !retryable || attempt >= options.attempts) throw error;
+        const delay = Math.min(options.baseDelayMs * (2 ** (attempt - 1)), 10_000);
+        const sleepSignal = signal ?? new AbortController().signal;
+        await this.sleepImpl(delay, sleepSignal);
+      }
+    }
+    throw lastError instanceof Error ? lastError : new A2ARuntimeError(
+      "A2A_RETRY_EXHAUSTED",
+      `A2A ${method} retry attempts exhausted`
+    );
   }
 
   private async readJson(response: Response, label: string, maxBytes: number): Promise<JsonObject> {
