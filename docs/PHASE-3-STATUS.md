@@ -6,7 +6,7 @@
 
 **Overall status:** IN PROGRESS
 
-**Directional phase progress:** approximately 80%
+**Directional phase progress:** approximately 90%
 
 This file is the implementation ledger for Phase 3. The canonical product roadmap remains `BUILD-MAP.md`.
 
@@ -24,8 +24,8 @@ Attach the completed host-neutral persistent-teammate and squad package to AI-Ve
 6. Automations wake/schedule integration — **COMPLETE**
 7. OS write-command boundary — **COMPLETE**
 8. candidate knowledge/decision write-back — **COMPLETE**
-9. 4Cs health integration — **NEXT**
-10. uninstall/upgrade without canonical-state damage — **NOT STARTED**
+9. 4Cs health integration — **COMPLETE**
+10. uninstall/upgrade without canonical-state damage — **NEXT**
 
 ## Slice 3.1 - AI-Verse OS installer/registration contract
 
@@ -441,9 +441,57 @@ Phase 3.8 acceptance coverage proves:
 
 See `AI-VERSE-CANDIDATE-WRITEBACK.md` for the canonical Phase 3.8 boundary.
 
+## Slice 3.9 - 4Cs health integration
+
+**Implementation status:** COMPLETE
+
+Phase 3.9 projects deterministic Multiple Bots evidence into the existing AI-Verse OS Four Cs model without creating a competing audit, score or health source of truth.
+
+Implemented:
+
+- public `FourCsHealthProjector`
+- canonical Four Cs dimensions: Context, Connections, Capabilities and Cadence
+- explicit `verified`, `degraded`, `unknown` and `not_applicable` evidence states
+- live exact-workspace Context probe through the existing canonical workspace projector
+- no workspace context, Memory recall, Brain objective, Skill instruction, automation source or Artifact inline content copied into health output
+- bounded runtime-receipt counts for workspace projection, Brain strategic intent, Memory recall and Skills resolution
+- connection grants remain unverified until the owning OS connection route proves live access
+- Skill-dependent work fails health conservatively when the capability resolver is unavailable
+- automation ingress configuration alone remains unknown; actual ingressed Task/Team Run evidence verifies bounded Cadence participation
+- deterministic coordination-core evidence from store doctor state, dead letters, active identities/runs, Task outcomes, Artifacts and pending Approvals
+- native integration-contract availability projected separately from operational evidence
+- additive `GET /v1/health/4cs` with optional exact workspace scope
+- existing `GET /health` behavior preserved
+- invalid workspace scope rejected before any mutation
+- AI-Verse OS `/audit` remains canonical for scoring and audit finding lifecycle
+- no Four Cs numeric score, health database or OS health mutation introduced
+
+### 3.9 acceptance proof
+
+The implementation head `d7a44a19dfb5741509692e41b2ded14566f4c898` passed GitHub Actions **CI run 380 (`34709083183`) with 281/281 tests**, **0 failures, 0 canceled and 0 skipped**.
+
+Phase 3.9 acceptance coverage proves:
+
+1. standalone mode does not pretend AI-Verse OS Four Cs evidence exists
+2. native workspace Context is live-probed through the canonical workspace projector
+3. projected canonical content is not copied into health output
+4. failed live Context probes become degraded evidence instead of false healthy claims
+5. Brain, Memory and Skills runtime receipts are counted without copying their payload content
+6. connection grants are never promoted into live-access evidence
+7. Skill-dependent work without a resolver degrades capability health
+8. successful Skills resolution receipts provide bounded capability evidence
+9. configured Automations ingress without invocation evidence remains unknown
+10. actual automation-ingressed coordination work provides Cadence evidence
+11. workspace-scoped health excludes other-workspace coordination evidence
+12. the new Four Cs endpoint is additive and the existing `/health` contract stays unchanged
+13. invalid workspace scopes fail without coordination mutation
+14. the complete pre-existing coordination and Phase 3 suite remains green
+
+See `AI-VERSE-FOUR-CS-HEALTH.md` for the canonical Phase 3.9 boundary.
+
 ## Ownership boundary
 
-Phase 3.1 through 3.8 do not make Multiple Bots the source of truth for any AI-Verse OS, Brain, Memory, Skills or Automations domain state.
+Phase 3.1 through 3.9 do not make Multiple Bots the source of truth for any AI-Verse OS, Brain, Memory, Skills or Automations domain state.
 
 ```text
 AI-Verse OS
@@ -472,7 +520,8 @@ AI-Verse Multiple Bots
 Phase 3 adapters
   project only the minimum scoped host/Brain/Memory data, selected Skills
   instructions and one bounded automation invocation needed for coordination,
-  then route later candidate writes back through explicit owner-controlled boundaries
+  route candidate writes back through explicit owner-controlled boundaries,
+  and expose bounded read-only Four Cs evidence to the owning OS audit layer
 ```
 
 Workspace projection, current Brain strategic projection, recalled Memory text and selected Skills instructions are ephemeral execution context. Automation source bodies and cadence state also remain host-owned. Multiple Bots may retain only bounded provenance needed to explain which canonical sources, capability generations, automation invocation and digests informed coordination; it does not retain copied canonical workspace, Brain, Memory, Skills package or automation-definition state.
@@ -485,6 +534,6 @@ Phase 3.1 defines and implements safe registration after extension-owned files h
 
 ## Next gate
 
-**Phase 3.9 - 4Cs health integration.**
+**Phase 3.10 - uninstall/upgrade without canonical-state damage.**
 
-The next slice must expose Multiple Bots through the existing AI-Verse 4Cs health model without creating another health source of truth or changing the completed coordination, write-back or ownership contracts.
+The next slice must define and prove safe upgrade and uninstall mechanics that preserve all user-owned and canonical AI-Verse state while changing only Multiple Bots extension-owned installation, registration, package and derived runtime state.
