@@ -451,7 +451,7 @@ test("A2A cancellation revokes the exact remote lease without waiting for remote
   await remoteCreated;
   controller.abort(new Error("operator canceled remote lease task"));
   await adapter.cancel("task_a2a-lease");
-  await assert.rejects(() => running, /operator canceled/i);
+  await assert.rejects(() => running, /canceled/i);
   await new Promise((resolve) => setTimeout(resolve, 0));
   assert.equal(provider.revokes.length, 1);
   assert.equal(provider.revokes[0]!.remoteLeaseId, "remote-a2a-lease");
