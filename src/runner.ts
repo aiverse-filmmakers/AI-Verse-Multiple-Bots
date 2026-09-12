@@ -101,7 +101,8 @@ class WorkspaceProjectedRuntimeRegistry extends RuntimeRegistry {
           receipts: [...(result.receipts ?? []), projectionReceipt]
         };
       },
-      ...(inner.cancel ? { cancel: (taskId: string) => inner.cancel!(taskId) } : {}),\n      ...(inner.settle ? { settle: (taskId: string) => inner.settle!(taskId) } : {})
+      ...(inner.cancel ? { cancel: (taskId: string) => inner.cancel!(taskId) } : {}),
+      ...(inner.settle ? { settle: (taskId: string) => inner.settle!(taskId) } : {})
     };
     this.projected.set(id, projected);
     return projected;
@@ -177,7 +178,8 @@ class TeamRunGuardedRuntimeRegistry extends RuntimeRegistry {
         }
         return result;
       },
-      ...(inner.cancel ? { cancel: (taskId: string) => inner.cancel!(taskId) } : {}),\n      ...(inner.settle ? { settle: (taskId: string) => inner.settle!(taskId) } : {})
+      ...(inner.cancel ? { cancel: (taskId: string) => inner.cancel!(taskId) } : {}),
+      ...(inner.settle ? { settle: (taskId: string) => inner.settle!(taskId) } : {})
     };
     this.guarded.set(id, guarded);
     return guarded;
