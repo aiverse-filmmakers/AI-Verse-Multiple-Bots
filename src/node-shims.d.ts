@@ -20,6 +20,7 @@ declare module "node:child_process" {
     options: any,
     callback: (error: Error | null, stdout: string, stderr: string) => void
   ): any;
+  export function spawn(file: string, args: string[], options?: any): any;
 }
 declare module "node:fs" {
   export function existsSync(path: string): boolean;

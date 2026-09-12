@@ -6,7 +6,7 @@
 
 **Overall status:** IN PROGRESS
 
-**Directional phase progress:** approximately 10%
+**Directional phase progress:** approximately 20%
 
 This file is the implementation ledger for Phase 4. The canonical product roadmap remains `BUILD-MAP.md`.
 
@@ -17,8 +17,8 @@ Make durable Bots and temporary Workers portable across supported local and remo
 ## Slice status
 
 1. A2A adapter - **COMPLETE**
-2. Hermes adapter - **NEXT**
-3. OpenClaw adapter - **NOT STARTED**
+2. Hermes adapter - **COMPLETE**
+3. OpenClaw adapter - **NEXT**
 4. Codex/Claude Code process adapters where appropriate - **NOT STARTED**
 5. external managed Bot runtime - **NOT STARTED**
 6. remote-machine identity/authentication - **NOT STARTED**
@@ -75,8 +75,55 @@ Phase 4.1 acceptance coverage proves:
 17. the complete pre-existing Phase 0-3 and coordination suite remains green
 
 
+## Slice 4.2 - Hermes adapter
+
+**Implementation status:** COMPLETE
+
+Phase 4.2 adds local Hermes Agent execution through the documented TUI Gateway stdio JSON-RPC protocol without changing local coordination identity or pulling remote authentication/reconnect scope forward.
+
+Implemented:
+
+- public `HermesStdioRuntimeAdapter`
+- isolated local TUI Gateway subprocess/session per Task
+- live built-session capability inspection before prompt submission
+- exact Hermes tool-function containment within the local capability lease
+- no persistent Hermes profile tool mutation
+- manual-approval + YOLO-off requirement
+- fail-closed approval/clarification/sudo/secret/vault interaction handling
+- structured Bot/Worker execution envelope
+- exact-session completion and cancellation routing
+- usage/budget mapping
+- bounded content-free provenance
+- tested newline JSON-RPC stdio process transport
+- ordinary Gateway runtime registration
+- explicit rejection of Phase 4.6 remote/auth configuration
+
+See `HERMES-RUNTIME-ADAPTER.md`.
+
+### 4.2 acceptance proof
+
+The exact implementation head `9bfbbcb2b8ea022310bd1d6695742e8d9613bea4` passed GitHub Actions **CI run 394 (`34710676926`) with 304/304 tests**, **0 failures, 0 canceled and 0 skipped**.
+
+Phase 4.2 acceptance coverage proves:
+
+1. Hermes executes through its documented TUI Gateway JSON-RPC stdio contract
+2. durable Bot identity remains the local execution principal
+3. temporary Worker identity remains temporary and is never promoted
+4. live Hermes tools must fit inside the local capability lease before prompt submission
+5. exact and explicit `hermes:<tool>` capability references work without wildcard expansion
+6. YOLO/non-manual approval modes fail before delegated work
+7. runtime interaction requests are never auto-approved
+8. Hermes runtime errors cannot become successful local Artifacts
+9. remote/auth configuration is rejected rather than stealing Phase 4.6 ownership
+10. local cancellation targets the exact Hermes session
+11. the stdio parser uses newline JSON-RPC and `shell: false`
+12. receipts exclude copied execution context and live tool names
+13. usage is mapped into the existing budget contract
+14. the Gateway exposes `hermes` through the ordinary runtime registry
+15. the complete pre-existing Phase 0-4.1 suite remains green
+
 ## Next gate
 
-**Phase 4.2 - Hermes adapter.**
+**Phase 4.3 - OpenClaw adapter.**
 
-Phase 4.1 is complete. Phase 4.2 has not started.
+Phase 4.2 is complete. Phase 4.3 has not started.

@@ -17,11 +17,11 @@ Phase 0  Research + Architecture        [COMPLETE]    100%
 Phase 1  Runnable Coordination Core     [COMPLETE]    100%
 Phase 2  Dynamic Multi-Agent Squads     [COMPLETE]    100%
 Phase 3  AI-Verse Native Integration    [COMPLETE]    100%
-Phase 4  Runtime / A2A Interoperability [IN PROGRESS] ~10%
+Phase 4  Runtime / A2A Interoperability [IN PROGRESS] ~20%
 Phase 5  Product + Install + Dashboard  [NOT STARTED]
 ```
 
-**Directional overall first-release progress:** roughly 81% complete.
+**Directional overall first-release progress:** roughly 83% complete.
 
 That overall figure is intentionally approximate because later phases contain different amounts of work. Passed phase gates, not percentages, are authoritative.
 
@@ -501,15 +501,15 @@ AI-Verse native integration now covers safe registration, exact workspace projec
 
 **Status:** IN PROGRESS
 
-**Directional phase progress:** approximately 10%.
+**Directional phase progress:** approximately 20%.
 
 Goal: make durable Bots/temporary Workers portable across supported local and remote runtimes while preserving protocol identity, authority, cancellation, provenance and recovery.
 
 ### Phase 4 slices
 
 1. A2A adapter - **COMPLETE**
-2. Hermes adapter - **NEXT**
-3. OpenClaw adapter - **NOT STARTED**
+2. Hermes adapter - **COMPLETE**
+3. OpenClaw adapter - **NEXT**
 4. Codex/Claude Code process adapters where appropriate - **NOT STARTED**
 5. external managed Bot runtime - **NOT STARTED**
 6. remote-machine identity/authentication - **NOT STARTED**
@@ -540,6 +540,35 @@ Implemented:
 **Verified implementation gate:** GitHub Actions CI run 389 (`34710078152`) passed the full **294/294 tests** with 0 failures, 0 canceled and 0 skipped on exact implementation head `29f220ef8e6318bf5dfed835e8a0d966c0c51586`.
 
 See `docs/A2A-RUNTIME-ADAPTER.md` and `docs/PHASE-4-STATUS.md`.
+
+### Phase 4.2 - Hermes adapter
+
+Implemented:
+
+- public host-neutral `HermesStdioRuntimeAdapter` with runtime id `hermes`
+- current Hermes Agent TUI Gateway JSON-RPC stdio protocol through `python -m tui_gateway.entry`
+- isolated local Hermes gateway/session lifecycle per delegated Task
+- optional explicit Hermes profile, Python executable, Hermes root/home, working directory and bounded startup/RPC timeouts
+- live built `session.info` verification before prompt submission
+- exact live Hermes tool-function containment within the existing Multiple Bots capability lease
+- support for exact tool names or explicit `hermes:<tool>` lease references without wildcard authority
+- Hermes YOLO and non-manual approval modes rejected before delegated execution
+- approval, clarification, sudo, secret and vault-unlock runtime prompts fail closed and are never auto-answered
+- structured execution envelope preserving local Bot/Worker identity, workspace scope, Task constraints, expected output, leases, host context, resolved Skills and input Artifacts
+- `prompt.submit` and exact-session `message.complete` execution path
+- visible final text only; Hermes reasoning payloads are not persisted
+- Hermes token/cost/model-call/tool-event usage mapped into the existing Multiple Bots budget contract
+- local cancellation best-effort sends exact-session `session.interrupt` while immediately preserving local cancellation authority
+- bounded provenance receipt without copied workspace/Brain/Memory/Skills/Artifact/tool-name content
+- newline JSON-RPC stdio parser with bounded frames, stderr tail, RPC/startup timeouts and `shell: false`
+- no persistent Hermes profile tool mutation: incompatible live authority fails instead of invoking `tools.configure`
+- remote endpoint/auth/WebSocket fields explicitly rejected so Phase 4.6 remains the remote identity/authentication owner
+- Gateway registration as a normal runtime for durable Bots and temporary Workers
+- no OpenClaw, process-adapter, remote-lease, reconnect/retry or Phase 5 behavior introduced
+
+**Verified implementation gate:** GitHub Actions CI run 394 (`34710676926`) passed the full **304/304 tests** with 0 failures, 0 canceled and 0 skipped on exact implementation head `9bfbbcb2b8ea022310bd1d6695742e8d9613bea4`.
+
+See `docs/HERMES-RUNTIME-ADAPTER.md` and `docs/PHASE-4-STATUS.md`.
 
 ## Phase 5 - Product, Installer, Omnichannel and Dashboard
 
@@ -584,9 +613,9 @@ The first finished release must prove at minimum:
 
 ## Next gate
 
-**Phase 4.2 - Hermes adapter.**
+**Phase 4.3 - OpenClaw adapter.**
 
-Phase 4.1 is complete. The next canonical slice is the Hermes runtime adapter. Phase 4.2 has not started.
+Phase 4.2 is complete. The next canonical slice is the OpenClaw runtime adapter. Phase 4.3 has not started.
 
 ## How to report progress
 
