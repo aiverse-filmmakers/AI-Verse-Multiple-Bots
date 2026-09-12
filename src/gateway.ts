@@ -1,5 +1,5 @@
 import type { BudgetEnvelope } from "./budget.js";
-import { BotRegistryRules, type BotLifecycleStatus } from "./bot-registry.js";
+import { BotRegistryRules, type BotLifecycleStatus, type ExternalManagedRebindInput } from "./bot-registry.js";
 import { constraintsDigest, normalizeConstraints } from "./constraints.js";
 import { createId } from "./id.js";
 import { ExecutionQueue } from "./execution-queue.js";
@@ -153,6 +153,23 @@ export class CoordinationGateway {
       actorId,
       workspaceId: stored.workspaceId,
       summary: `${actorId} changed ${botId} from ${plan.previousStatus} to ${targetStatus}`
+    });
+    return stored;
+  }
+
+  rebindExternalManagedBot(
+    botId: string,
+    binding: ExternalManagedRebindInput,
+    actorId: string
+  ): StoredObject<BotManifest> {
+    this.assertOperatorDecision(actorId);
+    const payload = this.registry.prepareExternalManagedRebind(botId, binding);
+    const stored = this.store.putObject("bot", payload) as StoredObject<BotManifest>;
+    this.emit({
+      type: "bot.runtime_rebound",
+      actorId,
+      workspaceId: stored.workspaceId,
+      summary: `${actorId} rebound ${botId} to external managed provider ${binding.provider}`
     });
     return stored;
   }
