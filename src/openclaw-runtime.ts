@@ -433,9 +433,11 @@ export class OpenClawCliCommandTransport implements OpenClawCommandTransport {
       let stdout = "";
       let stderr = "";
       let settled = false;
+      let timedOut = false;
       let forceKill: ReturnType<typeof setTimeout> | null = null;
       const timeout = setTimeout(() => {
         if (settled) return;
+        timedOut = true;
         child.kill?.("SIGTERM");
         forceKill = setTimeout(() => child.kill?.("SIGKILL"), 1000);
       }, options.timeoutMs);
@@ -475,6 +477,10 @@ export class OpenClawCliCommandTransport implements OpenClawCommandTransport {
         if (settled) return;
         if (options.signal.aborted) {
           fail(options.signal.reason instanceof Error ? options.signal.reason : new Error("OpenClaw process canceled"));
+          return;
+        }
+        if (timedOut) {
+          fail(new OpenClawRuntimeError("OPENCLAW_PROCESS_TIMEOUT", "OpenClaw agent exec exceeded its local process deadline"));
           return;
         }
         settled = true;
