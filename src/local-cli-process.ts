@@ -78,16 +78,19 @@ export class SpawnLocalCliProcessTransport implements LocalCliProcessTransport {
         forceKill = setTimeout(() => child.kill?.("SIGKILL"), 1000);
       }, request.timeoutMs);
 
-      const cleanup = () => {
+      const cleanup = (options: { preserveForceKill?: boolean } = {}) => {
         clearTimeout(timeout);
-        if (forceKill) clearTimeout(forceKill);
+        if (!options.preserveForceKill && forceKill) {
+          clearTimeout(forceKill);
+          forceKill = null;
+        }
         request.signal.removeEventListener("abort", abort);
       };
 
-      const fail = (error: Error) => {
+      const fail = (error: Error, options: { preserveForceKill?: boolean } = {}) => {
         if (settled) return;
         settled = true;
-        cleanup();
+        cleanup(options);
         rejectPromise(error);
       };
 
@@ -100,12 +103,13 @@ export class SpawnLocalCliProcessTransport implements LocalCliProcessTransport {
 
       child.stdout?.on("data", (chunk: unknown) => {
         stdout += String(chunk);
-        if (byteLength(stdout) > maxStdoutBytes) {
+        if (byteLength(stdout) > maxStdoutBytes && !settled) {
           child.kill?.("SIGTERM");
+          forceKill = setTimeout(() => child.kill?.("SIGKILL"), 1000);
           fail(new LocalCliProcessError(
             "LOCAL_CLI_OUTPUT_TOO_LARGE",
             `${request.command} stdout exceeded ${maxStdoutBytes} bytes`
-          ));
+          ), { preserveForceKill: true });
         }
       });
 
@@ -118,6 +122,10 @@ export class SpawnLocalCliProcessTransport implements LocalCliProcessTransport {
       });
 
       child.once?.("exit", (code: number | null, processSignal: string | null) => {
+        if (forceKill) {
+          clearTimeout(forceKill);
+          forceKill = null;
+        }
         if (settled) return;
         if (request.signal.aborted) {
           fail(request.signal.reason instanceof Error
