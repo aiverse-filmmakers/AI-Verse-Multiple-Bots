@@ -6,7 +6,7 @@
 
 **Overall status:** IN PROGRESS
 
-**Directional phase progress:** approximately 50%
+**Directional phase progress:** approximately 60%
 
 This file is the implementation ledger for Phase 4. The canonical product roadmap remains `BUILD-MAP.md`.
 
@@ -21,8 +21,8 @@ Make durable Bots and temporary Workers portable across supported local and remo
 3. OpenClaw adapter - **COMPLETE**
 4. Codex/Claude Code process adapters where appropriate - **COMPLETE**
 5. external managed Bot runtime - **COMPLETE**
-6. remote-machine identity/authentication - **NEXT**
-7. remote capability/environment leases - **NOT STARTED**
+6. remote-machine identity/authentication - **COMPLETE**
+7. remote capability/environment leases - **NEXT**
 8. retry/disconnect/reconnect semantics - **NOT STARTED**
 9. compatibility/evaluation suite - **NOT STARTED**
 
@@ -300,8 +300,65 @@ Phase 4.5 acceptance coverage proves:
 26. the operator rebind HTTP boundary is functional
 27. the complete pre-existing Phase 0-4.4 suite remains green
 
+## Slice 4.6 - remote-machine identity/authentication
+
+**Implementation status:** COMPLETE
+
+Phase 4.6 adds a host-neutral remote trust/authentication boundary and integrates it with A2A without moving local coordination identity, Task authority, secrets or remote lease ownership.
+
+Implemented:
+
+- stable HTTPS remote-machine identity registry
+- pinned peer identity with stronger host-attested modes
+- no-TOFU duplicate/ambiguity guards
+- host-injected authenticator registry
+- opaque credential references
+- built-in Bearer and header API-key authenticator
+- public-discovery credential separation
+- exact-origin and redirect protection
+- normalized A2A security requirements
+- required-scheme and required-scope verification
+- authenticated A2A RPCs through one pinned trust boundary
+- custom OAuth2/OIDC/mTLS/SPIFFE transport surface
+- strict authentication evidence validation
+- sanitized provider failures
+- cancellation independent of authenticator compliance
+- bounded non-secret auth provenance
+- Gateway trust/auth registry injection
+
+See `REMOTE-MACHINE-IDENTITY-AUTH.md`.
+
+### 4.6 acceptance proof
+
+The hardened implementation head `a2fcd4736f37d832c9240476c5b77efa01e462d4` passed GitHub Actions **CI run 438 (`34717863491`) with 375/375 tests**, **0 failures, 0 canceled and 0 skipped**.
+
+Phase 4.6 acceptance coverage proves:
+
+1. remote machine ids bind to exact HTTPS origins and peer identities
+2. duplicate/ambiguous machine identities fail closed
+3. raw inline credentials remain forbidden
+4. opaque credential handles remain host-owned
+5. public Agent Card discovery does not leak built-in Bearer/API-key credentials
+6. authenticated requests cannot redirect
+7. Agent Card interfaces cannot move credentials cross-origin
+8. undeclared auth schemes fail before credential use
+9. Bearer and header API-key schemes work through declared A2A requirements
+10. protected header takeover fails
+11. stronger SPIFFE/mTLS-style peer identities are host-attestable
+12. plain fetch cannot falsely claim stronger identity verification
+13. machine, origin, peer, TLS and client-auth evidence are verified
+14. OAuth-style required scopes must be explicitly proven
+15. malformed evidence fails with controlled errors
+16. opaque provider failures cannot leak raw provider error details
+17. cancellation settles even if an authenticator ignores AbortSignal
+18. authenticated A2A preserves local durable Bot/temporary Worker identity
+19. authenticated A2A cancellation uses the same pinned machine/auth boundary
+20. A2A receipts contain bounded auth provenance and no credential material/reference
+21. Gateway exposes host-injected remote trust/auth registries
+22. the complete pre-existing Phase 0-4.5 suite remains green
+
 ## Next gate
 
-**Phase 4.6 - remote-machine identity/authentication.**
+**Phase 4.7 - remote capability/environment leases.**
 
-Phase 4.5 is complete. Phase 4.6 has not started.
+Phase 4.6 is complete. Phase 4.7 has not started.
