@@ -17,7 +17,7 @@ This slice integrates that generic lease boundary with:
 - pinned remote A2A machines
 - durable external-managed Bot profiles
 
-Phase 4.7 deliberately does not add reconnect, retry, lease renewal or crash reconciliation. Those remain Phase 4.8.
+Phase 4.7 deliberately does not add reconnect, retry, lease renewal or crash reconciliation. Those are implemented by Phase 4.8 in `REMOTE-EXECUTION-RECOVERY.md`.
 
 ## Ownership law
 
@@ -414,7 +414,7 @@ When a leased A2A Task is canceled:
 
 A failed remote revoke cannot reverse local cancellation.
 
-Retrying failed revocation/reconciliation after disconnect belongs to Phase 4.8.
+Phase 4.8 adds durable failed-revocation reconciliation after disconnect; see `REMOTE-EXECUTION-RECOVERY.md`.
 
 ## A2A authority-neutral compatibility
 

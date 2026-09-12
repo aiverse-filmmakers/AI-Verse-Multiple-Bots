@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { request } from "node:http";
+import { rmSync } from "node:fs";
 import test from "node:test";
 import { BotRegistryError } from "../src/bot-registry.js";
 import {
@@ -23,6 +24,10 @@ import {
   type RemoteLeaseProvider,
   type RemoteLeaseRevokeRequest
 } from "../src/remote-leases.js";
+import {
+  RemoteRecoveryStore,
+  remoteOperationKey
+} from "../src/remote-recovery.js";
 import type { RuntimeExecutionContext } from "../src/runtime.js";
 import { createGatewayServer } from "../src/server.js";
 import { CoordinationStore } from "../src/store.js";
@@ -1046,5 +1051,172 @@ test("Gateway registers external-managed runtime, host providers, and the operat
     assert.equal(rebound.body.payload.status, "disabled");
   } finally {
     await service.close();
+  }
+});
+
+
+function recoveryFixture() {
+  const dbPath = `/tmp/external-managed-recovery-${randomUUID()}.db`;
+  return { dbPath, recovery: new RemoteRecoveryStore(dbPath) };
+}
+
+function cleanupRecovery(dbPath: string): void {
+  rmSync(dbPath, { force: true });
+  rmSync(`${dbPath}-shm`, { force: true });
+  rmSync(`${dbPath}-wal`, { force: true });
+}
+
+test("external managed restart fails closed on ambiguous submission without exact Task-key idempotency", async () => {
+  const { dbPath, recovery } = recoveryFixture();
+  const provider = new FakeManagedProvider();
+  const targetRef = "fake-managed::profile:research";
+  try {
+    recovery.begin({
+      localTaskId: "task_external",
+      adapterId: "external-managed",
+      targetKind: "managed_profile",
+      targetRef,
+      operationKey: remoteOperationKey("external-managed", "task_external", targetRef),
+      resume: {
+        provider: "fake-managed",
+        managed_bot_ref: "profile:research",
+        binding_fingerprint: "binding:v1"
+      }
+    });
+    const adapter = new ExternalManagedBotRuntimeAdapter(
+      new ExternalManagedBotProviderRegistry().register(provider),
+      null,
+      recovery
+    );
+
+    await assert.rejects(
+      () => adapter.execute(runtimeContext()),
+      (error: unknown) => error instanceof ExternalManagedRuntimeError
+        && error.code === "EXTERNAL_MANAGED_AMBIGUOUS_SUBMISSION"
+    );
+    assert.equal(provider.executeCalls.length, 0);
+    assert.equal(recovery.get("task_external")?.state, "submitting");
+  } finally {
+    recovery.close();
+    cleanupRecovery(dbPath);
+  }
+});
+
+test("external managed exact Task-key provider retries transient execution without creating a second logical operation", async () => {
+  class RetryProvider extends FakeManagedProvider {
+    attempts = 0;
+
+    override async execute(request: ExternalManagedBotExecuteRequest): Promise<ExternalManagedBotExecutionResult> {
+      this.executeCalls.push(request);
+      this.attempts += 1;
+      if (this.attempts === 1) throw new Error("transient disconnect");
+      return this.result;
+    }
+  }
+
+  const { dbPath, recovery } = recoveryFixture();
+  const provider = new RetryProvider();
+  provider.inspection.idempotency_mode = "exact_task_key";
+  try {
+    const adapter = new ExternalManagedBotRuntimeAdapter(
+      new ExternalManagedBotProviderRegistry().register(provider),
+      null,
+      recovery
+    );
+    const ctx = runtimeContext("fake-managed", ["github:read"], ["drive:read"], {
+      runtime: {
+        adapter: "external-managed",
+        provider: "fake-managed",
+        managed_bot_ref: "profile:research",
+        binding_fingerprint: "binding:v1",
+        remote_retry_max_attempts: 3,
+        remote_retry_base_delay_ms: 25
+      }
+    });
+    const result = await adapter.execute(ctx);
+
+    assert.equal(provider.executeCalls.length, 2);
+    assert.equal(provider.executeCalls[0]?.idempotencyKey, "aiverse:task_external");
+    assert.equal(provider.executeCalls[1]?.idempotencyKey, "aiverse:task_external");
+    assert.equal(result.summary, "Managed teammate completed the task.");
+    assert.equal(
+      (result.receipts?.[0] as JsonObject).recovery_idempotency,
+      "exact_task_key"
+    );
+    assert.equal(recovery.get("task_external")?.state, "completed");
+
+    await adapter.settle("task_external");
+    assert.equal(recovery.get("task_external"), null);
+  } finally {
+    recovery.close();
+    cleanupRecovery(dbPath);
+  }
+});
+
+test("external managed restart safely replays a durable submitting checkpoint only for an exact Task-key provider", async () => {
+  const { dbPath, recovery } = recoveryFixture();
+  const provider = new FakeManagedProvider();
+  provider.inspection.idempotency_mode = "exact_task_key";
+  const targetRef = "fake-managed::profile:research";
+  try {
+    recovery.begin({
+      localTaskId: "task_external",
+      adapterId: "external-managed",
+      targetKind: "managed_profile",
+      targetRef,
+      operationKey: remoteOperationKey("external-managed", "task_external", targetRef),
+      resume: {
+        provider: "fake-managed",
+        managed_bot_ref: "profile:research",
+        binding_fingerprint: "binding:v1"
+      }
+    });
+    const adapter = new ExternalManagedBotRuntimeAdapter(
+      new ExternalManagedBotProviderRegistry().register(provider),
+      null,
+      recovery
+    );
+
+    const result = await adapter.execute(runtimeContext());
+    assert.equal(provider.executeCalls.length, 1);
+    assert.equal(provider.executeCalls[0]?.idempotencyKey, "aiverse:task_external");
+    assert.equal(result.output.managed_execution_id, "managed-exec-1");
+    assert.equal(recovery.get("task_external")?.state, "completed");
+  } finally {
+    recovery.close();
+    cleanupRecovery(dbPath);
+  }
+});
+
+test("external managed cancellation reconnects from recovery state after process restart", async () => {
+  const { dbPath, recovery } = recoveryFixture();
+  const provider = new FakeManagedProvider();
+  const targetRef = "fake-managed::profile:research";
+  try {
+    recovery.begin({
+      localTaskId: "task_external",
+      adapterId: "external-managed",
+      targetKind: "managed_profile",
+      targetRef,
+      operationKey: remoteOperationKey("external-managed", "task_external", targetRef),
+      resume: {
+        provider: "fake-managed",
+        managed_bot_ref: "profile:research",
+        binding_fingerprint: "binding:v1"
+      }
+    });
+    const adapter = new ExternalManagedBotRuntimeAdapter(
+      new ExternalManagedBotProviderRegistry().register(provider),
+      null,
+      recovery
+    );
+
+    await adapter.cancel("task_external");
+    assert.equal(provider.cancelCalls.length, 1);
+    assert.equal(provider.cancelCalls[0]?.localTaskId, "task_external");
+    assert.equal(recovery.get("task_external"), null);
+  } finally {
+    recovery.close();
+    cleanupRecovery(dbPath);
   }
 });

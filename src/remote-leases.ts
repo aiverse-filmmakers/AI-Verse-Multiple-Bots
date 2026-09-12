@@ -344,6 +344,120 @@ export class RemoteLeaseProviderRegistry {
 export class RemoteLeaseBroker {
   constructor(readonly providers = new RemoteLeaseProviderRegistry()) {}
 
+  validateRecoveredGrant(
+    context: RuntimeExecutionContext,
+    grant: RemoteLeaseGrant
+  ): RemoteLeaseGrant {
+    const providerId = safeString(grant.provider, "remote lease provider", 256);
+    this.providers.get(providerId);
+    const capability = localCapability(context);
+    const environment = localEnvironment(context);
+    const deadline = boundedTaskDeadline(context);
+    const localEffectiveExpiry = Math.min(
+      capability.expiry,
+      environment.expiry ?? Number.POSITIVE_INFINITY,
+      deadline ?? Number.POSITIVE_INFINITY
+    );
+    const grantExpiry = Date.parse(String(grant.expires_at ?? ""));
+    if (!Number.isFinite(grantExpiry) || grantExpiry <= Date.now()) {
+      throw new RemoteLeaseError(
+        "REMOTE_LEASE_RECOVERY_EXPIRED",
+        "Recovered remote lease is no longer active"
+      );
+    }
+    if (grantExpiry > localEffectiveExpiry) {
+      throw new RemoteLeaseError(
+        "REMOTE_LEASE_RECOVERY_EXPANSION",
+        "Recovered remote lease now exceeds current local authority"
+      );
+    }
+    const tools = exactReportedRefs(grant.granted_tools, "recovered remote grant granted_tools");
+    const connections = exactReportedRefs(
+      grant.granted_connections,
+      "recovered remote grant granted_connections"
+    );
+    assertSubset(tools, capability.tools, "recovered tool");
+    assertSubset(connections, capability.connections, "recovered connection");
+    const destructiveActions = safeString(
+      grant.destructive_actions,
+      "recovered remote grant destructive_actions",
+      64
+    );
+    if (actionRank(destructiveActions) > actionRank(capability.destructiveActions)) {
+      throw new RemoteLeaseError(
+        "REMOTE_LEASE_RECOVERY_EXPANSION",
+        "Recovered remote lease destructive authority exceeds current local authority"
+      );
+    }
+    if (environment.projection) {
+      if (!grant.environment) {
+        throw new RemoteLeaseError(
+          "REMOTE_LEASE_RECOVERY_ENVIRONMENT_MISMATCH",
+          "Recovered remote lease lost the required environment"
+        );
+      }
+      if (grant.environment.environment_policy !== environment.projection.environment_policy) {
+        throw new RemoteLeaseError(
+          "REMOTE_LEASE_RECOVERY_ENVIRONMENT_MISMATCH",
+          "Recovered remote environment policy no longer matches local authority"
+        );
+      }
+      safeString(
+        grant.environment.remote_environment_ref,
+        "recovered remote_environment_ref",
+        2048
+      );
+    } else if (grant.environment !== undefined && grant.environment !== null) {
+      throw new RemoteLeaseError(
+        "REMOTE_LEASE_RECOVERY_ENVIRONMENT_MISMATCH",
+        "Recovered remote lease contains environment authority that no longer exists locally"
+      );
+    }
+    return {
+      ...grant,
+      provider: providerId,
+      expires_at: new Date(grantExpiry).toISOString(),
+      granted_tools: tools,
+      granted_connections: connections,
+      destructive_actions: destructiveActions
+    };
+  }
+
+  assertRecoveryReplacement(
+    previous: RemoteLeaseGrant,
+    replacement: RemoteLeaseGrant
+  ): void {
+    const sameAuthority =
+      previous.provider === replacement.provider
+      && JSON.stringify(previous.granted_tools) === JSON.stringify(replacement.granted_tools)
+      && JSON.stringify(previous.granted_connections) === JSON.stringify(replacement.granted_connections)
+      && previous.destructive_actions === replacement.destructive_actions;
+    const previousEnvironment = previous.environment ?? null;
+    const replacementEnvironment = replacement.environment ?? null;
+    const sameEnvironment =
+      (previousEnvironment === null && replacementEnvironment === null)
+      || (
+        previousEnvironment !== null
+        && replacementEnvironment !== null
+        && previousEnvironment.environment_policy === replacementEnvironment.environment_policy
+        && previousEnvironment.remote_environment_ref === replacementEnvironment.remote_environment_ref
+      );
+    const previousExpiry = Date.parse(previous.expires_at);
+    const replacementExpiry = Date.parse(replacement.expires_at);
+    if (
+      !sameAuthority
+      || !sameEnvironment
+      || !Number.isFinite(previousExpiry)
+      || !Number.isFinite(replacementExpiry)
+      || replacementExpiry <= Math.max(Date.now(), previousExpiry)
+    ) {
+      throw new RemoteLeaseError(
+        "REMOTE_LEASE_RECOVERY_REPLACEMENT_MISMATCH",
+        "Recovery lease replacement must preserve exact effective authority/environment and extend expiry"
+      );
+    }
+  }
+
   async grant(
     providerIdValue: unknown,
     context: RuntimeExecutionContext,

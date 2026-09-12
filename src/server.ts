@@ -42,6 +42,7 @@ import {
   RemoteLeaseProviderRegistry,
   type RemoteLeaseProvider
 } from "./remote-leases.js";
+import { RemoteRecoveryStore } from "./remote-recovery.js";
 import { BotRunner } from "./runner.js";
 import { DeterministicRuntimeAdapter, RuntimeRegistry } from "./runtime.js";
 import { SkillsCapabilityRuntimeRegistry } from "./skills-capability-runtime.js";
@@ -144,15 +145,16 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
   const remoteAccess = new RemoteHttpAccessBroker(remoteMachines, remoteAuthenticators);
   const remoteLeaseProviders = new RemoteLeaseProviderRegistry(options.remoteLeaseProviders ?? []);
   const remoteLeases = new RemoteLeaseBroker(remoteLeaseProviders);
+  const remoteRecovery = new RemoteRecoveryStore(store.dbPath);
   const baseRuntimes = new RuntimeRegistry()
     .register(new DeterministicRuntimeAdapter())
     .register(new OpenAICompatibleRuntimeAdapter())
-    .register(new A2AJsonRpcRuntimeAdapter({ remoteAccess, remoteLeases }))
+    .register(new A2AJsonRpcRuntimeAdapter({ remoteAccess, remoteLeases, recovery: remoteRecovery }))
     .register(new HermesStdioRuntimeAdapter())
     .register(new OpenClawAgentExecRuntimeAdapter())
     .register(new CodexExecRuntimeAdapter())
     .register(new ClaudeCodePrintRuntimeAdapter())
-    .register(new ExternalManagedBotRuntimeAdapter(externalManagedProviders, remoteLeases));
+    .register(new ExternalManagedBotRuntimeAdapter(externalManagedProviders, remoteLeases, remoteRecovery));
   const skillsRuntimes = new SkillsCapabilityRuntimeRegistry(baseRuntimes, skillsCapabilitySource);
   const memoryRuntimes = new MemoryRecallRuntimeRegistry(skillsRuntimes, memoryRecallSource);
   const runtimes = brainObjectiveSource
@@ -189,6 +191,19 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
   });
   const supervisor = new ExecutionSupervisor(gateway, executionQueue, runner);
   supervisor.start();
+
+  const reconcileRemoteRevocations = () => {
+    void remoteRecovery.reconcileRevocations(remoteLeases).catch(() => {
+      gateway.emit({
+        type: "remote_lease.revocation_recovery_failed",
+        actorId: "system_recovery",
+        summary: "One or more pending remote lease revocations could not be reconciled",
+        attentionState: "failed"
+      });
+    });
+  };
+  reconcileRemoteRevocations();
+  const remoteRecoveryTimer = setInterval(reconcileRemoteRevocations, 5_000);
 
   const server = createServer(async (req: any, res: any) => {
     const url = new URL(req.url ?? "/", `http://${req.headers?.host ?? "127.0.0.1"}`);
@@ -713,6 +728,7 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
     remoteAccess,
     remoteLeaseProviders,
     remoteLeases,
+    remoteRecovery,
     runner,
     brainObjectiveSource,
     brainIngress,
@@ -739,7 +755,9 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
       });
     },
     async close(): Promise<void> {
+      clearInterval(remoteRecoveryTimer);
       await supervisor.stop();
+      await remoteRecovery.reconcileRevocations(remoteLeases).catch(() => undefined);
       await new Promise<void>((resolve, reject) => {
         server.close((error: Error | undefined) => {
           if (error) reject(error);
@@ -747,6 +765,7 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
         });
       });
       executionQueue.close();
+      remoteRecovery.close();
       store.close();
     }
   };

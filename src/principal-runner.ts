@@ -137,6 +137,7 @@ export class PrincipalRunner {
     }
 
     const runId = resolved.run?.id ?? (typeof task.payload.run_id === "string" ? task.payload.run_id : null);
+    let executionAdapter: RuntimeAdapter | null = null;
 
     try {
       this.assertExecutableTask(resolved, task, claimed.workspaceId);
@@ -235,6 +236,7 @@ export class PrincipalRunner {
       }
 
       const adapter = this.runtimes.get(resolved.adapterId);
+      executionAdapter = adapter;
       const controller = new AbortController();
       this.active.set(task.id, { controller, adapter, executionId: claimed.id });
       const context: RuntimeExecutionContext = {
@@ -370,6 +372,7 @@ export class PrincipalRunner {
       const finalCompletedTask = completionSettlement?.task ?? completedTask;
 
       this.publishResult(resolved, task, claimed.workspaceId, artifactId, result.summary);
+      await this.settleRuntime(adapter, task.id);
       return { execution: completedExecution, task: finalCompletedTask, artifact, status: "completed" };
     } catch (error) {
       if (error instanceof ExecutionOwnershipError) throw error;
@@ -427,6 +430,7 @@ export class PrincipalRunner {
         }
         const cancellationSettlement = resolved.principalKind === "bot" ? this.gateway.settleHandoffForTask(task.id, "canceled", targetId) : null;
         canceledTask = cancellationSettlement?.task ?? canceledTask;
+        if (executionAdapter) await this.settleRuntime(executionAdapter, task.id);
         return { execution: canceledExecution, task: canceledTask, artifact: null, status: "canceled" };
       }
 
@@ -477,9 +481,30 @@ export class PrincipalRunner {
       if (error instanceof BudgetError && error.code.startsWith("TEAM_RUN_") && resolved.run) {
         await this.exhaustTeamRun(resolved.run.id, resolved.leaderBot.id, message, task.id);
       }
+      if (executionAdapter) await this.settleRuntime(executionAdapter, task.id);
       return { execution: failedExecution, task: failedTask, artifact: null, status: "failed" };
     } finally {
       this.active.delete(task.id);
+    }
+  }
+
+  async cancelRuntimeRecovery(taskId: string, targetId: string): Promise<void> {
+    try {
+      const resolved = this.resolvePrincipal(targetId);
+      if (!this.runtimes.has(resolved.adapterId)) return;
+      await this.runtimes.get(resolved.adapterId).cancel?.(taskId);
+    } catch {
+      // Recovery cancellation must not make local stale-execution recovery fail.
+      // Remote adapters persist lease revocation work when configured to do so.
+    }
+  }
+
+  private async settleRuntime(adapter: RuntimeAdapter, taskId: string): Promise<void> {
+    try {
+      await adapter.settle?.(taskId);
+    } catch {
+      // The local Task/Artifact commit is already authoritative. A failed
+      // checkpoint cleanup must never roll back a completed local result.
     }
   }
 
@@ -693,6 +718,11 @@ export class PrincipalRunner {
       const cancellation = new TaskCancellationError("CANCELED", reason);
       active.controller.abort(cancellation);
       await active.adapter.cancel?.(task.id);
+    } else {
+      const recoveryTargetId = typeof current.payload.assignee_id === "string"
+        ? current.payload.assignee_id
+        : String(current.payload.owner_id ?? "");
+      if (recoveryTargetId) await this.cancelRuntimeRecovery(task.id, recoveryTargetId);
     }
 
     this.queue.cancelByItem(task.id, reason);
@@ -711,6 +741,7 @@ export class PrincipalRunner {
     if (worker?.kind === "worker") this.gateway.emit({ type: "worker.status_changed", actorId, workspaceId: current.workspaceId, runId, taskId: current.id, correlationId: String(current.payload.root_objective_id), summary: `${worker.id} canceled: ${reason}` });
     const settlement = ownerId.startsWith("bot_") ? this.gateway.settleHandoffForTask(current.id, "canceled", actorId) : null;
     canceled = settlement?.task ?? canceled;
+    if (active) await this.settleRuntime(active.adapter, current.id);
     tasks.push(canceled);
     events.push(event, ...(settlement?.events ?? []));
   }

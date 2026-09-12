@@ -149,7 +149,8 @@ export class MemoryRecallRuntimeRegistry extends RuntimeRegistry {
         };
         return { ...result, receipts: [...(result.receipts ?? []), receipt] };
       },
-      ...(inner.cancel ? { cancel: (taskId: string) => inner.cancel!(taskId) } : {})
+      ...(inner.cancel ? { cancel: (taskId: string) => inner.cancel!(taskId) } : {}),
+      ...(inner.settle ? { settle: (taskId: string) => inner.settle!(taskId) } : {})
     };
     this.wrapped.set(id, wrapped);
     return wrapped;

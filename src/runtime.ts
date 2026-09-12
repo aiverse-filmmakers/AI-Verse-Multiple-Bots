@@ -149,6 +149,11 @@ export interface RuntimeAdapter {
   readonly id: string;
   execute(context: RuntimeExecutionContext): Promise<RuntimeExecutionResult>;
   cancel?(taskId: string): Promise<void>;
+  /**
+   * Called only after the local coordination store has durably settled the Task.
+   * Recovery-aware adapters use this to discard cached remote recovery state.
+   */
+  settle?(taskId: string): Promise<void>;
 }
 
 export class RuntimeRegistry {

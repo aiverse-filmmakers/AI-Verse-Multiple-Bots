@@ -17,11 +17,11 @@ Phase 0  Research + Architecture        [COMPLETE]    100%
 Phase 1  Runnable Coordination Core     [COMPLETE]    100%
 Phase 2  Dynamic Multi-Agent Squads     [COMPLETE]    100%
 Phase 3  AI-Verse Native Integration    [COMPLETE]    100%
-Phase 4  Runtime / A2A Interoperability [IN PROGRESS] ~70%
+Phase 4  Runtime / A2A Interoperability [IN PROGRESS] ~80%
 Phase 5  Product + Install + Dashboard  [NOT STARTED]
 ```
 
-**Directional overall first-release progress:** roughly 93% complete.
+**Directional overall first-release progress:** roughly 95% complete.
 
 That overall figure is intentionally approximate because later phases contain different amounts of work. Passed phase gates, not percentages, are authoritative.
 
@@ -724,6 +724,35 @@ Implemented:
 
 See `docs/REMOTE-CAPABILITY-ENVIRONMENT-LEASES.md` and `docs/PHASE-4-STATUS.md`.
 
+### Phase 4.8 - retry/disconnect/reconnect semantics
+
+Implemented:
+
+- durable SQLite recovery journal for remote execution checkpoints and failed lease revocations
+- deterministic adapter/Task/target-bound remote operation identity
+- restart-safe `submitting`, `remote_active` and `completed` recovery states
+- verified remote-result caching until local Task/Artifact settlement commits
+- runtime settlement hook forwarded through all existing context/runtime wrappers
+- A2A resume by exact server-issued Task id through `GetTask`
+- bounded retry of idempotent A2A operations and transient HTTP failures
+- explicit fail-closed ambiguous `SendMessage` behavior
+- negotiated AI-Verse A2A remote Task recovery extension for safe exactly-once logical replay
+- stable A2A message ids and deterministic operation keys across recovery
+- restart-aware A2A `CancelTask`
+- external-managed provider declaration `idempotency_mode=exact_task_key`
+- managed-provider execution retry/replay only when exact Task-key semantics are declared
+- restart-aware external-managed provider cancellation
+- recovered remote grant validation against current capability/environment/deadline authority
+- exact-authority and exact-environment replacement constraints for recovery grants
+- recovery-aware A2A lease reacquisition/renewal
+- deterministic durable failed-revocation queue with startup/periodic/shutdown reconciliation
+- stale dead-letter remote cleanup without changing local recovery authority
+- bounded recovery provenance and no raw credential persistence
+
+**Verified implementation gate:** GitHub Actions CI run 478 (`34721177823`) passed the full **412/412 tests** with 0 failures, 0 canceled and 0 skipped on hardened implementation head `08b4c03151a5096960cc33c588357a3294f22998`.
+
+See `docs/REMOTE-EXECUTION-RECOVERY.md` and `docs/PHASE-4-STATUS.md`.
+
 ## Phase 5 - Product, Installer, Omnichannel and Dashboard
 
 **Status:** NOT STARTED
@@ -767,9 +796,9 @@ The first finished release must prove at minimum:
 
 ## Next gate
 
-**Phase 4.8 - retry/disconnect/reconnect semantics.**
+**Phase 4.9 - compatibility/evaluation suite.**
 
-Phase 4.7 is complete. The next canonical slice is retry/disconnect/reconnect semantics. Phase 4.8 has not started.
+Phase 4.8 is complete. The next canonical slice is the Phase 4 compatibility/evaluation suite. Phase 4.9 has not started.
 
 ## How to report progress
 
