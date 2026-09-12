@@ -952,14 +952,91 @@ export class A2AJsonRpcRuntimeAdapter implements RuntimeAdapter {
 
   async cancel(taskId: string): Promise<void> {
     const active = this.active.get(taskId);
-    if (!active) return;
-    active.cancelRequested = true;
-    void this.cancelRemote(active).catch(() => undefined);
-    if (active.remoteLeaseGrant && active.remoteLeaseTarget && !active.leaseRevokeStarted) {
-      active.leaseRevokeStarted = true;
-      void this.remoteLeases!.revoke(active.remoteLeaseGrant, taskId, active.remoteLeaseTarget).catch(() => undefined);
+    if (active) {
+      active.cancelRequested = true;
+      await this.cancelRemote(active).catch(() => undefined);
+      if (active.remoteLeaseGrant && active.remoteLeaseTarget && !active.leaseRevokeStarted) {
+        active.leaseRevokeStarted = true;
+        await this.revokeRecoverably(active.remoteLeaseGrant, taskId, active.remoteLeaseTarget);
+      }
+      if (!active.controller.signal.aborted) {
+        active.controller.abort(new Error(`Runtime Task ${taskId} canceled`));
+      }
+      return;
     }
-    if (!active.controller.signal.aborted) active.controller.abort(new Error(`Runtime Task ${taskId} canceled`));
+
+    const checkpoint = this.recovery?.get(taskId);
+    if (!checkpoint || checkpoint.adapterId !== "a2a") return;
+    const iface = interfaceFromRecovery(checkpoint.resume.interface);
+    const recovered: ActiveA2ATask = {
+      controller: new AbortController(),
+      remoteTaskId: checkpoint.remoteOperationId,
+      interface: iface,
+      cancelRequested: true,
+      actionCount: 0,
+      remoteLeaseGrant: checkpoint.leaseGrant,
+      remoteLeaseTarget: checkpoint.targetKind === "machine"
+        ? { kind: "machine", ref: checkpoint.targetRef }
+        : null,
+      leaseRevokeStarted: false,
+      operationKey: checkpoint.operationKey
+    };
+    if (iface && recovered.remoteTaskId) {
+      await this.cancelRemote(recovered).catch(() => undefined);
+    }
+    if (recovered.remoteLeaseGrant && recovered.remoteLeaseTarget) {
+      await this.revokeRecoverably(
+        recovered.remoteLeaseGrant,
+        taskId,
+        recovered.remoteLeaseTarget
+      );
+    }
+    this.recovery?.clear(taskId);
+  }
+
+  async settle(taskId: string): Promise<void> {
+    this.recovery?.clear(taskId);
+  }
+
+  private recoveryGetTaskParams(
+    remoteTaskId: string,
+    iface: A2AInterface,
+    grant: RemoteLeaseGrant | null,
+    operationKey: string
+  ): JsonObject {
+    const params: JsonObject = { id: remoteTaskId, historyLength: 0 };
+    if (iface.tenant) params.tenant = iface.tenant;
+    if (iface.remoteRecoveryExtensionSupported) {
+      params.metadata = {
+        [REMOTE_RECOVERY_A2A_EXTENSION_URI]: {
+          operation_key: operationKey,
+          mode: "resume",
+          ...(grant && this.remoteLeases ? {
+            remote_lease: this.remoteLeases.transportProjection(grant)
+          } : {})
+        },
+        ...(grant && this.remoteLeases ? {
+          [REMOTE_LEASE_A2A_EXTENSION_URI]: this.remoteLeases.transportProjection(grant)
+        } : {})
+      };
+    }
+    return params;
+  }
+
+  private async revokeRecoverably(
+    grant: RemoteLeaseGrant,
+    localTaskId: string,
+    target: { kind: "machine"; ref: string }
+  ): Promise<void> {
+    if (!this.remoteLeases) return;
+    const pending = this.recovery?.queueRevocation(localTaskId, target, grant) ?? null;
+    try {
+      await this.remoteLeases.revoke(grant, localTaskId, target);
+      if (pending) this.recovery?.markRevoked(pending.id);
+    } catch {
+      // The durable revocation queue keeps failed revocations available for
+      // reconciliation. Without a recovery store this remains best effort.
+    }
   }
 
   private async discover(
@@ -1248,16 +1325,24 @@ export class A2AJsonRpcRuntimeAdapter implements RuntimeAdapter {
             request_digest: active.remoteLeaseGrant.request_digest,
             grant_fingerprint: active.remoteLeaseGrant.grant_fingerprint
           }
+        } : {}),
+        ...(active.interface.remoteRecoveryExtensionSupported ? {
+          [REMOTE_RECOVERY_A2A_EXTENSION_URI]: {
+            operation_key: active.operationKey,
+            mode: "cancel"
+          }
         } : {})
       }
     };
     if (active.interface.tenant) params.tenant = active.interface.tenant;
-    await this.rpc(
+    await this.rpcWithRetry(
       active.interface,
       "CancelTask",
       params,
       `cancel:${active.remoteTaskId}`,
-      undefined
+      undefined,
+      undefined,
+      { safeToRetry: true, attempts: 3, baseDelayMs: 100 }
     );
   }
 
