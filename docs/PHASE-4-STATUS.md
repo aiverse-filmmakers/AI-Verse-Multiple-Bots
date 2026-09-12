@@ -1,12 +1,12 @@
 # Phase 4 Status - Runtime and Agent Interoperability
 
-**Updated:** 2026-09-12
+**Updated:** 2026-09-13
 
 **Phase:** 4
 
 **Overall status:** IN PROGRESS
 
-**Directional phase progress:** approximately 60%
+**Directional phase progress:** approximately 70%
 
 This file is the implementation ledger for Phase 4. The canonical product roadmap remains `BUILD-MAP.md`.
 
@@ -22,8 +22,8 @@ Make durable Bots and temporary Workers portable across supported local and remo
 4. Codex/Claude Code process adapters where appropriate - **COMPLETE**
 5. external managed Bot runtime - **COMPLETE**
 6. remote-machine identity/authentication - **COMPLETE**
-7. remote capability/environment leases - **NEXT**
-8. retry/disconnect/reconnect semantics - **NOT STARTED**
+7. remote capability/environment leases - **COMPLETE**
+8. retry/disconnect/reconnect semantics - **NEXT**
 9. compatibility/evaluation suite - **NOT STARTED**
 
 ## Slice 4.1 - A2A adapter
@@ -357,8 +357,74 @@ Phase 4.6 acceptance coverage proves:
 21. Gateway exposes host-injected remote trust/auth registries
 22. the complete pre-existing Phase 0-4.5 suite remains green
 
+## Slice 4.7 - remote capability/environment leases
+
+**Implementation status:** COMPLETE
+
+Phase 4.7 adds a generic remote authority projection layer so authenticated remote execution receives an enforceable, equal-or-narrower Task capability/environment grant rather than treating prompt text as permission.
+
+Implemented:
+
+- public remote lease provider registry and broker
+- canonical local lease validation
+- deterministic request binding
+- exact/non-widening remote authority algebra
+- effective expiry bounding
+- remote environment mapping and policy verification
+- provider identity and error boundaries
+- required lease receipt + post-run authority/environment audit
+- completion-after-expiry rejection
+- bounded non-sensitive provenance
+- pinned-machine requirement for meaningful A2A authority
+- A2A lease extension negotiation, activation and receipt verification
+- narrowed A2A execution envelopes
+- A2A cancellation/revocation targeting
+- external-managed capability/environment lease projection
+- external-managed double-audit consistency
+- Gateway host injection
+
+See `REMOTE-CAPABILITY-ENVIRONMENT-LEASES.md`.
+
+### 4.7 acceptance proof
+
+The hardened implementation head `736fe5103a3e7224c202923e7d7240a3b97d53ad` passed GitHub Actions **CI run 456 (`34719783568`) with 397/397 tests**, **0 failures, 0 canceled and 0 skipped**.
+
+Phase 4.7 acceptance coverage proves:
+
+1. local capability/environment leases remain canonical
+2. remote grants are bound to exact local Task/principal/workspace/target identity
+3. deterministic request digests prevent grant substitution
+4. revoked/expired local authority fails before remote grant
+5. reissued null revocation markers remain active
+6. broad authority expressions fail closed
+7. providers may narrow but cannot widen tools/connections
+8. destructive-action policy cannot widen
+9. remote expiry cannot outlive local leases/Task deadline
+10. completed results after remote lease expiry fail
+11. remote lease provider identity must match
+12. local environment refs map to exact provider-owned remote environments
+13. environment policy cannot change
+14. environment authority cannot appear without a local lease
+15. remote receipts must match lease id/digest/fingerprint
+16. observed authority must stay inside the grant
+17. persisted provenance excludes authority/environment identities
+18. provider errors are sanitized
+19. grant cancellation remains locally authoritative
+20. meaningful A2A authority requires a pinned remote machine
+21. meaningful A2A authority requires a remote lease provider
+22. lease-aware A2A requires extension support
+23. A2A transport/envelope carries only the narrowed effective authority
+24. direct Message and completed Task results require valid lease receipts
+25. A2A remote environment identity is verified
+26. A2A cancellation revokes the exact grant
+27. external-managed environment leases are operational
+28. external-managed providers receive only narrowed remote authority
+29. managed top-level and remote-lease audits must agree
+30. Gateway exposes host-injected remote lease providers/broker
+31. the complete pre-existing Phase 0-4.6 suite remains green
+
 ## Next gate
 
-**Phase 4.7 - remote capability/environment leases.**
+**Phase 4.8 - retry/disconnect/reconnect semantics.**
 
-Phase 4.6 is complete. Phase 4.7 has not started.
+Phase 4.7 is complete. Phase 4.8 has not started.
