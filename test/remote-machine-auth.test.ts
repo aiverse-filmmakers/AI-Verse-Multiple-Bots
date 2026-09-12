@@ -40,6 +40,15 @@ test("remote machine registry pins HTTPS origin and peer identity without storin
 
   assert.throws(
     () => registry.register({
+      id: "machine_alias",
+      origin: "https://agent.example",
+      expected_peer_identity: { kind: "https_origin", value: "https://agent.example" }
+    }),
+    assertCode("REMOTE_MACHINE_BINDING_COLLISION")
+  );
+
+  assert.throws(
+    () => registry.register({
       id: "machine_spoof",
       origin: "https://agent.example",
       expected_peer_identity: { kind: "spiffe_id", value: "spiffe://example/other" }
@@ -549,6 +558,60 @@ test("broker cancellation settles even when a custom authenticator ignores Abort
     new Promise<string>((resolve) => setTimeout(() => resolve("timed-out"), 100))
   ]);
   assert.equal(outcome, "local remote-auth cancel");
+});
+
+test("broker rejects malformed authenticator evidence with controlled errors", async () => {
+  const malformedEvidence = [
+    { satisfied_schemes: undefined, satisfied_scopes: {} },
+    { satisfied_schemes: ["bearer"], satisfied_scopes: undefined },
+    { satisfied_schemes: ["bearer"], satisfied_scopes: { bearer: "bad" } },
+    { satisfied_schemes: ["bearer"], satisfied_scopes: { bearer: [123] } },
+    { satisfied_schemes: ["bearer"], satisfied_scopes: { bearer: [] }, mechanism: "" }
+  ];
+
+  for (const patch of malformedEvidence) {
+    const authenticator: RemoteHttpAuthenticator = {
+      id: "malformed",
+      async request(input) {
+        return {
+          response: new Response("{}", { status: 200 }),
+          evidence: {
+            machine_id: input.machine.id,
+            origin: input.machine.origin,
+            tls_verified: true,
+            peer_identity: { kind: "https_origin", value: input.machine.origin },
+            client_authenticated: true,
+            satisfied_schemes: ["bearer"],
+            satisfied_scopes: { bearer: [] },
+            mechanism: "custom",
+            ...patch
+          } as any
+        };
+      }
+    };
+    const broker = new RemoteHttpAccessBroker(
+      new RemoteMachineIdentityRegistry([{
+        id: "machine_malformed",
+        origin: "https://agent.example",
+        expected_peer_identity: { kind: "https_origin", value: "https://agent.example" }
+      }]),
+      new RemoteHttpAuthenticatorRegistry([authenticator])
+    );
+
+    await assert.rejects(
+      () => broker.request({
+        machineRef: "machine_malformed",
+        auth: { provider: "malformed", credential_ref: "secret://malformed" },
+        url: "https://agent.example/rpc",
+        method: "POST",
+        securitySchemes: {
+          bearer: { httpAuthSecurityScheme: { scheme: "Bearer" } }
+        },
+        securityRequirements: [{ schemes: { bearer: [] } }]
+      }),
+      assertCode("REMOTE_AUTH_INVALID_EVIDENCE")
+    );
+  }
 });
 
 test("authenticator registry is explicit and duplicate-safe", () => {
