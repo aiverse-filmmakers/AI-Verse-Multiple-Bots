@@ -5,6 +5,7 @@ import {
   A2ARuntimeError
 } from "../src/a2a-runtime.js";
 import type { RuntimeExecutionContext } from "../src/runtime.js";
+import { createGatewayServer } from "../src/server.js";
 import type { JsonObject, StoredObject } from "../src/types.js";
 
 function stored(id: string, kind: any, workspaceId: string, payload: JsonObject): StoredObject {
@@ -404,4 +405,16 @@ test("A2A adapter validates JSON-RPC response identity instead of accepting mism
     () => adapter.execute(context()),
     (error: unknown) => error instanceof A2ARuntimeError && error.code === "A2A_INVALID_RESPONSE"
   );
+});
+
+
+test("Gateway registers the A2A adapter as a normal host-neutral runtime", async () => {
+  const dbPath = `/tmp/a2a-runtime-server-${Date.now()}-${Math.random().toString(16).slice(2)}.db`;
+  const service = createGatewayServer({ dbPath, port: 0 });
+  try {
+    assert.equal(service.runtimes.has("a2a"), true);
+    assert.equal(service.runtimes.get("a2a").id, "a2a");
+  } finally {
+    await service.close();
+  }
 });
