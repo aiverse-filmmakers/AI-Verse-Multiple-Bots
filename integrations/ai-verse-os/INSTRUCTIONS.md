@@ -48,14 +48,18 @@ When Multiple Bots is relevant to the task:
 - Canonical OS writes must use the OS-owned write boundary once that Phase 3 adapter is available.
 - Cross-workspace context sharing is denied by default unless the host explicitly authorizes it for the task.
 
-## Installation rule
+## Installation and lifecycle rule
 
-Normal installation, update, enable/disable, and uninstall flows must not edit tracked AI-Verse OS files. Local extension installation state belongs in `.aiverse/extensions/registry.json`, and this extension owns only its own registration entry and extension-owned local files.
+Normal installation, update, enable/disable, upgrade, and uninstall flows must not edit tracked AI-Verse OS files. Local extension installation state belongs in `.aiverse/extensions/registry.json`, and this extension owns only its own registration entry and extension-owned local files.
 
 Unknown registry fields and other extension entries must be preserved.
 
+Upgrade requires an existing registration provably owned by this package and must preserve the operator's disabled state.
+
+Uninstall may remove only this extension's registry entry plus known registered regular files inside `.aiverse/extensions/ai-verse-multiple-bots/`. It must preserve registered paths outside that root, unknown/unregistered files, and `runtime/ai-verse-bots/coordination.db`. Never recursively purge the extension root as part of normal uninstall.
+
 ## Current integration maturity
 
-Phase 3.1 through Phase 3.9 establish compatibility/registration, workspace projection, Brain ingress, Memory/Skills/Automations adapters, the OS write-command boundary, candidate write-back, and read-only Four Cs health evidence. Upgrade/uninstall behavior remains Phase 3.10.
+Phase 3.1 through Phase 3.10 establish compatibility/registration, workspace projection, Brain ingress, Memory/Skills/Automations adapters, the OS write-command boundary, candidate write-back, read-only Four Cs health evidence, and bounded upgrade/uninstall safety.
 
 Do not infer any integration is operational merely from extension registration; use its explicit runtime evidence and owner-controlled contract.
