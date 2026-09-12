@@ -420,6 +420,9 @@ export class ClaudeCodePrintRuntimeAdapter implements RuntimeAdapter {
         toolList,
         "--disallowedTools",
         "mcp__*",
+        "--strict-mcp-config",
+        "--mcp-config",
+        '{"mcpServers":{}}',
         "--permission-mode",
         "dontAsk",
         "--permission-prompts",
@@ -485,7 +488,8 @@ export class ClaudeCodePrintRuntimeAdapter implements RuntimeAdapter {
           machine_boundary: "restricted",
           permission_mode: "dontAsk",
           permission_prompts: "none",
-          mcp_policy: "safe_mode_plus_explicit_mcp_deny",
+          mcp_policy: "safe_mode_plus_strict_empty_config_plus_explicit_mcp_deny",
+          managed_policy: "host_managed_policy_remains_upstream",
           persistence: "disabled",
           remote_authentication: "not_supported_phase_4_4"
         }]
