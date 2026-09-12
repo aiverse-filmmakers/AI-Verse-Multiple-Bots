@@ -1,6 +1,6 @@
 # AI-Verse Multiple Bots - Build Map
 
-**Updated:** 2026-09-10
+**Updated:** 2026-09-12
 
 This is the canonical progress map for the project. Update it whenever a meaningful implementation slice lands so repository state alone shows where the build is, what is complete, and what remains.
 
@@ -16,12 +16,12 @@ The target is an installable persistent-teammate layer that can run standalone o
 Phase 0  Research + Architecture        [COMPLETE]    100%
 Phase 1  Runnable Coordination Core     [COMPLETE]    100%
 Phase 2  Dynamic Multi-Agent Squads     [COMPLETE]    100%
-Phase 3  AI-Verse Native Integration    [IN PROGRESS] ~40%
+Phase 3  AI-Verse Native Integration    [IN PROGRESS] ~80%
 Phase 4  Runtime / A2A Interoperability [NOT STARTED]
 Phase 5  Product + Install + Dashboard  [NOT STARTED]
 ```
 
-**Directional overall first-release progress:** roughly 73% complete.
+**Directional overall first-release progress:** roughly 75% complete.
 
 That overall figure is intentionally approximate because later phases contain different amounts of work. Passed phase gates, not percentages, are authoritative.
 
@@ -229,7 +229,7 @@ None.
 
 **Status:** IN PROGRESS
 
-**Directional phase progress:** approximately 70%.
+**Directional phase progress:** approximately 80%.
 
 Goal: attach the finished host-neutral teammate/squad package to AI-Verse OS without moving or duplicating canonical OS/Brain/Memory/Skills state into this repository.
 
@@ -242,8 +242,8 @@ Goal: attach the finished host-neutral teammate/squad package to AI-Verse OS wit
 5. Skills capability resolution - **COMPLETE**
 6. Automations wake/schedule integration - **COMPLETE**
 7. OS write-command boundary - **COMPLETE**
-8. candidate knowledge/decision write-back - **NEXT**
-9. 4Cs health integration - **NOT STARTED**
+8. candidate knowledge/decision write-back - **COMPLETE**
+9. 4Cs health integration - **NEXT**
 10. uninstall/upgrade without canonical-state damage - **NOT STARTED**
 
 ### Phase 3.1 - AI-Verse OS installer/registration contract
@@ -414,6 +414,25 @@ Implemented:
 
 See `docs/AI-VERSE-OS-WRITE-COMMAND-BOUNDARY.md` and `docs/PHASE-3-STATUS.md`.
 
+### Phase 3.8 - candidate knowledge/decision write-back
+
+Implemented:
+
+- public host-neutral `CandidateWritebackRouter` for explicit `knowledge` and `decision` candidates
+- exact workspace-scoped source Artifact requirement plus bounded same-workspace evidence references
+- candidate routing through the existing Phase 3.7 `candidate.route` OS owner boundary
+- explicit `canonical_effect_requested: false` and owner-side `evaluate_for_promotion` semantics
+- no direct workspace knowledge/decision mutation and no local duplicate candidate-content record
+- durable persistence remains the Phase 3.7 digest/provenance-only `os_write_command_receipt`
+- exact replay recontacts the owner queue while semantic drift fails before changed owner dispatch
+- active durable Bots and temporary Workers can nominate without authority expansion
+- native `POST /v1/candidates/write-back` only when the Phase 3.7 OS owner contract exists
+- Memory, Skills, Brain and current-context write-back remain outside this slice
+
+**Verified implementation gate:** GitHub Actions CI run 375 (`34708621932`) passed **270/270 tests** with 0 failures, 0 canceled and 0 skipped on exact implementation head `70ab433f73831ead8d9b43d0f4efc8a99938c7b8`.
+
+See `docs/AI-VERSE-CANDIDATE-WRITEBACK.md` and `docs/PHASE-3-STATUS.md`.
+
 ### Phase 3 boundary
 
 Phase 3 work is additive through explicit host adapters. AI-Verse OS remains canonical for operator/workspace/domain state, capability-provider resolution and automation cadence. AI-Verse Brain remains canonical for strategic intent and objective lifecycle. AI-Verse Memory remains canonical for historical memory and its rebuildable derived index. AI-Verse Skills remains canonical for reusable capability packages and immutable generations. Multiple Bots remains canonical for coordination state created after a bounded host invocation. Host, Brain, Memory, selected Skills and automation invocation projections are scoped views, not competing truth.
@@ -481,9 +500,9 @@ The first finished release must prove at minimum:
 
 ## Next gate
 
-**Phase 3.5 - Skills capability resolution.**
+**Phase 3.9 - 4Cs health integration.**
 
-The next slice must let durable Bots and temporary Workers resolve task-required capabilities through AI-Verse Skills without copying or owning the Skills registry inside coordination state. Resolution must be exact, authority-bounded, workspace/task scoped, approval-aware, provenance-bearing, and compatible with standalone operation when AI-Verse Skills is not present.
+The next slice must integrate Multiple Bots into the existing AI-Verse 4Cs health model without creating a competing health authority, while keeping health projection bounded, owner-controlled and compatible with standalone operation.
 
 ## How to report progress
 
