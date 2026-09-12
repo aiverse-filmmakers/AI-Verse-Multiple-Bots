@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
+import { rmSync } from "node:fs";
 import test from "node:test";
 import {
   RemoteLeaseBroker,
@@ -10,6 +12,7 @@ import {
   type RemoteLeaseRevokeRequest
 } from "../src/remote-leases.js";
 import type { RuntimeExecutionContext } from "../src/runtime.js";
+import { createGatewayServer } from "../src/server.js";
 import type { JsonObject, StoredObject } from "../src/types.js";
 
 function stored(id: string, kind: any, workspaceId: string, payload: JsonObject): StoredObject {
@@ -452,6 +455,30 @@ test("remote lease provider registry is explicit and duplicate-safe", () => {
   assert.deepEqual(registry.ids(), ["fake-lease"]);
   assert.throws(() => registry.register(provider), assertCode("REMOTE_LEASE_PROVIDER_COLLISION"));
   assert.throws(() => registry.get("missing"), assertCode("REMOTE_LEASE_PROVIDER_NOT_REGISTERED"));
+});
+
+test("Gateway wires host-injected remote lease providers into A2A and external-managed runtimes", async () => {
+  const dbPath = `/tmp/remote-leases-${randomUUID()}.db`;
+  const provider = new FakeLeaseProvider();
+  const service = createGatewayServer({
+    dbPath,
+    port: 0,
+    remoteLeaseProviders: [provider]
+  });
+  await service.listen();
+  await service.supervisor.waitForIdle();
+  try {
+    assert.equal(service.remoteLeaseProviders.has("fake-lease"), true);
+    assert.deepEqual(service.remoteLeaseProviders.ids(), ["fake-lease"]);
+    assert.ok(service.remoteLeases);
+    assert.equal(service.runtimes.has("a2a"), true);
+    assert.equal(service.runtimes.has("external-managed"), true);
+  } finally {
+    await service.close();
+    rmSync(dbPath, { force: true });
+    rmSync(`${dbPath}-shm`, { force: true });
+    rmSync(`${dbPath}-wal`, { force: true });
+  }
 });
 
 test("remote lease revoke targets the exact grant and target", async () => {
