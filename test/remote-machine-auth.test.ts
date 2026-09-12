@@ -196,8 +196,8 @@ test("header authenticator never resolves or sends application credentials for p
   });
 
   assert.equal(resolverCalls, 0);
-  assert.equal(requests[0].headers.get("authorization"), null);
-  assert.equal(requests[0].redirect, "error");
+  assert.equal(requests[0]!.headers.get("authorization"), null);
+  assert.equal(requests[0]!.redirect, "error");
 });
 
 test("header authenticator satisfies declared Bearer authentication with an out-of-band credential handle", async () => {
@@ -241,8 +241,8 @@ test("header authenticator satisfies declared Bearer authentication with an out-
     securityRequirements: [{ schemes: { bearer: [] } }]
   });
 
-  assert.equal(requests[0].headers.get("authorization"), "Bearer BEARER_SECRET");
-  assert.equal(requests[0].redirect, "error");
+  assert.equal(requests[0]!.headers.get("authorization"), "Bearer BEARER_SECRET");
+  assert.equal(requests[0]!.redirect, "error");
   assert.equal(result.evidence.client_authenticated, true);
   assert.deepEqual(result.evidence.satisfied_schemes, ["bearer"]);
   assert.equal(result.evidence.mechanism, "http-bearer");
