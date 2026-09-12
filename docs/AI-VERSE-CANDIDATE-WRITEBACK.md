@@ -2,7 +2,7 @@
 
 **Phase:** 3.8
 
-**Status:** implementation pending acceptance gate
+**Status:** COMPLETE
 
 ## Purpose
 
@@ -148,6 +148,8 @@ Phase 3.8 is complete only when tests prove at minimum:
 8. temporary Workers can nominate only within their workspace and gain no canonical authority
 9. the native HTTP endpoint exists only when the Phase 3.7 owner contract exists
 10. the complete pre-existing coordination, squad, Brain, Memory, Skills, Automations and OS write-command suite remains green
+
+**Verified gate:** GitHub Actions CI run 375 (`34708621932`) passed **270/270 tests**, with 0 failures, 0 canceled and 0 skipped, on exact implementation head `70ab433f73831ead8d9b43d0f4efc8a99938c7b8`.
 
 ## Non-goals
 
