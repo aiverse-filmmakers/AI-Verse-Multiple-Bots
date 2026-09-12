@@ -143,6 +143,7 @@ export class BotRegistryRules {
         `Bot ${botId} must be disabled before its external managed binding can change`
       );
     }
+    this.assertNoLiveOwnedWork(stored);
 
     const runtime: BotManifest["runtime"] = {
       adapter: EXTERNAL_MANAGED_RUNTIME_ADAPTER_ID,
