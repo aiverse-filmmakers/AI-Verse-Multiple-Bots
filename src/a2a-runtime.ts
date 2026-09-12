@@ -309,7 +309,20 @@ export class A2AJsonRpcRuntimeAdapter implements RuntimeAdapter {
 
   async execute(context: RuntimeExecutionContext): Promise<RuntimeExecutionResult> {
     const runtime = context.runtime;
-    for (const key of ["api_key", "token", "authorization", "api_key_env", "bearer_token_env", "headers"]) {
+    for (const key of [
+      "api_key",
+      "token",
+      "bearer_token",
+      "authorization",
+      "api_key_env",
+      "bearer_token_env",
+      "headers",
+      "remote_headers",
+      "cookie",
+      "password",
+      "client_secret",
+      "secret"
+    ]) {
       if (runtime[key] !== undefined && runtime[key] !== null) {
         throw new A2ARuntimeError(
           "A2A_INLINE_CREDENTIALS_FORBIDDEN",
