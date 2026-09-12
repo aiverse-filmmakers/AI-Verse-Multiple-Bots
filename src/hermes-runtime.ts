@@ -605,13 +605,12 @@ export class HermesStdioRuntimeAdapter implements RuntimeAdapter {
 
       const envelope = runtimeEnvelope(context);
       const prompt = boundedJson(envelope, HERMES_MAX_PROMPT_BYTES, "Hermes runtime envelope");
-      const completion = this.waitForCompletion(transport, sessionId, controller.signal);
       const accepted = await transport.request("prompt.submit", { session_id: sessionId, text: prompt }, controller.signal);
       if (typeof accepted.status === "string" && !new Set(["streaming", "queued", "accepted"]).has(accepted.status)) {
         throw new HermesRuntimeError("HERMES_PROMPT_REJECTED", `Hermes prompt.submit returned status ${accepted.status}`);
       }
 
-      const finished = await completion;
+      const finished = await this.waitForCompletion(transport, sessionId, controller.signal);
       const payload = finished.payload;
       if (String(payload.status ?? "") !== "complete") {
         throw new HermesRuntimeError(
