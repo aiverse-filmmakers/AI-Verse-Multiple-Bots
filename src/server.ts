@@ -37,6 +37,11 @@ import {
   type RemoteHttpAuthenticator,
   type RemoteMachineIdentity
 } from "./remote-machine-auth.js";
+import {
+  RemoteLeaseBroker,
+  RemoteLeaseProviderRegistry,
+  type RemoteLeaseProvider
+} from "./remote-leases.js";
 import { BotRunner } from "./runner.js";
 import { DeterministicRuntimeAdapter, RuntimeRegistry } from "./runtime.js";
 import { SkillsCapabilityRuntimeRegistry } from "./skills-capability-runtime.js";
@@ -51,6 +56,7 @@ export interface GatewayServerOptions {
   externalManagedProviders?: ExternalManagedBotProvider[];
   remoteMachines?: RemoteMachineIdentity[];
   remoteAuthenticators?: RemoteHttpAuthenticator[];
+  remoteLeaseProviders?: RemoteLeaseProvider[];
 }
 
 async function readJson(req: any): Promise<JsonObject> {
@@ -136,15 +142,17 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
   const remoteMachines = new RemoteMachineIdentityRegistry(options.remoteMachines ?? []);
   const remoteAuthenticators = new RemoteHttpAuthenticatorRegistry(options.remoteAuthenticators ?? []);
   const remoteAccess = new RemoteHttpAccessBroker(remoteMachines, remoteAuthenticators);
+  const remoteLeaseProviders = new RemoteLeaseProviderRegistry(options.remoteLeaseProviders ?? []);
+  const remoteLeases = new RemoteLeaseBroker(remoteLeaseProviders);
   const baseRuntimes = new RuntimeRegistry()
     .register(new DeterministicRuntimeAdapter())
     .register(new OpenAICompatibleRuntimeAdapter())
-    .register(new A2AJsonRpcRuntimeAdapter({ remoteAccess }))
+    .register(new A2AJsonRpcRuntimeAdapter({ remoteAccess, remoteLeases }))
     .register(new HermesStdioRuntimeAdapter())
     .register(new OpenClawAgentExecRuntimeAdapter())
     .register(new CodexExecRuntimeAdapter())
     .register(new ClaudeCodePrintRuntimeAdapter())
-    .register(new ExternalManagedBotRuntimeAdapter(externalManagedProviders));
+    .register(new ExternalManagedBotRuntimeAdapter(externalManagedProviders, remoteLeases));
   const skillsRuntimes = new SkillsCapabilityRuntimeRegistry(baseRuntimes, skillsCapabilitySource);
   const memoryRuntimes = new MemoryRecallRuntimeRegistry(skillsRuntimes, memoryRecallSource);
   const runtimes = brainObjectiveSource
@@ -703,6 +711,8 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
     remoteMachines,
     remoteAuthenticators,
     remoteAccess,
+    remoteLeaseProviders,
+    remoteLeases,
     runner,
     brainObjectiveSource,
     brainIngress,
