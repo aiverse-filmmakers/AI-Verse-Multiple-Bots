@@ -6,7 +6,7 @@
 
 **Overall status:** IN PROGRESS
 
-**Directional phase progress:** approximately 40%
+**Directional phase progress:** approximately 50%
 
 This file is the implementation ledger for Phase 4. The canonical product roadmap remains `BUILD-MAP.md`.
 
@@ -20,8 +20,8 @@ Make durable Bots and temporary Workers portable across supported local and remo
 2. Hermes adapter - **COMPLETE**
 3. OpenClaw adapter - **COMPLETE**
 4. Codex/Claude Code process adapters where appropriate - **COMPLETE**
-5. external managed Bot runtime - **NEXT**
-6. remote-machine identity/authentication - **NOT STARTED**
+5. external managed Bot runtime - **COMPLETE**
+6. remote-machine identity/authentication - **NEXT**
 7. remote capability/environment leases - **NOT STARTED**
 8. retry/disconnect/reconnect semantics - **NOT STARTED**
 9. compatibility/evaluation suite - **NOT STARTED**
@@ -238,8 +238,70 @@ Phase 4.4 acceptance coverage proves:
 23. Gateway exposes `codex` and `claude-code` through the ordinary runtime registry
 24. the complete pre-existing Phase 0-4.3 suite remains green
 
+## Slice 4.5 - external managed Bot runtime
+
+**Implementation status:** COMPLETE
+
+Phase 4.5 adds a generic durable-Bot binding layer for long-lived externally managed runtime profiles without moving canonical Bot identity, Task authority, budgets, cancellation or Artifact ownership out of Multiple Bots.
+
+Implemented:
+
+- public `ExternalManagedBotRuntimeAdapter`
+- explicit host-injected managed provider registry
+- one-to-one durable local Bot -> external provider/profile binding
+- stable binding fingerprint verification before and after execution
+- global external binding uniqueness and archived binding reservation
+- exact Task-scoped tool/connection authority
+- mandatory provider authority audit after execution
+- bounded structured execution envelope and output
+- deterministic local-Task idempotency identity
+- normalized provider failure boundary
+- provider-independent local cancellation authority
+- operator-only disabled-Bot rebind preserving canonical Bot identity
+- manifest/runtime policy validation
+- explicit durable-Bot-only boundary
+- explicit rejection of Phase 4.6 remote auth fields
+- explicit rejection of Phase 4.7 external environment leases
+- ordinary Gateway runtime/provider registration
+
+See `EXTERNAL-MANAGED-BOT-RUNTIME.md`.
+
+### 4.5 acceptance proof
+
+The hardened implementation head `c88082c677e291baf359b37acb21316b2be2f0a5` passed GitHub Actions **CI run 421 (`34716643438`) with 355/355 tests**, **0 failures, 0 canceled and 0 skipped**.
+
+Phase 4.5 acceptance coverage proves:
+
+1. durable Bots can execute through an injected long-lived managed provider
+2. Multiple Bots Bot identity remains canonical
+3. live external profile identity/fingerprint is checked before execution
+4. fingerprint is checked again after execution
+5. provider identity/authority/output/cancellation contract drift fails closed
+6. exact local tool/connection authority is supplied to the provider
+7. broad wildcard/group/glob authority fails closed
+8. provider-observed authority must be explicitly reported
+9. observed authority outside the local lease fails closed
+10. local Task identity becomes the provider idempotency key
+11. provider output/usage maps into the existing local result/budget contract
+12. receipts exclude managed refs/fingerprints, authority names and copied host context
+13. arbitrary provider errors are normalized instead of leaking opaque provider state
+14. provider registration is explicit and duplicate-safe
+15. one external provider/ref or provider/fingerprint cannot back multiple canonical Bots
+16. binding uniqueness spans workspaces and archived bindings remain reserved
+17. operator rebind preserves local Bot identity and requires the Bot to be disabled
+18. rebind cannot steal another Bot binding and rechecks live work
+19. external-managed manifest and execution policy are structurally validated
+20. temporary Workers cannot masquerade as persistent external managed Bots
+21. external environment leases are rejected until Phase 4.7
+22. provider cancel is issued at most once
+23. provider cancel failure cannot reverse local cancellation
+24. local cancellation settles even when a provider ignores AbortSignal
+25. the Gateway exposes `external-managed` and the provider registry
+26. the operator rebind HTTP boundary is functional
+27. the complete pre-existing Phase 0-4.4 suite remains green
+
 ## Next gate
 
-**Phase 4.5 - external managed Bot runtime.**
+**Phase 4.6 - remote-machine identity/authentication.**
 
-Phase 4.4 is complete. Phase 4.5 has not started.
+Phase 4.5 is complete. Phase 4.6 has not started.
