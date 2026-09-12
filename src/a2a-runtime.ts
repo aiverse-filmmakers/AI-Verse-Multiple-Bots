@@ -475,7 +475,7 @@ export class A2AJsonRpcRuntimeAdapter implements RuntimeAdapter {
       try {
         const result = await this.remoteAccess!.request({
           machineRef: remoteMachineRef,
-          auth: null,
+          auth: remoteAuth,
           url: cardUrl.requestUrl,
           method: "GET",
           headers: { accept: "application/json, application/a2a+json" },
