@@ -423,7 +423,7 @@ export class A2AJsonRpcRuntimeAdapter implements RuntimeAdapter {
     const active = this.active.get(taskId);
     if (!active) return;
     active.cancelRequested = true;
-    await this.cancelRemote(active).catch(() => undefined);
+    void this.cancelRemote(active).catch(() => undefined);
     if (!active.controller.signal.aborted) active.controller.abort(new Error(`Runtime Task ${taskId} canceled`));
   }
 
