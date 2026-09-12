@@ -1,6 +1,6 @@
 # AI-Verse Multiple Bots - Build Map
 
-**Updated:** 2026-09-12
+**Updated:** 2026-09-13
 
 This is the canonical progress map for the project. Update it whenever a meaningful implementation slice lands so repository state alone shows where the build is, what is complete, and what remains.
 
@@ -17,11 +17,11 @@ Phase 0  Research + Architecture        [COMPLETE]    100%
 Phase 1  Runnable Coordination Core     [COMPLETE]    100%
 Phase 2  Dynamic Multi-Agent Squads     [COMPLETE]    100%
 Phase 3  AI-Verse Native Integration    [COMPLETE]    100%
-Phase 4  Runtime / A2A Interoperability [IN PROGRESS] ~60%
+Phase 4  Runtime / A2A Interoperability [IN PROGRESS] ~70%
 Phase 5  Product + Install + Dashboard  [NOT STARTED]
 ```
 
-**Directional overall first-release progress:** roughly 91% complete.
+**Directional overall first-release progress:** roughly 93% complete.
 
 That overall figure is intentionally approximate because later phases contain different amounts of work. Passed phase gates, not percentages, are authoritative.
 
@@ -501,7 +501,7 @@ AI-Verse native integration now covers safe registration, exact workspace projec
 
 **Status:** IN PROGRESS
 
-**Directional phase progress:** approximately 60%.
+**Directional phase progress:** approximately 70%.
 
 Goal: make durable Bots/temporary Workers portable across supported local and remote runtimes while preserving protocol identity, authority, cancellation, provenance and recovery.
 
@@ -513,8 +513,8 @@ Goal: make durable Bots/temporary Workers portable across supported local and re
 4. Codex/Claude Code process adapters where appropriate - **COMPLETE**
 5. external managed Bot runtime - **COMPLETE**
 6. remote-machine identity/authentication - **COMPLETE**
-7. remote capability/environment leases - **NEXT**
-8. retry/disconnect/reconnect semantics - **NOT STARTED**
+7. remote capability/environment leases - **COMPLETE**
+8. retry/disconnect/reconnect semantics - **NEXT**
 9. compatibility/evaluation suite - **NOT STARTED**
 
 ### Phase 4.1 - A2A adapter
@@ -691,6 +691,39 @@ Implemented:
 
 See `docs/REMOTE-MACHINE-IDENTITY-AUTH.md` and `docs/PHASE-4-STATUS.md`.
 
+### Phase 4.7 - remote capability/environment leases
+
+Implemented:
+
+- public host-neutral `RemoteLeaseProvider`, registry and `RemoteLeaseBroker`
+- local capability/environment leases remain canonical parent authority
+- deterministic Task/principal/workspace/target-bound remote lease request digest
+- exact tool/connection references only; group/glob/wildcard authority fails closed
+- remote providers may narrow tools/connections/destructive-action policy/expiry but can never widen them
+- effective remote expiry capped by capability lease, environment lease and Task deadline
+- revoked/expired local leases rejected before provider execution, while explicit null revocation markers remain active
+- trusted host environment refs mapped by the provider to opaque remote environment refs without model invention
+- exact environment policy preservation and no remote environment authority without a local environment lease
+- provider identity verification, sanitized provider failures and local AbortSignal authority
+- required post-run remote lease receipt bound to lease id/request digest/grant fingerprint
+- post-run observed tool/connection containment and exact environment verification
+- result rejection when the grant expired before completion
+- bounded persisted provenance containing verification/count state rather than authority names, remote lease ids or environment refs
+- pinned A2A remote authority now requires `remote_lease_provider` and the AI-Verse remote Task lease extension
+- A2A `A2A-Extensions` activation plus namespaced grant/receipt metadata
+- meaningful A2A authority cannot be projected to an unpinned remote endpoint
+- A2A execution envelope rewritten to the effective narrowed remote grant
+- A2A completion/cancellation verifies/revokes the exact grant
+- Phase 4.5 external-managed environment-lease path completed through the same generic broker
+- external-managed execution receives only narrowed effective authority and a mapped remote environment
+- existing managed-runtime observed-authority audit must agree with the remote lease receipt
+- Gateway host injection/exposure of remote lease providers/broker
+- no reconnect/retry/lease renewal/reconciliation or Phase 5 behavior introduced
+
+**Verified implementation gate:** GitHub Actions CI run 456 (`34719783568`) passed the full **397/397 tests** with 0 failures, 0 canceled and 0 skipped on hardened implementation head `736fe5103a3e7224c202923e7d7240a3b97d53ad`.
+
+See `docs/REMOTE-CAPABILITY-ENVIRONMENT-LEASES.md` and `docs/PHASE-4-STATUS.md`.
+
 ## Phase 5 - Product, Installer, Omnichannel and Dashboard
 
 **Status:** NOT STARTED
@@ -734,9 +767,9 @@ The first finished release must prove at minimum:
 
 ## Next gate
 
-**Phase 4.7 - remote capability/environment leases.**
+**Phase 4.8 - retry/disconnect/reconnect semantics.**
 
-Phase 4.6 is complete. The next canonical slice is remote capability/environment leases. Phase 4.7 has not started.
+Phase 4.7 is complete. The next canonical slice is retry/disconnect/reconnect semantics. Phase 4.8 has not started.
 
 ## How to report progress
 
