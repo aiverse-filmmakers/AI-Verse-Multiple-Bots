@@ -71,6 +71,7 @@ export interface ExternalManagedBotProvider {
 interface ActiveManagedExecution {
   provider: ExternalManagedBotProvider;
   binding: ExternalManagedBotBinding;
+  cancelStarted: boolean;
 }
 
 function asObject(value: unknown): JsonObject | null {
@@ -170,6 +171,16 @@ function exactRefs(value: unknown, label: string): string[] {
     refs.add(ref);
   }
   return [...refs].sort();
+}
+
+function exactReportedRefs(value: unknown, label: string): string[] {
+  if (!Array.isArray(value)) {
+    throw new ExternalManagedRuntimeError(
+      "EXTERNAL_MANAGED_AUDIT_REQUIRED",
+      `${label} must be an explicit array, including when no authority was used`
+    );
+  }
+  return exactRefs(value, label);
 }
 
 function assertSubset(observed: string[], allowed: string[], label: string): void {
@@ -441,17 +452,30 @@ export class ExternalManagedBotRuntimeAdapter implements RuntimeAdapter {
       ? context.capabilityLease.payload.destructive_actions
       : "deny";
 
-    const active: ActiveManagedExecution = { provider, binding };
+    const active: ActiveManagedExecution = { provider, binding, cancelStarted: false };
     this.active.set(context.task.id, active);
     const abortFromParent = () => { void this.cancel(context.task.id); };
     if (context.signal.aborted) abortFromParent();
     else context.signal.addEventListener("abort", abortFromParent, { once: true });
 
     try {
-      const inspection = await provider.inspect(binding.managedBotRef, context.signal);
+      let inspection: ExternalManagedBotInspection;
+      try {
+        inspection = await provider.inspect(binding.managedBotRef, context.signal);
+      } catch {
+        if (context.signal.aborted) {
+          throw context.signal.reason instanceof Error ? context.signal.reason : new Error("External managed Task canceled");
+        }
+        throw new ExternalManagedRuntimeError(
+          "EXTERNAL_MANAGED_PROVIDER_INSPECT_FAILED",
+          `External managed provider ${binding.provider} could not verify the pinned Bot identity`
+        );
+      }
       assertInspection(inspection, binding);
 
-      const result = await provider.execute({
+      let result: ExternalManagedBotExecutionResult;
+      try {
+        result = await provider.execute({
         localTaskId: context.task.id,
         idempotencyKey: `aiverse:${context.task.id}`,
         managedBotRef: binding.managedBotRef,
@@ -461,9 +485,18 @@ export class ExternalManagedBotRuntimeAdapter implements RuntimeAdapter {
         envelope: runtimeEnvelope(context, binding, tools, connections),
         allowedTools: tools,
         allowedConnections: connections,
-        destructiveActions,
-        signal: context.signal
-      });
+          destructiveActions,
+          signal: context.signal
+        });
+      } catch {
+        if (context.signal.aborted) {
+          throw context.signal.reason instanceof Error ? context.signal.reason : new Error("External managed Task canceled");
+        }
+        throw new ExternalManagedRuntimeError(
+          "EXTERNAL_MANAGED_PROVIDER_EXECUTE_FAILED",
+          `External managed provider ${binding.provider} failed delegated execution`
+        );
+      }
 
       const executionId = safeOpaqueString(result.managed_execution_id, "result.managed_execution_id", 1024);
       if (result.binding_fingerprint !== binding.bindingFingerprint) {
@@ -472,8 +505,8 @@ export class ExternalManagedBotRuntimeAdapter implements RuntimeAdapter {
           "External managed Bot binding changed between inspection and execution"
         );
       }
-      const observedTools = exactRefs(result.observed_tools, "result.observed_tools");
-      const observedConnections = exactRefs(result.observed_connections, "result.observed_connections");
+      const observedTools = exactReportedRefs(result.observed_tools, "result.observed_tools");
+      const observedConnections = exactReportedRefs(result.observed_connections, "result.observed_connections");
       assertSubset(observedTools, tools, "tool");
       assertSubset(observedConnections, connections, "connection");
       const output = boundedJsonObject(result.output, EXTERNAL_MANAGED_MAX_OUTPUT_BYTES, "result.output");
@@ -523,7 +556,8 @@ export class ExternalManagedBotRuntimeAdapter implements RuntimeAdapter {
 
   async cancel(taskId: string): Promise<void> {
     const active = this.active.get(taskId);
-    if (!active) return;
+    if (!active || active.cancelStarted) return;
+    active.cancelStarted = true;
     try {
       await active.provider.cancel({
         localTaskId: taskId,
