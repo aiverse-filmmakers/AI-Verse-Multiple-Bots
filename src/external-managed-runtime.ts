@@ -276,7 +276,9 @@ function runtimeEnvelope(
   context: RuntimeExecutionContext,
   binding: ExternalManagedBotBinding,
   tools: string[],
-  connections: string[]
+  connections: string[],
+  destructiveActions: string,
+  remoteLeaseApplied: boolean
 ): JsonObject {
   return boundedEnvelope({
     contract: EXTERNAL_MANAGED_RUNTIME_ENVELOPE,
@@ -302,9 +304,10 @@ function runtimeEnvelope(
       lease_id: context.capabilityLease.id,
       tools,
       connections,
-      destructive_actions: context.capabilityLease.payload.destructive_actions ?? "deny",
-      environment_lease_id: null,
-      rule: "The external provider must enforce exactly this Task lease. External profile state cannot widen local authority."
+      destructive_actions: destructiveActions,
+      environment_lease_id: context.environmentLease?.id ?? null,
+      remote_lease_applied: remoteLeaseApplied,
+      rule: "The external provider must enforce exactly this effective Task lease. External profile state cannot widen local authority."
     },
     workspace_projection: context.workspaceProjection ? {
       provider: context.workspaceProjection.provider,
@@ -564,7 +567,14 @@ export class ExternalManagedBotRuntimeAdapter implements RuntimeAdapter {
         expectedBindingFingerprint: binding.bindingFingerprint,
         principalId: context.principal.id,
         workspaceId: String(context.task.workspaceId ?? ""),
-        envelope: runtimeEnvelope(context, binding, tools, connections),
+        envelope: runtimeEnvelope(
+          context,
+          binding,
+          active.remoteLeaseGrant?.granted_tools ?? tools,
+          active.remoteLeaseGrant?.granted_connections ?? connections,
+          active.remoteLeaseGrant?.destructive_actions ?? destructiveActions,
+          Boolean(active.remoteLeaseGrant)
+        ),
         allowedTools: active.remoteLeaseGrant?.granted_tools ?? tools,
         allowedConnections: active.remoteLeaseGrant?.granted_connections ?? connections,
           destructiveActions: active.remoteLeaseGrant?.destructive_actions ?? destructiveActions,
