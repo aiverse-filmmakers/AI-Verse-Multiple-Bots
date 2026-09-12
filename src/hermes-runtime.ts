@@ -294,14 +294,17 @@ export class HermesStdioGatewayTransport implements HermesGatewayTransport {
   private readonly waiters: EventWaiter[] = [];
   private closed = false;
 
-  constructor(readonly config: HermesStdioTransportConfig) {}
+  constructor(
+    readonly config: HermesStdioTransportConfig,
+    private readonly spawnImpl: (file: string, args: string[], options?: any) => any = spawn
+  ) {}
 
   async start(signal: AbortSignal): Promise<void> {
     if (this.child) throw new HermesRuntimeError("HERMES_TRANSPORT_STATE", "Hermes stdio transport already started");
     if (signal.aborted) throw signal.reason instanceof Error ? signal.reason : new Error("Hermes startup canceled");
 
     try {
-      this.child = spawn(this.config.command, this.config.args, {
+      this.child = this.spawnImpl(this.config.command, this.config.args, {
         cwd: this.config.cwd,
         env: this.config.env,
         stdio: ["pipe", "pipe", "pipe"],
