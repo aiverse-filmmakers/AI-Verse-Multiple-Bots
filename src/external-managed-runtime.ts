@@ -6,6 +6,10 @@ import {
   type RemoteLeaseAudit,
   type RemoteLeaseGrant
 } from "./remote-leases.js";
+import {
+  RemoteRecoveryStore,
+  remoteOperationKey
+} from "./remote-recovery.js";
 import type { JsonObject } from "./types.js";
 
 export const EXTERNAL_MANAGED_RUNTIME_ADAPTER_ID = "external-managed";
@@ -35,6 +39,7 @@ export interface ExternalManagedBotInspection {
   authority_mode: "exact_task_lease";
   output_mode: "visible_result_only";
   supports_cancel: boolean;
+  idempotency_mode?: "best_effort" | "exact_task_key";
 }
 
 export interface ExternalManagedBotExecuteRequest {
@@ -272,6 +277,34 @@ function stringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
 }
 
+function managedRetryAttempts(runtime: JsonObject): number {
+  const raw = runtime.remote_retry_max_attempts;
+  if (raw === undefined || raw === null) return 3;
+  if (typeof raw !== "number" || !Number.isInteger(raw) || raw < 1 || raw > 5) {
+    throw new ExternalManagedRuntimeError(
+      "EXTERNAL_MANAGED_INVALID_CONFIG",
+      "runtime.remote_retry_max_attempts must be an integer between 1 and 5"
+    );
+  }
+  return raw;
+}
+
+function managedRetryDelayMs(runtime: JsonObject): number {
+  const raw = runtime.remote_retry_base_delay_ms;
+  if (raw === undefined || raw === null) return 100;
+  if (typeof raw !== "number" || !Number.isInteger(raw) || raw < 25 || raw > 5_000) {
+    throw new ExternalManagedRuntimeError(
+      "EXTERNAL_MANAGED_INVALID_CONFIG",
+      "runtime.remote_retry_base_delay_ms must be an integer between 25 and 5000"
+    );
+  }
+  return raw;
+}
+
+async function sleepWithAbort(ms: number, signal: AbortSignal): Promise<void> {
+  await raceWithAbort(new Promise<void>((resolve) => setTimeout(resolve, ms)), signal);
+}
+
 function runtimeEnvelope(
   context: RuntimeExecutionContext,
   binding: ExternalManagedBotBinding,
@@ -466,7 +499,8 @@ export class ExternalManagedBotRuntimeAdapter implements RuntimeAdapter {
 
   constructor(
     readonly providers: ExternalManagedBotProviderRegistry = new ExternalManagedBotProviderRegistry(),
-    readonly remoteLeases: RemoteLeaseBroker | null = null
+    readonly remoteLeases: RemoteLeaseBroker | null = null,
+    readonly recovery: RemoteRecoveryStore | null = null
   ) {}
 
   async execute(context: RuntimeExecutionContext): Promise<RuntimeExecutionResult> {
