@@ -12,6 +12,8 @@ import { AiVerseOsWorkspaceProjector } from "./ai-verse-os-workspace-projection.
 import { delegateWithArtifacts } from "./artifact-delegation.js";
 import type { BudgetEnvelope } from "./budget.js";
 import { CandidateWritebackRouter } from "./candidate-writeback.js";
+import { ClaudeCodePrintRuntimeAdapter } from "./claude-code-runtime.js";
+import { CodexExecRuntimeAdapter } from "./codex-runtime.js";
 import type { BotManifest, JsonObject } from "./types.js";
 import { ExecutionQueue, type RecoveryPolicy } from "./execution-queue.js";
 import { FourCsHealthProjector } from "./four-cs-health.js";
@@ -119,7 +121,9 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
     .register(new OpenAICompatibleRuntimeAdapter())
     .register(new A2AJsonRpcRuntimeAdapter())
     .register(new HermesStdioRuntimeAdapter())
-    .register(new OpenClawAgentExecRuntimeAdapter());
+    .register(new OpenClawAgentExecRuntimeAdapter())
+    .register(new CodexExecRuntimeAdapter())
+    .register(new ClaudeCodePrintRuntimeAdapter());
   const skillsRuntimes = new SkillsCapabilityRuntimeRegistry(baseRuntimes, skillsCapabilitySource);
   const memoryRuntimes = new MemoryRecallRuntimeRegistry(skillsRuntimes, memoryRecallSource);
   const runtimes = brainObjectiveSource
