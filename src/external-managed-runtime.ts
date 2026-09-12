@@ -195,6 +195,35 @@ function assertSubset(observed: string[], allowed: string[], label: string): voi
   }
 }
 
+async function raceWithAbort<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) {
+    throw signal.reason instanceof Error ? signal.reason : new Error("External managed Task canceled");
+  }
+  return await new Promise<T>((resolvePromise, rejectPromise) => {
+    let settled = false;
+    const abort = () => {
+      if (settled) return;
+      settled = true;
+      rejectPromise(signal.reason instanceof Error ? signal.reason : new Error("External managed Task canceled"));
+    };
+    signal.addEventListener("abort", abort, { once: true });
+    promise.then(
+      (value) => {
+        if (settled) return;
+        settled = true;
+        signal.removeEventListener("abort", abort);
+        resolvePromise(value);
+      },
+      (error) => {
+        if (settled) return;
+        settled = true;
+        signal.removeEventListener("abort", abort);
+        rejectPromise(error);
+      }
+    );
+  });
+}
+
 function boundedJsonObject(value: unknown, maxBytes: number, label: string): JsonObject {
   const object = asObject(value);
   if (!object) {
@@ -461,7 +490,10 @@ export class ExternalManagedBotRuntimeAdapter implements RuntimeAdapter {
     try {
       let inspection: ExternalManagedBotInspection;
       try {
-        inspection = await provider.inspect(binding.managedBotRef, context.signal);
+        inspection = await raceWithAbort(
+          provider.inspect(binding.managedBotRef, context.signal),
+          context.signal
+        );
       } catch {
         if (context.signal.aborted) {
           throw context.signal.reason instanceof Error ? context.signal.reason : new Error("External managed Task canceled");
@@ -475,7 +507,7 @@ export class ExternalManagedBotRuntimeAdapter implements RuntimeAdapter {
 
       let result: ExternalManagedBotExecutionResult;
       try {
-        result = await provider.execute({
+        result = await raceWithAbort(provider.execute({
         localTaskId: context.task.id,
         idempotencyKey: `aiverse:${context.task.id}`,
         managedBotRef: binding.managedBotRef,
@@ -487,7 +519,7 @@ export class ExternalManagedBotRuntimeAdapter implements RuntimeAdapter {
         allowedConnections: connections,
           destructiveActions,
           signal: context.signal
-        });
+        }), context.signal);
       } catch {
         if (context.signal.aborted) {
           throw context.signal.reason instanceof Error ? context.signal.reason : new Error("External managed Task canceled");
