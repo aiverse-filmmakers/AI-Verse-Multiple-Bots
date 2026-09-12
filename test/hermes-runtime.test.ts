@@ -481,6 +481,7 @@ test("Hermes stdio transport parses newline JSON-RPC, validates responses, and u
 
 test("Gateway registers Hermes as a normal host-neutral runtime alongside existing adapters", async () => {
   const service = createGatewayServer({ dbPath: ":memory:", port: 0 });
+  await service.listen();
   await service.supervisor.waitForIdle();
   try {
     assert.equal(service.runtimes.has("hermes"), true);
