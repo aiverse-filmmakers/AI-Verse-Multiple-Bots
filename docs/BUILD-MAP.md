@@ -16,12 +16,12 @@ The target is an installable persistent-teammate layer that can run standalone o
 Phase 0  Research + Architecture        [COMPLETE]    100%
 Phase 1  Runnable Coordination Core     [COMPLETE]    100%
 Phase 2  Dynamic Multi-Agent Squads     [COMPLETE]    100%
-Phase 3  AI-Verse Native Integration    [IN PROGRESS] ~90%
+Phase 3  AI-Verse Native Integration    [COMPLETE]    100%
 Phase 4  Runtime / A2A Interoperability [NOT STARTED]
 Phase 5  Product + Install + Dashboard  [NOT STARTED]
 ```
 
-**Directional overall first-release progress:** roughly 77% complete.
+**Directional overall first-release progress:** roughly 79% complete.
 
 That overall figure is intentionally approximate because later phases contain different amounts of work. Passed phase gates, not percentages, are authoritative.
 
@@ -227,9 +227,9 @@ None.
 
 ## Phase 3 - AI-Verse Native Integration
 
-**Status:** IN PROGRESS
+**Status:** COMPLETE
 
-**Directional phase progress:** approximately 90%.
+**Directional phase progress:** 100%.
 
 Goal: attach the finished host-neutral teammate/squad package to AI-Verse OS without moving or duplicating canonical OS/Brain/Memory/Skills state into this repository.
 
@@ -244,7 +244,7 @@ Goal: attach the finished host-neutral teammate/squad package to AI-Verse OS wit
 7. OS write-command boundary - **COMPLETE**
 8. candidate knowledge/decision write-back - **COMPLETE**
 9. 4Cs health integration - **COMPLETE**
-10. uninstall/upgrade without canonical-state damage - **NEXT**
+10. uninstall/upgrade without canonical-state damage - **COMPLETE**
 
 ### Phase 3.1 - AI-Verse OS installer/registration contract
 
@@ -458,11 +458,44 @@ Implemented:
 
 See `docs/AI-VERSE-FOUR-CS-HEALTH.md` and `docs/PHASE-3-STATUS.md`.
 
+### Phase 3.10 - uninstall/upgrade without canonical-state damage
+
+Implemented:
+
+- public `planAiVerseOsUpgrade()` and `upgradeAiVerseOsExtension()`
+- public `planAiVerseOsUninstall()` and `uninstallAiVerseOsExtension()`
+- upgrade requires an existing registry entry provably owned by Multiple Bots
+- foreign same-key registrations fail closed instead of being converted or deleted
+- upgrade preserves user-disabled state, unrelated extension entries, unknown registry fields and unknown own-entry metadata
+- upgrade reuses the existing compatibility, installed-file verification, registry lock and atomic replace contract
+- uninstall removes the owned Multiple Bots registry entry before bounded file cleanup
+- automatic file removal is limited to registered regular files inside `.aiverse/extensions/ai-verse-multiple-bots/`
+- registered paths outside the extension root are preserved and reported
+- unknown/unregistered extension-root files are never recursively scavenged
+- symlinked lifecycle paths fail before registry mutation
+- repeated uninstall after registration removal is a no-op and does not search for leftovers
+- `runtime/ai-verse-bots/coordination.db` is preserved
+- canonical OS/operator/workspace/knowledge/decision/Brain/Memory/Skills/Automation state remains untouched
+- additive CLI `os upgrade-plan`, `os upgrade`, `os uninstall-plan`, and `os uninstall`
+- Phase 5 remains responsible for final package download/materialization and clean-machine installer behavior
+
+**Verified implementation gate:** GitHub Actions CI run 384 (`34709530708`) passed the full **287/287 tests** with 0 failures, 0 canceled and 0 skipped on exact implementation head `eb41d3f690590dd0e2cefd739109058ee5a3eae6`.
+
+See `docs/AI-VERSE-UPGRADE-UNINSTALL-SAFETY.md` and `docs/PHASE-3-STATUS.md`.
+
 ### Phase 3 boundary
 
 Phase 3 work is additive through explicit host adapters. AI-Verse OS remains canonical for operator/workspace/domain state, capability-provider resolution and automation cadence. AI-Verse Brain remains canonical for strategic intent and objective lifecycle. AI-Verse Memory remains canonical for historical memory and its rebuildable derived index. AI-Verse Skills remains canonical for reusable capability packages and immutable generations. Multiple Bots remains canonical for coordination state created after a bounded host invocation. Host, Brain, Memory, selected Skills and automation invocation projections are scoped views, not competing truth.
 
-Production one-command package materialization is still a Phase 5 product responsibility; Phase 3.1 defines safe host registration after extension-owned files exist.
+Production one-command package materialization is still a Phase 5 product responsibility; Phase 3.1 defines safe host registration after extension-owned files exist, and Phase 3.10 defines safe lifecycle mutation after materialization.
+
+### Phase 3 completion gate
+
+**PASSED.**
+
+AI-Verse native integration now covers safe registration, exact workspace projection, Brain ingress, Memory recall, Skills capability resolution, Automations invocation ingress, owner-controlled OS write requests, candidate write-back, read-only Four Cs health evidence, and bounded upgrade/uninstall behavior without moving canonical domain ownership into Multiple Bots.
+
+**Final Phase 3 code gate:** 287 tests passed, 0 failed, 0 canceled, 0 skipped.
 
 ## Phase 4 - Runtime and Agent Interoperability
 
@@ -525,9 +558,9 @@ The first finished release must prove at minimum:
 
 ## Next gate
 
-**Phase 3.10 - uninstall/upgrade without canonical-state damage.**
+**Phase 4.1 - A2A adapter.**
 
-The next slice must prove that Multiple Bots can be upgraded or uninstalled without deleting or rewriting user-owned AI-Verse OS, Brain, Memory, Skills, workspace, knowledge, decision, automation, or other canonical state. It may remove or migrate only extension-owned installation, registration, derived runtime, and package state under explicit bounded rules.
+Phase 3 is complete. The next planned slice is the first Runtime and Agent Interoperability task: add an A2A adapter while preserving protocol identity, authority, cancellation, provenance and recovery. Phase 4.1 has not started.
 
 ## How to report progress
 
