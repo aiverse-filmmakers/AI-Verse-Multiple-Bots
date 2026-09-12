@@ -324,6 +324,7 @@ test("custom authenticator can prove SPIFFE/mTLS-style peer identity and satisfy
           },
           client_authenticated: true,
           satisfied_schemes: ["mtls", "oauth"],
+          satisfied_scopes: { mtls: [], oauth: ["agent.execute"] },
           mechanism: "spiffe-x509+oauth2-mtls"
         }
       };
@@ -398,6 +399,7 @@ test("broker rejects spoofed peer identity, unverified TLS, unauthenticated clie
             peer_identity: { kind: "https_origin", value: input.machine.origin },
             client_authenticated: true,
             satisfied_schemes: ["bearer"],
+            satisfied_scopes: { bearer: [] },
             mechanism: "custom",
             ...item.evidence
           }
