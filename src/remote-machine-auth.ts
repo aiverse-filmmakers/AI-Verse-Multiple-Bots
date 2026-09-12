@@ -46,6 +46,7 @@ export interface RemoteAuthenticationEvidence {
   peer_identity: RemotePeerIdentity;
   client_authenticated: boolean;
   satisfied_schemes: string[];
+  satisfied_scopes: Record<string, string[]>;
   mechanism: string;
 }
 
@@ -221,7 +222,44 @@ function validateSecuritySchemeReferences(
 function satisfiesRequirement(evidence: RemoteAuthenticationEvidence, requirements: RemoteSecurityRequirement[]): boolean {
   if (requirements.length === 0) return true;
   const satisfied = new Set(evidence.satisfied_schemes);
-  return requirements.some((requirement) => Object.keys(requirement.schemes).every((name) => satisfied.has(name)));
+  const scopes = evidence.satisfied_scopes ?? {};
+  return requirements.some((requirement) =>
+    Object.entries(requirement.schemes).every(([name, requiredScopes]) => {
+      if (!satisfied.has(name)) return false;
+      const provenScopes = new Set(Array.isArray(scopes[name]) ? scopes[name] : []);
+      return requiredScopes.every((scope) => provenScopes.has(scope));
+    })
+  );
+}
+
+async function raceWithAbort<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) return await promise;
+  if (signal.aborted) {
+    throw signal.reason instanceof Error ? signal.reason : new Error("Remote request canceled");
+  }
+  return await new Promise<T>((resolvePromise, rejectPromise) => {
+    let settled = false;
+    const abort = () => {
+      if (settled) return;
+      settled = true;
+      rejectPromise(signal.reason instanceof Error ? signal.reason : new Error("Remote request canceled"));
+    };
+    signal.addEventListener("abort", abort, { once: true });
+    promise.then(
+      (value) => {
+        if (settled) return;
+        settled = true;
+        signal.removeEventListener("abort", abort);
+        resolvePromise(value);
+      },
+      (error) => {
+        if (settled) return;
+        settled = true;
+        signal.removeEventListener("abort", abort);
+        rejectPromise(error);
+      }
+    );
+  });
 }
 
 export class RemoteMachineIdentityRegistry {
@@ -333,17 +371,28 @@ export class RemoteHttpAccessBroker {
       const providerId = safeString(input.auth.provider, "remote auth provider", 256);
       const credentialRef = safeString(input.auth.credential_ref, "remote credential_ref", 1024);
       const authenticator = this.authenticators.get(providerId);
-      result = await authenticator.request({
-        machine,
-        credentialRef,
-        url,
-        method,
-        headers: input.headers ?? {},
-        ...(input.body !== undefined ? { body: input.body } : {}),
-        securitySchemes,
-        securityRequirements: requirements,
-        ...(input.signal ? { signal: input.signal } : {})
-      });
+      try {
+        result = await raceWithAbort(authenticator.request({
+          machine,
+          credentialRef,
+          url,
+          method,
+          headers: input.headers ?? {},
+          ...(input.body !== undefined ? { body: input.body } : {}),
+          securitySchemes,
+          securityRequirements: requirements,
+          ...(input.signal ? { signal: input.signal } : {})
+        }), input.signal);
+      } catch (error) {
+        if (input.signal?.aborted) {
+          throw input.signal.reason instanceof Error ? input.signal.reason : new Error("Remote request canceled");
+        }
+        if (error instanceof RemoteMachineAuthError) throw error;
+        throw new RemoteMachineAuthError(
+          "REMOTE_AUTH_PROVIDER_FAILED",
+          `Remote authenticator ${providerId} failed without exposing provider error details`
+        );
+      }
     } else if (requirements.length > 0) {
       throw new RemoteMachineAuthError(
         "REMOTE_AUTH_BINDING_REQUIRED",
@@ -372,6 +421,7 @@ export class RemoteHttpAccessBroker {
           peer_identity: { kind: "https_origin", value: machine.origin },
           client_authenticated: false,
           satisfied_schemes: [],
+          satisfied_scopes: {},
           mechanism: "https-ca"
         }
       };
@@ -511,6 +561,7 @@ export class HeaderRemoteHttpAuthenticator implements RemoteHttpAuthenticator {
           peer_identity: { kind: "https_origin", value: input.machine.origin },
           client_authenticated: false,
           satisfied_schemes: [],
+          satisfied_scopes: {},
           mechanism: "https-ca"
         }
       };
@@ -560,6 +611,7 @@ export class HeaderRemoteHttpAuthenticator implements RemoteHttpAuthenticator {
         peer_identity: { kind: "https_origin", value: input.machine.origin },
         client_authenticated: true,
         satisfied_schemes: [selection.name],
+        satisfied_scopes: { [selection.name]: [] },
         mechanism: selection.mechanism
       }
     };
