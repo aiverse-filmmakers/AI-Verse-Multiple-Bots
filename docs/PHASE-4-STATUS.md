@@ -6,7 +6,7 @@
 
 **Overall status:** IN PROGRESS
 
-**Directional phase progress:** approximately 30%
+**Directional phase progress:** approximately 40%
 
 This file is the implementation ledger for Phase 4. The canonical product roadmap remains `BUILD-MAP.md`.
 
@@ -19,8 +19,8 @@ Make durable Bots and temporary Workers portable across supported local and remo
 1. A2A adapter - **COMPLETE**
 2. Hermes adapter - **COMPLETE**
 3. OpenClaw adapter - **COMPLETE**
-4. Codex/Claude Code process adapters where appropriate - **NEXT**
-5. external managed Bot runtime - **NOT STARTED**
+4. Codex/Claude Code process adapters where appropriate - **COMPLETE**
+5. external managed Bot runtime - **NEXT**
 6. remote-machine identity/authentication - **NOT STARTED**
 7. remote capability/environment leases - **NOT STARTED**
 8. retry/disconnect/reconnect semantics - **NOT STARTED**
@@ -176,8 +176,70 @@ Phase 4.3 acceptance coverage proves:
 18. the Gateway exposes `openclaw` through the ordinary runtime registry
 19. the complete pre-existing Phase 0-4.2 suite remains green
 
+## Slice 4.4 - Codex/Claude Code process adapters
+
+**Implementation status:** COMPLETE
+
+Phase 4.4 adds bounded local process execution for Codex and Claude Code while preserving Multiple Bots as the owner of identity, Task authority, budgets, cancellation and local Artifact publication.
+
+Implemented:
+
+- shared bounded `shell: false` child-process transport
+- local cancellation, outer process deadlines and bounded TERM/KILL cleanup
+- stdout-overflow kill escalation
+- public `CodexExecRuntimeAdapter`
+- temporary Codex harness cwd and ignored project/user instruction surfaces
+- exact provider-scoped Codex workspace/web capabilities
+- custom Codex filesystem permission profile and network denial
+- explicit Codex feature narrowing
+- MCP inventory preflight plus explicit server/orchestrator disable
+- Codex JSONL result/usage parsing and post-run authority checks
+- public `ClaudeCodePrintRuntimeAdapter`
+- Claude Code safe + restricted print harness
+- exact built-in Claude tool mapping
+- no interactive permission widening
+- strict empty MCP config plus MCP deny
+- no Claude session persistence
+- explicit host-managed-policy ownership marker
+- durable Bot and temporary Worker identity preservation
+- explicit rejection of later remote/auth/resume scope
+- ordinary Gateway runtime registration
+
+See `CODEX-CLAUDE-CODE-PROCESS-ADAPTERS.md`.
+
+### 4.4 acceptance proof
+
+The hardened implementation head `9783dca791881ca53265e116ec835e2552e0f43a` passed GitHub Actions **CI run 410 (`34715059115`) with 337/337 tests**, **0 failures, 0 canceled and 0 skipped**.
+
+Phase 4.4 acceptance coverage proves:
+
+1. Codex executes through one-shot JSONL `exec`
+2. Codex project/user instruction/config surfaces are isolated for delegated work
+3. Codex workspace access follows an explicit provider-scoped read/write lease
+4. Codex network/web authority remains denied unless explicitly supported and leased
+5. Codex MCP inventory is preflighted and every discovered server is explicitly disabled
+6. Codex MCP/collaboration events fail closed after execution
+7. Codex hidden reasoning is not published as the local result
+8. Codex durable Bot and temporary Worker identity remain local
+9. Claude Code executes through native print mode with safe + restricted boundaries
+10. Claude Code receives only the exact leased built-in tool set
+11. Claude Code zero-tool execution remains explicitly tool-less
+12. Claude Code cannot widen delegated authority through permission prompts
+13. Claude Code MCP is blocked through safe mode, strict empty config and explicit deny
+14. Claude Code session persistence is disabled
+15. Claude Code host-managed policy remains upstream rather than being misrepresented as Task authority
+16. Claude Code usage/cost maps into the existing local usage contract
+17. Claude Code durable Bot and temporary Worker identity remain local
+18. remote/auth/resume fields are rejected rather than stealing later Phase 4 ownership
+19. both adapters support exact local cancellation
+20. shared process execution uses `shell: false`
+21. process deadlines are bounded
+22. stdout overflow cannot leave a SIGTERM-resistant child running
+23. Gateway exposes `codex` and `claude-code` through the ordinary runtime registry
+24. the complete pre-existing Phase 0-4.3 suite remains green
+
 ## Next gate
 
-**Phase 4.4 - Codex/Claude Code process adapters where appropriate.**
+**Phase 4.5 - external managed Bot runtime.**
 
-Phase 4.3 is complete. Phase 4.4 has not started.
+Phase 4.4 is complete. Phase 4.5 has not started.

@@ -17,11 +17,11 @@ Phase 0  Research + Architecture        [COMPLETE]    100%
 Phase 1  Runnable Coordination Core     [COMPLETE]    100%
 Phase 2  Dynamic Multi-Agent Squads     [COMPLETE]    100%
 Phase 3  AI-Verse Native Integration    [COMPLETE]    100%
-Phase 4  Runtime / A2A Interoperability [IN PROGRESS] ~30%
+Phase 4  Runtime / A2A Interoperability [IN PROGRESS] ~40%
 Phase 5  Product + Install + Dashboard  [NOT STARTED]
 ```
 
-**Directional overall first-release progress:** roughly 85% complete.
+**Directional overall first-release progress:** roughly 87% complete.
 
 That overall figure is intentionally approximate because later phases contain different amounts of work. Passed phase gates, not percentages, are authoritative.
 
@@ -501,7 +501,7 @@ AI-Verse native integration now covers safe registration, exact workspace projec
 
 **Status:** IN PROGRESS
 
-**Directional phase progress:** approximately 30%.
+**Directional phase progress:** approximately 40%.
 
 Goal: make durable Bots/temporary Workers portable across supported local and remote runtimes while preserving protocol identity, authority, cancellation, provenance and recovery.
 
@@ -510,8 +510,8 @@ Goal: make durable Bots/temporary Workers portable across supported local and re
 1. A2A adapter - **COMPLETE**
 2. Hermes adapter - **COMPLETE**
 3. OpenClaw adapter - **COMPLETE**
-4. Codex/Claude Code process adapters where appropriate - **NEXT**
-5. external managed Bot runtime - **NOT STARTED**
+4. Codex/Claude Code process adapters where appropriate - **COMPLETE**
+5. external managed Bot runtime - **NEXT**
 6. remote-machine identity/authentication - **NOT STARTED**
 7. remote capability/environment leases - **NOT STARTED**
 8. retry/disconnect/reconnect semantics - **NOT STARTED**
@@ -600,6 +600,37 @@ Implemented:
 
 See `docs/OPENCLAW-RUNTIME-ADAPTER.md` and `docs/PHASE-4-STATUS.md`.
 
+### Phase 4.4 - Codex/Claude Code process adapters
+
+Implemented:
+
+- shared bounded local CLI process transport with stdin delivery, `shell: false`, stdout/stderr limits, AbortSignal cancellation, outer process deadlines and SIGTERM -> SIGKILL escalation
+- stdout-overflow cleanup that preserves kill escalation even after the local promise fails
+- public `CodexExecRuntimeAdapter` with runtime id `codex`
+- one-shot `codex exec --json` execution through a temporary harness working directory
+- project-rule/config isolation plus ignored user config while preserving normal Codex authentication ownership
+- exact provider-scoped Codex capability vocabulary for workspace read, workspace write and web search
+- custom Codex filesystem permission profile that exposes only platform-minimal reads plus the explicitly leased workspace
+- Codex process-level network denial and web search disabled unless explicitly leased
+- Codex plugin/hook/memory/multi-agent/Skills/request-permission surfaces disabled for delegated process execution
+- Codex MCP inventory preflight through `codex mcp list --json`, explicit disable of every discovered server, and orchestrator MCP disable
+- Codex JSONL result parsing with visible assistant result only and post-run MCP/collaboration/workspace/write/web authority checks
+- public `ClaudeCodePrintRuntimeAdapter` with runtime id `claude-code`
+- one-shot Claude Code `-p --output-format json` execution in native `--safe-mode --restricted` harness mode
+- exact Claude built-in `--tools` mapping from provider-scoped workspace/shell/web capabilities
+- Claude `dontAsk` plus `--permission-prompts none` so delegated work cannot widen authority interactively
+- Claude safe-mode MCP suppression plus strict empty MCP config and explicit `mcp__*` deny
+- Claude session persistence, slash commands and Chrome integration disabled
+- explicit host-managed-policy marker acknowledging upstream administrator policy remains authoritative
+- durable Bot and temporary Worker identity/Team Run lineage preserved locally for both runtimes
+- remote/auth/resume configuration rejected so later Phase 4 slices retain ownership
+- Gateway registration of `codex` and `claude-code` as ordinary host-neutral runtimes
+- no external-managed-Bot, remote-auth, remote-lease, reconnect/retry or Phase 5 behavior introduced
+
+**Verified implementation gate:** GitHub Actions CI run 410 (`34715059115`) passed the full **337/337 tests** with 0 failures, 0 canceled and 0 skipped on hardened implementation head `9783dca791881ca53265e116ec835e2552e0f43a`.
+
+See `docs/CODEX-CLAUDE-CODE-PROCESS-ADAPTERS.md` and `docs/PHASE-4-STATUS.md`.
+
 ## Phase 5 - Product, Installer, Omnichannel and Dashboard
 
 **Status:** NOT STARTED
@@ -643,9 +674,9 @@ The first finished release must prove at minimum:
 
 ## Next gate
 
-**Phase 4.4 - Codex/Claude Code process adapters where appropriate.**
+**Phase 4.5 - external managed Bot runtime.**
 
-Phase 4.3 is complete. The next canonical slice is the bounded local process-adapter work for Codex/Claude Code where the architecture calls for it. Phase 4.4 has not started.
+Phase 4.4 is complete. The next canonical slice is the external managed Bot runtime boundary. Phase 4.5 has not started.
 
 ## How to report progress
 
