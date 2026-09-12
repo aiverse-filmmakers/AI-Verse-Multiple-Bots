@@ -493,3 +493,79 @@ test("remote lease revoke targets the exact grant and target", async () => {
     grantFingerprint: "grant:v1"
   }]);
 });
+
+
+test("recovered remote lease is revalidated against current canonical local authority", async () => {
+  const { broker: remote } = broker();
+  const originalContext = context();
+  const grant = await remote.grant(
+    "fake-lease",
+    originalContext,
+    { kind: "machine", ref: "machine" }
+  );
+
+  const recovered = remote.validateRecoveredGrant(originalContext, grant);
+  assert.deepEqual(recovered.granted_tools, ["docs.read", "web.search"]);
+
+  assert.throws(
+    () => remote.validateRecoveredGrant(
+      context({ tools: ["web.search"] }),
+      grant
+    ),
+    (error: unknown) => error instanceof RemoteLeaseError
+      && error.code === "REMOTE_LEASE_AUTHORITY_EXPANSION"
+  );
+
+  assert.throws(
+    () => remote.validateRecoveredGrant(originalContext, {
+      ...grant,
+      expires_at: "2020-01-01T00:00:00Z"
+    }),
+    assertCode("REMOTE_LEASE_RECOVERY_EXPIRED")
+  );
+});
+
+test("remote lease recovery replacement preserves exact authority and environment while extending expiry", () => {
+  const { broker: remote } = broker();
+  const previous: RemoteLeaseGrant = {
+    provider: "fake-lease",
+    remote_lease_id: "lease-old",
+    request_digest: "a".repeat(64),
+    grant_fingerprint: "fingerprint-old",
+    expires_at: "2028-01-01T00:00:00Z",
+    granted_tools: ["web.search"],
+    granted_connections: ["drive.read"],
+    destructive_actions: "deny",
+    environment: {
+      environment_policy: "isolated_run",
+      remote_environment_ref: "remote-env-1"
+    }
+  };
+  const replacement: RemoteLeaseGrant = {
+    ...previous,
+    remote_lease_id: "lease-new",
+    request_digest: "b".repeat(64),
+    grant_fingerprint: "fingerprint-new",
+    expires_at: "2028-02-01T00:00:00Z"
+  };
+
+  assert.doesNotThrow(() => remote.assertRecoveryReplacement(previous, replacement));
+
+  for (const patch of [
+    { granted_tools: ["web.search", "docs.read"] },
+    { granted_connections: [] },
+    { destructive_actions: "approval_required" },
+    {
+      environment: {
+        environment_policy: "isolated_run",
+        remote_environment_ref: "remote-env-2"
+      }
+    },
+    { expires_at: "2027-12-31T00:00:00Z" }
+  ] as Array<Partial<RemoteLeaseGrant>>) {
+    assert.throws(
+      () => remote.assertRecoveryReplacement(previous, { ...replacement, ...patch }),
+      assertCode("REMOTE_LEASE_RECOVERY_REPLACEMENT_MISMATCH")
+    );
+  }
+});
