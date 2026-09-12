@@ -10,6 +10,7 @@ import { AiVerseSkillsCapabilitySource } from "./ai-verse-skills-capability-reso
 import { AiVerseOsWorkspaceProjector } from "./ai-verse-os-workspace-projection.js";
 import { delegateWithArtifacts } from "./artifact-delegation.js";
 import type { BudgetEnvelope } from "./budget.js";
+import { CandidateWritebackRouter } from "./candidate-writeback.js";
 import type { BotManifest, JsonObject } from "./types.js";
 import { ExecutionQueue, type RecoveryPolicy } from "./execution-queue.js";
 import { CoordinationGateway, type ApprovalRequirement } from "./gateway.js";
@@ -132,6 +133,9 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
     : undefined;
   const osWriteCommands = osWriteCommandSink
     ? new OsWriteCommandBoundary(store, gateway, osWriteCommandSink)
+    : undefined;
+  const candidateWritebacks = osWriteCommands
+    ? new CandidateWritebackRouter(gateway, osWriteCommands)
     : undefined;
   const supervisor = new ExecutionSupervisor(gateway, executionQueue, runner);
   supervisor.start();
@@ -286,6 +290,32 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
           approval: optionalApproval(body.approval),
           recoveryPolicy: optionalRecoveryPolicy(body.recoveryPolicy),
           maxAttempts: optionalMaxAttempts(body.maxAttempts)
+        });
+        json(res, result.created ? 201 : 200, result);
+        return;
+      }
+
+      if (method === "POST" && url.pathname === "/v1/candidates/write-back") {
+        if (!candidateWritebacks) throw new Error("Candidate write-back requires native AI-Verse OS mode via serve --os-root PATH");
+        const body = await readJson(req);
+        if (typeof body.content !== "object" || body.content === null || Array.isArray(body.content)) {
+          throw new Error("content must be an object");
+        }
+        const result = await candidateWritebacks.route({
+          requestedBy: requiredString(body, "requestedBy"),
+          workspaceId: requiredString(body, "workspaceId"),
+          candidateKind: requiredString(body, "candidateKind") as any,
+          sourceArtifactRef: requiredString(body, "sourceArtifactRef"),
+          title: requiredString(body, "title"),
+          summary: requiredString(body, "summary"),
+          content: body.content as JsonObject,
+          confidence: typeof body.confidence === "number" ? body.confidence : undefined,
+          evidenceArtifactRefs: optionalStringArray(body.evidenceArtifactRefs, "evidenceArtifactRefs"),
+          taskId: typeof body.taskId === "string" ? body.taskId : undefined,
+          runId: typeof body.runId === "string" ? body.runId : undefined,
+          idempotencyKey: requiredString(body, "idempotencyKey"),
+          reason: requiredString(body, "reason"),
+          createdAt: requiredString(body, "createdAt")
         });
         json(res, result.created ? 201 : 200, result);
         return;
@@ -613,6 +643,7 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
     automationIngress,
     osWriteCommandSink,
     osWriteCommands,
+    candidateWritebacks,
     memoryRecallSource,
     skillsCapabilitySource,
     supervisor,
