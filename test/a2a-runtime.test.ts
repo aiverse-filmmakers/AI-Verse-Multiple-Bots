@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { rmSync } from "node:fs";
 import test from "node:test";
 import {
   A2AJsonRpcRuntimeAdapter,
@@ -384,6 +385,7 @@ test("local cancellation attempts A2A CancelTask after the remote task id is kno
   await new Promise((resolve) => setTimeout(resolve, 0));
   await adapter.cancel("task_local");
   await assert.rejects(() => running, /canceled/i);
+  await new Promise((resolve) => setTimeout(resolve, 0));
 
   assert.equal(calls.includes("CancelTask"), true);
   assert.equal(cancelBodies.length >= 1, true);
@@ -416,5 +418,8 @@ test("Gateway registers the A2A adapter as a normal host-neutral runtime", async
     assert.equal(service.runtimes.get("a2a").id, "a2a");
   } finally {
     await service.close();
+    rmSync(dbPath, { force: true });
+    rmSync(`${dbPath}-shm`, { force: true });
+    rmSync(`${dbPath}-wal`, { force: true });
   }
 });
