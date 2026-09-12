@@ -14,6 +14,12 @@ import {
   type RemoteLeaseAudit,
   type RemoteLeaseGrant
 } from "./remote-leases.js";
+import {
+  REMOTE_RECOVERY_A2A_EXTENSION_URI,
+  RemoteRecoveryStore,
+  remoteOperationKey,
+  type RemoteExecutionCheckpoint
+} from "./remote-recovery.js";
 import type { JsonObject } from "./types.js";
 
 export const A2A_PROTOCOL_VERSION = "1.0";
@@ -31,7 +37,7 @@ const TERMINAL = new Set([
 const INTERRUPTED = new Set(["TASK_STATE_INPUT_REQUIRED", "TASK_STATE_AUTH_REQUIRED"]);
 
 export class A2ARuntimeError extends Error {
-  constructor(readonly code: string, message: string) {
+  constructor(readonly code: string, message: string, readonly retryable = false) {
     super(message);
     this.name = "A2ARuntimeError";
   }
@@ -42,6 +48,7 @@ export interface A2ARuntimeOptions {
   sleepImpl?: (ms: number, signal: AbortSignal) => Promise<void>;
   remoteAccess?: RemoteHttpAccessBroker;
   remoteLeases?: RemoteLeaseBroker;
+  recovery?: RemoteRecoveryStore;
 }
 
 interface SafeUrl {
@@ -60,6 +67,7 @@ interface A2AInterface {
   authenticationMechanism?: string;
   peerIdentityKind?: string;
   remoteLeaseExtensionSupported?: boolean;
+  remoteRecoveryExtensionSupported?: boolean;
 }
 
 interface A2AAgentCard {
@@ -70,6 +78,7 @@ interface A2AAgentCard {
   outputModes: string[];
   authenticationRequired: boolean;
   remoteLeaseExtensionSupported: boolean;
+  remoteRecoveryExtensionSupported: boolean;
 }
 
 interface ActiveA2ATask {
@@ -81,6 +90,7 @@ interface ActiveA2ATask {
   remoteLeaseGrant: RemoteLeaseGrant | null;
   remoteLeaseTarget: { kind: "machine"; ref: string } | null;
   leaseRevokeStarted: boolean;
+  operationKey: string;
 }
 
 function asObject(value: unknown): JsonObject | null {
@@ -130,6 +140,97 @@ function pollInterval(runtime: JsonObject): number {
     throw new A2ARuntimeError("A2A_INVALID_CONFIG", "runtime.poll_interval_ms must be an integer between 25 and 10000");
   }
   return raw;
+}
+
+function retryAttempts(runtime: JsonObject): number {
+  const raw = runtime.remote_retry_max_attempts;
+  if (raw === undefined || raw === null) return 3;
+  if (typeof raw !== "number" || !Number.isInteger(raw) || raw < 1 || raw > 5) {
+    throw new A2ARuntimeError(
+      "A2A_INVALID_CONFIG",
+      "runtime.remote_retry_max_attempts must be an integer between 1 and 5"
+    );
+  }
+  return raw;
+}
+
+function retryDelayMs(runtime: JsonObject): number {
+  const raw = runtime.remote_retry_base_delay_ms;
+  if (raw === undefined || raw === null) return 100;
+  if (typeof raw !== "number" || !Number.isInteger(raw) || raw < 25 || raw > 5_000) {
+    throw new A2ARuntimeError(
+      "A2A_INVALID_CONFIG",
+      "runtime.remote_retry_base_delay_ms must be an integer between 25 and 5000"
+    );
+  }
+  return raw;
+}
+
+function renewalMarginMs(runtime: JsonObject): number {
+  const raw = runtime.remote_lease_renewal_margin_ms;
+  if (raw === undefined || raw === null) return 5_000;
+  if (typeof raw !== "number" || !Number.isInteger(raw) || raw < 250 || raw > 60_000) {
+    throw new A2ARuntimeError(
+      "A2A_INVALID_CONFIG",
+      "runtime.remote_lease_renewal_margin_ms must be an integer between 250 and 60000"
+    );
+  }
+  return raw;
+}
+
+function extensionList(iface: A2AInterface): string[] {
+  const values: string[] = [];
+  if (iface.remoteLeaseExtensionSupported) values.push(REMOTE_LEASE_A2A_EXTENSION_URI);
+  if (iface.remoteRecoveryExtensionSupported) values.push(REMOTE_RECOVERY_A2A_EXTENSION_URI);
+  return values;
+}
+
+function interfaceRecoveryProjection(iface: A2AInterface): JsonObject {
+  return {
+    request_url: iface.url.requestUrl,
+    receipt_url: iface.url.receiptUrl,
+    protocol_version: iface.protocolVersion,
+    tenant: iface.tenant ?? null,
+    remote_machine_ref: iface.remoteMachineRef ?? null,
+    remote_auth: iface.remoteAuth ? { ...iface.remoteAuth } as unknown as JsonObject : null,
+    security_schemes: iface.securitySchemes ?? {},
+    security_requirements: (iface.securityRequirements ?? []) as unknown as JsonObject[],
+    authentication_mechanism: iface.authenticationMechanism ?? null,
+    peer_identity_kind: iface.peerIdentityKind ?? null,
+    remote_lease_extension_supported: Boolean(iface.remoteLeaseExtensionSupported),
+    remote_recovery_extension_supported: Boolean(iface.remoteRecoveryExtensionSupported)
+  };
+}
+
+function interfaceFromRecovery(value: unknown): A2AInterface | null {
+  const object = asObject(value);
+  if (!object) return null;
+  const requestUrl = typeof object.request_url === "string" ? object.request_url : null;
+  const receiptUrl = typeof object.receipt_url === "string" ? object.receipt_url : null;
+  const protocolVersion = typeof object.protocol_version === "string" ? object.protocol_version : null;
+  if (!requestUrl || !receiptUrl || protocolVersion !== A2A_PROTOCOL_VERSION) return null;
+  const remoteAuthObject = asObject(object.remote_auth);
+  return {
+    url: { requestUrl, receiptUrl },
+    protocolVersion,
+    ...(typeof object.tenant === "string" && object.tenant ? { tenant: object.tenant } : {}),
+    ...(typeof object.remote_machine_ref === "string" && object.remote_machine_ref ? {
+      remoteMachineRef: object.remote_machine_ref,
+      remoteAuth: remoteAuthObject as unknown as RemoteAuthBinding | null,
+      securitySchemes: asObject(object.security_schemes) ?? {},
+      securityRequirements: Array.isArray(object.security_requirements)
+        ? object.security_requirements as unknown as RemoteSecurityRequirement[]
+        : []
+    } : {}),
+    ...(typeof object.authentication_mechanism === "string" && object.authentication_mechanism
+      ? { authenticationMechanism: object.authentication_mechanism }
+      : {}),
+    ...(typeof object.peer_identity_kind === "string" && object.peer_identity_kind
+      ? { peerIdentityKind: object.peer_identity_kind }
+      : {}),
+    remoteLeaseExtensionSupported: object.remote_lease_extension_supported === true,
+    remoteRecoveryExtensionSupported: object.remote_recovery_extension_supported === true
+  };
 }
 
 function boundedJson(value: unknown, maxBytes: number, label: string): string {
@@ -336,6 +437,7 @@ export class A2AJsonRpcRuntimeAdapter implements RuntimeAdapter {
   private readonly sleepImpl: (ms: number, signal: AbortSignal) => Promise<void>;
   private readonly remoteAccess: RemoteHttpAccessBroker | null;
   private readonly remoteLeases: RemoteLeaseBroker | null;
+  private readonly recovery: RemoteRecoveryStore | null;
   private readonly active = new Map<string, ActiveA2ATask>();
 
   constructor(options: A2ARuntimeOptions = {}) {
@@ -343,6 +445,7 @@ export class A2AJsonRpcRuntimeAdapter implements RuntimeAdapter {
     this.sleepImpl = options.sleepImpl ?? defaultSleep;
     this.remoteAccess = options.remoteAccess ?? null;
     this.remoteLeases = options.remoteLeases ?? null;
+    this.recovery = options.recovery ?? null;
   }
 
   async execute(context: RuntimeExecutionContext): Promise<RuntimeExecutionResult> {
