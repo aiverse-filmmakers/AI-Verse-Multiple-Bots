@@ -2,7 +2,7 @@
 
 **Phase:** 3.10
 
-**Status:** implementation pending acceptance gate
+**Status:** COMPLETE
 
 ## Purpose
 
@@ -185,6 +185,8 @@ Phase 3.10 is complete only when tests prove at minimum:
 13. ownership mismatch and symlink paths fail before registry mutation
 14. upgrade and uninstall respect the existing registry lock
 15. the full pre-existing coordination and Phase 3 suite remains green
+
+**Verified gate:** GitHub Actions CI run 384 (`34709530708`) passed **287/287 tests**, with 0 failures, 0 canceled and 0 skipped, on exact implementation head `eb41d3f690590dd0e2cefd739109058ee5a3eae6`.
 
 ## Non-goals
 
