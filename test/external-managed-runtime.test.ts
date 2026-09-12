@@ -16,6 +16,13 @@ import {
   parseExternalManagedBinding
 } from "../src/external-managed-runtime.js";
 import { CoordinationGateway } from "../src/gateway.js";
+import {
+  RemoteLeaseBroker,
+  RemoteLeaseProviderRegistry,
+  type RemoteLeaseGrantRequest,
+  type RemoteLeaseProvider,
+  type RemoteLeaseRevokeRequest
+} from "../src/remote-leases.js";
 import type { RuntimeExecutionContext } from "../src/runtime.js";
 import { createGatewayServer } from "../src/server.js";
 import { CoordinationStore } from "../src/store.js";
@@ -512,6 +519,158 @@ test("external managed runtime is durable-Bot only and requires a remote lease p
       assertExternalCode("EXTERNAL_MANAGED_REMOTE_LEASE_PROVIDER_REQUIRED")
     );
   }
+});
+
+test("external managed runtime binds capability and environment authority through the generic remote lease broker", async () => {
+  const leaseGrants: RemoteLeaseGrantRequest[] = [];
+  const leaseRevokes: RemoteLeaseRevokeRequest[] = [];
+  const leaseProvider: RemoteLeaseProvider = {
+    id: "managed-lease",
+    async grant(request) {
+      leaseGrants.push(request);
+      return {
+        provider: "managed-lease",
+        remote_lease_id: "remote-managed-lease-1",
+        request_digest: request.requestDigest,
+        grant_fingerprint: "managed-grant:v1",
+        expires_at: request.expiresAt,
+        granted_tools: ["github:read"],
+        granted_connections: [],
+        destructive_actions: "deny",
+        environment: {
+          environment_policy: request.environment!.environment_policy,
+          remote_environment_ref: "managed-env-remote"
+        }
+      };
+    },
+    async revoke(request) {
+      leaseRevokes.push(request);
+    }
+  };
+
+  class LeaseAwareManagedProvider extends FakeManagedProvider {
+    override async execute(request: ExternalManagedBotExecuteRequest): Promise<ExternalManagedBotExecutionResult> {
+      this.executeCalls.push(request);
+      const remoteLease = request.remoteLease as any;
+      assert.ok(remoteLease);
+      assert.deepEqual(request.allowedTools, ["github:read"]);
+      assert.deepEqual(request.allowedConnections, []);
+      assert.equal(remoteLease.environment.remote_environment_ref, "managed-env-remote");
+      return {
+        ...this.result,
+        observed_tools: ["github:read"],
+        observed_connections: [],
+        remote_lease_receipt: {
+          remote_lease_id: remoteLease.remote_lease_id,
+          request_digest: remoteLease.request_digest,
+          grant_fingerprint: remoteLease.grant_fingerprint,
+          observed_tools: ["github:read"],
+          observed_connections: [],
+          environment_ref: remoteLease.environment.remote_environment_ref,
+          state: "honored"
+        }
+      };
+    }
+  }
+
+  const provider = new LeaseAwareManagedProvider();
+  const remoteLeases = new RemoteLeaseBroker(new RemoteLeaseProviderRegistry([leaseProvider]));
+  const adapter = new ExternalManagedBotRuntimeAdapter(
+    new ExternalManagedBotProviderRegistry().register(provider),
+    remoteLeases
+  );
+  const environmentLease = stored("envlease_external", "environment_lease", "ws_external", {
+    schema_version: "1.0",
+    id: "envlease_external",
+    type: "environment_lease",
+    issued_to: "bot_external",
+    workspace_id: "ws_external",
+    task_id: "task_external",
+    environment_policy: "external_managed",
+    environment_ref: "env_local_managed",
+    expires_at: "2030-01-01T00:00:00Z"
+  });
+  const result = await adapter.execute(runtimeContext("fake-managed", ["github:read"], ["drive:read"], {
+    environmentLease,
+    runtime: {
+      adapter: "external-managed",
+      provider: "fake-managed",
+      managed_bot_ref: "profile:research",
+      binding_fingerprint: "binding:v1",
+      remote_lease_provider: "managed-lease"
+    }
+  }));
+
+  assert.equal(leaseGrants.length, 1);
+  assert.equal(leaseGrants[0]!.target.kind, "managed_profile");
+  assert.equal(leaseGrants[0]!.target.ref, "fake-managed::profile:research");
+  assert.equal(leaseGrants[0]!.environment?.local_environment_ref, "env_local_managed");
+  assert.equal(result.receipts?.[0]?.remote_lease_verified, true);
+  assert.equal(result.receipts?.[0]?.environment_verified, true);
+  assert.equal(result.receipts?.[0]?.granted_tool_count, 1);
+  assert.equal(result.receipts?.[0]?.granted_connection_count, 0);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(leaseRevokes.length, 1);
+  assert.equal(leaseRevokes[0]!.remoteLeaseId, "remote-managed-lease-1");
+  const receiptText = JSON.stringify(result.receipts);
+  assert.equal(receiptText.includes("managed-env-remote"), false);
+  assert.equal(receiptText.includes("remote-managed-lease-1"), false);
+});
+
+test("external managed remote lease receipt mismatch fails closed", async () => {
+  const leaseProvider: RemoteLeaseProvider = {
+    id: "managed-lease",
+    async grant(request) {
+      return {
+        provider: "managed-lease",
+        remote_lease_id: "remote-managed-lease-1",
+        request_digest: request.requestDigest,
+        grant_fingerprint: "managed-grant:v1",
+        expires_at: request.expiresAt,
+        granted_tools: [],
+        granted_connections: [],
+        destructive_actions: "deny",
+        environment: null
+      };
+    },
+    async revoke() {}
+  };
+  class BadReceiptProvider extends FakeManagedProvider {
+    override async execute(request: ExternalManagedBotExecuteRequest): Promise<ExternalManagedBotExecutionResult> {
+      this.executeCalls.push(request);
+      return {
+        ...this.result,
+        observed_tools: [],
+        observed_connections: [],
+        remote_lease_receipt: {
+          remote_lease_id: "wrong",
+          request_digest: "wrong",
+          grant_fingerprint: "wrong",
+          observed_tools: [],
+          observed_connections: [],
+          state: "honored"
+        }
+      };
+    }
+  }
+  const provider = new BadReceiptProvider();
+  const adapter = new ExternalManagedBotRuntimeAdapter(
+    new ExternalManagedBotProviderRegistry().register(provider),
+    new RemoteLeaseBroker(new RemoteLeaseProviderRegistry([leaseProvider]))
+  );
+
+  await assert.rejects(
+    () => adapter.execute(runtimeContext("fake-managed", [], [], {
+      runtime: {
+        adapter: "external-managed",
+        provider: "fake-managed",
+        managed_bot_ref: "profile:research",
+        binding_fingerprint: "binding:v1",
+        remote_lease_provider: "managed-lease"
+      }
+    })),
+    assertExternalCode("REMOTE_LEASE_RECEIPT_MISMATCH")
+  );
 });
 
 test("external managed cancellation targets the pinned profile once and local cancellation survives provider cancel failure", async () => {
