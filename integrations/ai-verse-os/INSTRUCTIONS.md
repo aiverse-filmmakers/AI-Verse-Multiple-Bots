@@ -15,7 +15,7 @@ Never treat the Multiple Bots coordination database, a Bot conversation, a tempo
 When Multiple Bots is relevant to the task:
 
 1. Confirm the extension registration is `supported`, `installed`, and `enabled`.
-2. Check extension health live. Registration is not proof that the engine is running or usable.
+2. Check extension health live through the Multiple Bots `GET /v1/health/4cs` evidence surface when the Gateway is available. Registration is not proof that the engine is running or usable.
 3. Read the AI-Verse OS runtime contract and machine-readable architecture before resolving host state.
 4. Identify the operator/workspace scope through AI-Verse OS before creating or routing Bot work.
 5. Pass only the minimum scoped host context needed for the task.
@@ -24,6 +24,16 @@ When Multiple Bots is relevant to the task:
 8. Require normal OS/connection/action approvals. Extension registration grants no authority.
 9. Return discoveries as coordination evidence or candidate write-back; do not silently mutate canonical OS knowledge, memory, decisions, or context.
 10. Fail visibly if the host adapter, required connection, capability, approval, or workspace scope cannot be verified.
+
+## Four Cs health rules
+
+- Treat the Multiple Bots Four Cs response as derived audit evidence, not canonical health truth.
+- AI-Verse OS `/audit` remains the scoring and finding-lifecycle authority.
+- `verified` requires deterministic or durable execution evidence; configured presence alone is not enough.
+- A connection grant is never proof that the external source can currently be reached.
+- Do not copy workspace context, Memory text, Brain intent, Skill instructions, automation definitions, or Artifact content into health state.
+- Use an explicit workspace scope when evaluating workspace Context.
+- Health reads must not create Tasks, Artifacts, events, approvals, schedules, write-backs, or canonical OS mutations.
 
 ## Identity rules
 
@@ -46,6 +56,6 @@ Unknown registry fields and other extension entries must be preserved.
 
 ## Current integration maturity
 
-Phase 3.1 establishes compatibility detection and the installer/registration contract. Later Phase 3 slices add workspace projection, Brain ingress, Memory/Skills/Automations adapters, the OS write-command boundary, candidate write-back, health integration, and upgrade/uninstall behavior.
+Phase 3.1 through Phase 3.9 establish compatibility/registration, workspace projection, Brain ingress, Memory/Skills/Automations adapters, the OS write-command boundary, candidate write-back, and read-only Four Cs health evidence. Upgrade/uninstall behavior remains Phase 3.10.
 
-Until those later adapters are present, do not pretend registration alone provides those capabilities.
+Do not infer any integration is operational merely from extension registration; use its explicit runtime evidence and owner-controlled contract.
