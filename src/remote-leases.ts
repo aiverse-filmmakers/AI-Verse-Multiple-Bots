@@ -411,6 +411,12 @@ export class RemoteLeaseBroker {
       );
     }
 
+    if (raw.provider !== providerId) {
+      throw new RemoteLeaseError(
+        "REMOTE_LEASE_PROVIDER_MISMATCH",
+        `Remote lease grant identifies provider ${String(raw.provider)} instead of ${providerId}`
+      );
+    }
     const remoteLeaseId = safeString(raw.remote_lease_id, "remote lease id", 1024);
     const grantFingerprint = safeString(raw.grant_fingerprint, "remote lease grant fingerprint", 1024);
     if (raw.request_digest !== requestDigest) {
