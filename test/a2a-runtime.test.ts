@@ -413,6 +413,8 @@ test("A2A adapter validates JSON-RPC response identity instead of accepting mism
 test("Gateway registers the A2A adapter as a normal host-neutral runtime", async () => {
   const dbPath = `/tmp/a2a-runtime-server-${Date.now()}-${Math.random().toString(16).slice(2)}.db`;
   const service = createGatewayServer({ dbPath, port: 0 });
+  await service.listen();
+  await service.supervisor.waitForIdle();
   try {
     assert.equal(service.runtimes.has("a2a"), true);
     assert.equal(service.runtimes.get("a2a").id, "a2a");
