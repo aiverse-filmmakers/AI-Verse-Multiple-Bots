@@ -137,6 +137,7 @@ export class PrincipalRunner {
     }
 
     const runId = resolved.run?.id ?? (typeof task.payload.run_id === "string" ? task.payload.run_id : null);
+    let executionAdapter: RuntimeAdapter | null = null;
 
     try {
       this.assertExecutableTask(resolved, task, claimed.workspaceId);
@@ -235,6 +236,7 @@ export class PrincipalRunner {
       }
 
       const adapter = this.runtimes.get(resolved.adapterId);
+      executionAdapter = adapter;
       const controller = new AbortController();
       this.active.set(task.id, { controller, adapter, executionId: claimed.id });
       const context: RuntimeExecutionContext = {
@@ -428,7 +430,7 @@ export class PrincipalRunner {
         }
         const cancellationSettlement = resolved.principalKind === "bot" ? this.gateway.settleHandoffForTask(task.id, "canceled", targetId) : null;
         canceledTask = cancellationSettlement?.task ?? canceledTask;
-        await this.settleRuntime(adapter, task.id);
+        if (executionAdapter) await this.settleRuntime(executionAdapter, task.id);
         return { execution: canceledExecution, task: canceledTask, artifact: null, status: "canceled" };
       }
 
@@ -479,7 +481,7 @@ export class PrincipalRunner {
       if (error instanceof BudgetError && error.code.startsWith("TEAM_RUN_") && resolved.run) {
         await this.exhaustTeamRun(resolved.run.id, resolved.leaderBot.id, message, task.id);
       }
-      await this.settleRuntime(adapter, task.id);
+      if (executionAdapter) await this.settleRuntime(executionAdapter, task.id);
       return { execution: failedExecution, task: failedTask, artifact: null, status: "failed" };
     } finally {
       this.active.delete(task.id);
