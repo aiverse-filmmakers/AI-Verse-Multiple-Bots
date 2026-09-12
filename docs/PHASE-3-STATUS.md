@@ -1,12 +1,12 @@
 # Phase 3 Status - AI-Verse Native Integration
 
-**Updated:** 2026-09-10
+**Updated:** 2026-09-12
 
 **Phase:** 3
 
 **Overall status:** IN PROGRESS
 
-**Directional phase progress:** approximately 70%
+**Directional phase progress:** approximately 80%
 
 This file is the implementation ledger for Phase 3. The canonical product roadmap remains `BUILD-MAP.md`.
 
@@ -23,8 +23,8 @@ Attach the completed host-neutral persistent-teammate and squad package to AI-Ve
 5. Skills capability resolution — **COMPLETE**
 6. Automations wake/schedule integration — **COMPLETE**
 7. OS write-command boundary — **COMPLETE**
-8. candidate knowledge/decision write-back — **NEXT**
-9. 4Cs health integration — **NOT STARTED**
+8. candidate knowledge/decision write-back — **COMPLETE**
+9. 4Cs health integration — **NEXT**
 10. uninstall/upgrade without canonical-state damage — **NOT STARTED**
 
 ## Slice 3.1 - AI-Verse OS installer/registration contract
@@ -400,9 +400,50 @@ Phase 3.7 acceptance coverage proves:
 
 See `AI-VERSE-OS-WRITE-COMMAND-BOUNDARY.md` for the canonical Phase 3.7 contract.
 
+## Slice 3.8 - candidate knowledge/decision write-back
+
+**Implementation status:** COMPLETE
+
+Phase 3.8 turns bounded coordination output into explicit knowledge or decision candidates without letting Multiple Bots promote its own output into canonical AI-Verse OS truth.
+
+Implemented:
+
+- public `CandidateWritebackRouter` layered on the existing Phase 3.7 `OsWriteCommandBoundary`
+- exactly two Phase 3.8 candidate kinds: `knowledge` and `decision`
+- one required source Artifact and bounded optional evidence Artifacts in the exact workspace
+- bounded structured candidate body, title, summary, confidence and Task/Team Run provenance
+- stable content and candidate SHA-256 digests plus a 64 KiB candidate-parameter ceiling
+- deterministic namespaced candidate idempotency identity
+- `candidate.route` with `canonical_effect_requested: false` and `evaluate_for_promotion`
+- no direct canonical knowledge/decision writes and no second local candidate-content record
+- digest/provenance-only Phase 3.7 receipt persistence and content-free candidate events
+- exact replay with semantic-drift rejection before changed owner dispatch
+- durable Bot and temporary Worker nomination without scope or authority expansion
+- native `POST /v1/candidates/write-back` only when the Phase 3.7 host owner contract exists
+- Memory, Skills, Brain and current-context write-back remain intentionally outside this slice
+
+### 3.8 acceptance proof
+
+The implementation head `70ab433f73831ead8d9b43d0f4efc8a99938c7b8` passed GitHub Actions **CI run 375 (`34708621932`) with 270/270 tests**, **0 failures, 0 canceled and 0 skipped**.
+
+Phase 3.8 acceptance coverage proves:
+
+1. knowledge candidates route through the existing `candidate.route` owner boundary
+2. decision candidates use the same bounded owner route
+3. accepted routes explicitly claim no canonical effect
+4. candidate body content is absent from Multiple Bots durable receipt Artifacts
+5. source and evidence Artifacts cannot cross workspace boundaries
+6. invalid kinds, malformed content and invalid confidence fail before owner dispatch
+7. exact replay is idempotent and semantic drift fails closed before changed dispatch
+8. temporary Workers can nominate workspace candidates without gaining canonical authority
+9. the native candidate endpoint exists only when the Phase 3.7 owner contract exists
+10. the complete pre-existing coordination, squad, Brain, Memory, Skills, Automations and OS write-command suite remains green
+
+See `AI-VERSE-CANDIDATE-WRITEBACK.md` for the canonical Phase 3.8 boundary.
+
 ## Ownership boundary
 
-Phase 3.1 through 3.7 do not make Multiple Bots the source of truth for any AI-Verse OS, Brain, Memory, Skills or Automations domain state.
+Phase 3.1 through 3.8 do not make Multiple Bots the source of truth for any AI-Verse OS, Brain, Memory, Skills or Automations domain state.
 
 ```text
 AI-Verse OS
@@ -444,6 +485,6 @@ Phase 3.1 defines and implements safe registration after extension-owned files h
 
 ## Next gate
 
-**Phase 3.8 - candidate knowledge/decision write-back.**
+**Phase 3.9 - 4Cs health integration.**
 
-The next slice must define how bounded coordination outputs become explicit knowledge or decision candidates, route them through the Phase 3.7 owner-controlled write-command boundary, and let AI-Verse OS decide whether/how they become canonical without Multiple Bots silently promoting its own output to truth.
+The next slice must expose Multiple Bots through the existing AI-Verse 4Cs health model without creating another health source of truth or changing the completed coordination, write-back or ownership contracts.
