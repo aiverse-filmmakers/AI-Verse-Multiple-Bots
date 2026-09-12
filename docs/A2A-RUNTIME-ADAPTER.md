@@ -2,7 +2,7 @@
 
 **Phase:** 4.1
 
-**Status:** implementation pending acceptance gate
+**Status:** COMPLETE
 
 ## Purpose
 
@@ -282,6 +282,8 @@ Phase 4.1 is complete only when tests prove at minimum:
 15. receipts preserve provenance without copying execution context
 16. the Gateway registers `a2a` as a normal runtime adapter
 17. the complete pre-existing Phase 0-3 and coordination suite remains green
+
+**Verified gate:** GitHub Actions CI run 389 (`34710078152`) passed **294/294 tests**, with 0 failures, 0 canceled and 0 skipped, on exact implementation head `29f220ef8e6318bf5dfed835e8a0d966c0c51586`.
 
 ## Non-goals
 
