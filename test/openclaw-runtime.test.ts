@@ -597,6 +597,43 @@ test("OpenClaw CLI transport spawns shell:false, writes stdin, and parses proces
   assert.equal(JSON.parse(result.stdout).status, "ok");
 });
 
+test("OpenClaw CLI transport turns its local process deadline into an explicit timeout failure", async () => {
+  const stdout = new MiniStream();
+  const stderr = new MiniStream();
+  const lifecycle = new MiniStream();
+  const kills: string[] = [];
+  const child: any = {
+    stdout,
+    stderr,
+    stdin: { end() {} },
+    once: lifecycle.once.bind(lifecycle),
+    kill(signal: string) {
+      kills.push(signal);
+      if (signal === "SIGTERM") queueMicrotask(() => lifecycle.emit("exit", null, signal));
+    }
+  };
+  const transport = new OpenClawCliCommandTransport(
+    (() => child) as any,
+    (() => { throw new Error("unused"); }) as any
+  );
+  const controller = new AbortController();
+  await assert.rejects(
+    () => transport.run(
+      "openclaw",
+      ["agent", "exec", "--json"],
+      {
+        env: { PATH: "/usr/bin" },
+        signal: controller.signal,
+        timeoutMs: 5,
+        maxStdoutBytes: 1024 * 1024
+      }
+    ),
+    (error: unknown) => error instanceof OpenClawRuntimeError
+      && error.code === "OPENCLAW_PROCESS_TIMEOUT"
+  );
+  assert.deepEqual(kills, ["SIGTERM"]);
+});
+
 test("OpenClaw config discovery uses the documented config file --json command", async () => {
   const fixture = fixtureConfig();
   try {
