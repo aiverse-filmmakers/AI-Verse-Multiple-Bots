@@ -517,6 +517,7 @@ export class ExternalManagedBotRuntimeAdapter implements RuntimeAdapter {
         "External managed Bots must use execution.environment_policy=external_managed"
       );
     }
+
     const binding = parseExternalManagedBinding(context.runtime);
     const remoteLeaseProvider = typeof context.runtime.remote_lease_provider === "string"
       && context.runtime.remote_lease_provider.trim()
@@ -534,19 +535,63 @@ export class ExternalManagedBotRuntimeAdapter implements RuntimeAdapter {
         "runtime.remote_lease_provider requires a configured RemoteLeaseBroker"
       );
     }
+
     const provider = this.providers.get(binding.provider);
     const tools = exactRefs(context.capabilityLease.payload.tools, "capabilityLease.tools");
     const connections = exactRefs(context.capabilityLease.payload.connections, "capabilityLease.connections");
     const destructiveActions = typeof context.capabilityLease.payload.destructive_actions === "string"
       ? context.capabilityLease.payload.destructive_actions
       : "deny";
+    const maxRetryAttempts = managedRetryAttempts(context.runtime);
+    const retryBaseDelayMs = managedRetryDelayMs(context.runtime);
+    const targetRef = `${binding.provider}::${binding.managedBotRef}`;
+    const operationKey = remoteOperationKey("external-managed", context.task.id, targetRef);
+    let checkpoint = this.recovery?.get(context.task.id) ?? null;
+
+    if (checkpoint) {
+      if (
+        checkpoint.adapterId !== "external-managed"
+        || checkpoint.targetKind !== "managed_profile"
+        || checkpoint.targetRef !== targetRef
+        || checkpoint.operationKey !== operationKey
+      ) {
+        throw new ExternalManagedRuntimeError(
+          "EXTERNAL_MANAGED_RECOVERY_IDENTITY_DRIFT",
+          `Recovered managed execution identity for Task ${context.task.id} no longer matches its pinned binding`
+        );
+      }
+      if (checkpoint.state === "completed") {
+        if (!checkpoint.result) {
+          throw new ExternalManagedRuntimeError(
+            "EXTERNAL_MANAGED_RECOVERY_INVALID_CHECKPOINT",
+            "Completed managed recovery checkpoint is missing its cached result"
+          );
+        }
+        if (checkpoint.leaseGrant) {
+          await this.revokeRecoverably(
+            checkpoint.leaseGrant,
+            context.task.id,
+            { kind: "managed_profile", ref: targetRef }
+          );
+        }
+        return checkpoint.result;
+      }
+      if (checkpoint.state === "remote_active") {
+        throw new ExternalManagedRuntimeError(
+          "EXTERNAL_MANAGED_RECOVERY_INVALID_CHECKPOINT",
+          "External managed recovery checkpoint entered an unsupported active-session state"
+        );
+      }
+    }
 
     const active: ActiveManagedExecution = {
       provider,
       binding,
       cancelStarted: false,
-      remoteLeaseGrant: null,
-      remoteLeaseTarget: null,
+      remoteLeaseGrant: checkpoint?.leaseGrant ?? null,
+      remoteLeaseTarget: remoteLeaseProvider
+        ? { kind: "managed_profile", ref: targetRef }
+        : null,
       leaseRevokeStarted: false
     };
     this.active.set(context.task.id, active);
@@ -555,16 +600,33 @@ export class ExternalManagedBotRuntimeAdapter implements RuntimeAdapter {
     else context.signal.addEventListener("abort", abortFromParent, { once: true });
 
     try {
-      let inspection: ExternalManagedBotInspection;
-      try {
-        inspection = await raceWithAbort(
-          provider.inspect(binding.managedBotRef, context.signal),
-          context.signal
-        );
-      } catch {
-        if (context.signal.aborted) {
-          throw context.signal.reason instanceof Error ? context.signal.reason : new Error("External managed Task canceled");
+      let inspection: ExternalManagedBotInspection | null = null;
+      for (let attempt = 1; attempt <= maxRetryAttempts; attempt += 1) {
+        try {
+          inspection = await raceWithAbort(
+            provider.inspect(binding.managedBotRef, context.signal),
+            context.signal
+          );
+          break;
+        } catch {
+          if (context.signal.aborted) {
+            throw context.signal.reason instanceof Error
+              ? context.signal.reason
+              : new Error("External managed Task canceled");
+          }
+          if (attempt >= maxRetryAttempts) {
+            throw new ExternalManagedRuntimeError(
+              "EXTERNAL_MANAGED_PROVIDER_INSPECT_FAILED",
+              `External managed provider ${binding.provider} could not verify the pinned Bot identity`
+            );
+          }
+          await sleepWithAbort(
+            Math.min(retryBaseDelayMs * (2 ** (attempt - 1)), 10_000),
+            context.signal
+          );
         }
+      }
+      if (!inspection) {
         throw new ExternalManagedRuntimeError(
           "EXTERNAL_MANAGED_PROVIDER_INSPECT_FAILED",
           `External managed provider ${binding.provider} could not verify the pinned Bot identity`
@@ -572,12 +634,70 @@ export class ExternalManagedBotRuntimeAdapter implements RuntimeAdapter {
       }
       assertInspection(inspection, binding);
 
+      const exactTaskIdempotency = inspection.idempotency_mode === "exact_task_key";
+      if (checkpoint?.state === "submitting" && !exactTaskIdempotency) {
+        throw new ExternalManagedRuntimeError(
+          "EXTERNAL_MANAGED_AMBIGUOUS_SUBMISSION",
+          "A prior managed execution may have crossed the disconnect boundary, but the provider does not declare exact Task-key idempotency. Refusing to replay and risk duplicate remote work."
+        );
+      }
+
       let remoteLeaseAudit: RemoteLeaseAudit | null = null;
-      if (remoteLeaseProvider) {
+      if (active.remoteLeaseGrant) {
+        if (!remoteLeaseProvider || !this.remoteLeases || !active.remoteLeaseTarget) {
+          throw new ExternalManagedRuntimeError(
+            "EXTERNAL_MANAGED_RECOVERY_LEASE_CONFIG_DRIFT",
+            "Recovered managed execution lease no longer has its configured provider"
+          );
+        }
+        if (active.remoteLeaseGrant.provider !== remoteLeaseProvider) {
+          throw new ExternalManagedRuntimeError(
+            "EXTERNAL_MANAGED_RECOVERY_LEASE_CONFIG_DRIFT",
+            "Recovered managed execution lease provider changed"
+          );
+        }
+        try {
+          active.remoteLeaseGrant = this.remoteLeases.validateRecoveredGrant(
+            context,
+            active.remoteLeaseGrant
+          );
+        } catch (error) {
+          if (
+            error instanceof RemoteLeaseError
+            && error.code === "REMOTE_LEASE_RECOVERY_EXPIRED"
+          ) {
+            if (!exactTaskIdempotency) {
+              throw new ExternalManagedRuntimeError(
+                "EXTERNAL_MANAGED_RECOVERY_LEASE_REACQUISITION_UNSAFE",
+                "Managed execution needs a fresh remote lease, but the provider cannot safely replay the same Task key"
+              );
+            }
+            const previous = active.remoteLeaseGrant;
+            const replacementGrant = await this.remoteLeases.grant(
+              remoteLeaseProvider,
+              context,
+              active.remoteLeaseTarget
+            );
+            this.remoteLeases.assertRecoveryReplacement(previous, replacementGrant);
+            active.remoteLeaseGrant = replacementGrant;
+            this.recovery?.updateLease(context.task.id, replacementGrant);
+            await this.revokeRecoverably(
+              previous,
+              context.task.id,
+              active.remoteLeaseTarget
+            );
+          } else {
+            if (error instanceof RemoteLeaseError) {
+              throw new ExternalManagedRuntimeError(error.code, error.message);
+            }
+            throw error;
+          }
+        }
+      } else if (remoteLeaseProvider) {
         try {
           active.remoteLeaseTarget = {
             kind: "managed_profile",
-            ref: `${binding.provider}::${binding.managedBotRef}`
+            ref: targetRef
           };
           active.remoteLeaseGrant = await this.remoteLeases!.grant(
             remoteLeaseProvider,
@@ -592,9 +712,27 @@ export class ExternalManagedBotRuntimeAdapter implements RuntimeAdapter {
         }
       }
 
-      let result: ExternalManagedBotExecutionResult;
-      try {
-        result = await raceWithAbort(provider.execute({
+      const resume: JsonObject = {
+        provider: binding.provider,
+        managed_bot_ref: binding.managedBotRef,
+        binding_fingerprint: binding.bindingFingerprint
+      };
+      if (!checkpoint && this.recovery) {
+        checkpoint = this.recovery.begin({
+          localTaskId: context.task.id,
+          adapterId: "external-managed",
+          targetKind: "managed_profile",
+          targetRef,
+          operationKey,
+          resume,
+          leaseGrant: active.remoteLeaseGrant
+        });
+      } else if (checkpoint && this.recovery) {
+        this.recovery.updateResume(context.task.id, resume);
+        this.recovery.updateLease(context.task.id, active.remoteLeaseGrant);
+      }
+
+      const request = (): ExternalManagedBotExecuteRequest => ({
         localTaskId: context.task.id,
         idempotencyKey: `aiverse:${context.task.id}`,
         managedBotRef: binding.managedBotRef,
@@ -611,16 +749,38 @@ export class ExternalManagedBotRuntimeAdapter implements RuntimeAdapter {
         ),
         allowedTools: active.remoteLeaseGrant?.granted_tools ?? tools,
         allowedConnections: active.remoteLeaseGrant?.granted_connections ?? connections,
-          destructiveActions: active.remoteLeaseGrant?.destructive_actions ?? destructiveActions,
-          ...(active.remoteLeaseGrant ? {
-            remoteLease: this.remoteLeases!.transportProjection(active.remoteLeaseGrant)
-          } : {}),
-          signal: context.signal
-        }), context.signal);
-      } catch {
-        if (context.signal.aborted) {
-          throw context.signal.reason instanceof Error ? context.signal.reason : new Error("External managed Task canceled");
+        destructiveActions: active.remoteLeaseGrant?.destructive_actions ?? destructiveActions,
+        ...(active.remoteLeaseGrant ? {
+          remoteLease: this.remoteLeases!.transportProjection(active.remoteLeaseGrant)
+        } : {}),
+        signal: context.signal
+      });
+
+      let result: ExternalManagedBotExecutionResult | null = null;
+      const executeAttempts = exactTaskIdempotency ? maxRetryAttempts : 1;
+      for (let attempt = 1; attempt <= executeAttempts; attempt += 1) {
+        try {
+          result = await raceWithAbort(provider.execute(request()), context.signal);
+          break;
+        } catch {
+          if (context.signal.aborted) {
+            throw context.signal.reason instanceof Error
+              ? context.signal.reason
+              : new Error("External managed Task canceled");
+          }
+          if (attempt >= executeAttempts) {
+            throw new ExternalManagedRuntimeError(
+              "EXTERNAL_MANAGED_PROVIDER_EXECUTE_FAILED",
+              `External managed provider ${binding.provider} failed delegated execution`
+            );
+          }
+          await sleepWithAbort(
+            Math.min(retryBaseDelayMs * (2 ** (attempt - 1)), 10_000),
+            context.signal
+          );
         }
+      }
+      if (!result) {
         throw new ExternalManagedRuntimeError(
           "EXTERNAL_MANAGED_PROVIDER_EXECUTE_FAILED",
           `External managed provider ${binding.provider} failed delegated execution`
@@ -640,6 +800,7 @@ export class ExternalManagedBotRuntimeAdapter implements RuntimeAdapter {
       const effectiveConnections = active.remoteLeaseGrant?.granted_connections ?? connections;
       assertSubset(observedTools, effectiveTools, "tool");
       assertSubset(observedConnections, effectiveConnections, "connection");
+
       if (active.remoteLeaseGrant) {
         const remoteReceipt = asObject(result.remote_lease_receipt);
         if (remoteReceipt) {
@@ -673,15 +834,18 @@ export class ExternalManagedBotRuntimeAdapter implements RuntimeAdapter {
           throw error;
         }
       }
+
       const output = boundedJsonObject(result.output, EXTERNAL_MANAGED_MAX_OUTPUT_BYTES, "result.output");
       const usage = normalizeUsage(result.usage);
       const rawSummary = typeof result.summary === "string" ? result.summary.trim() : "";
       if (rawSummary.length > 4096 || /\0/.test(rawSummary)) {
-        throw new ExternalManagedRuntimeError("EXTERNAL_MANAGED_INVALID_RESULT", "result.summary is invalid or too long");
+        throw new ExternalManagedRuntimeError(
+          "EXTERNAL_MANAGED_INVALID_RESULT",
+          "result.summary is invalid or too long"
+        );
       }
       const summary = rawSummary || "External managed Bot completed the delegated Task.";
-
-      return {
+      const runtimeResult: RuntimeExecutionResult = {
         summary,
         artifactKind: "external_managed_task_result",
         output: {
@@ -708,6 +872,7 @@ export class ExternalManagedBotRuntimeAdapter implements RuntimeAdapter {
           observed_tool_count: observedTools.length,
           observed_connection_count: observedConnections.length,
           idempotency_contract: "local_task_id",
+          recovery_idempotency: inspection.idempotency_mode ?? "best_effort",
           remote_authentication: "host_injected_provider",
           ...(active.remoteLeaseGrant && remoteLeaseAudit
             ? this.remoteLeases!.receiptProjection(active.remoteLeaseGrant, remoteLeaseAudit)
@@ -717,14 +882,19 @@ export class ExternalManagedBotRuntimeAdapter implements RuntimeAdapter {
               })
         }]
       };
+      this.recovery?.complete(context.task.id, runtimeResult, {
+        leaseGrant: active.remoteLeaseGrant,
+        resume
+      });
+      return runtimeResult;
     } finally {
       if (active.remoteLeaseGrant && active.remoteLeaseTarget && !active.leaseRevokeStarted) {
         active.leaseRevokeStarted = true;
-        void this.remoteLeases!.revoke(
+        await this.revokeRecoverably(
           active.remoteLeaseGrant,
           context.task.id,
           active.remoteLeaseTarget
-        ).catch(() => undefined);
+        );
       }
       this.active.delete(context.task.id);
       context.signal.removeEventListener("abort", abortFromParent);
@@ -733,25 +903,72 @@ export class ExternalManagedBotRuntimeAdapter implements RuntimeAdapter {
 
   async cancel(taskId: string): Promise<void> {
     const active = this.active.get(taskId);
-    if (!active || active.cancelStarted) return;
-    active.cancelStarted = true;
-    if (active.remoteLeaseGrant && active.remoteLeaseTarget && !active.leaseRevokeStarted) {
-      active.leaseRevokeStarted = true;
-      void this.remoteLeases!.revoke(
-        active.remoteLeaseGrant,
-        taskId,
-        active.remoteLeaseTarget
-      ).catch(() => undefined);
+    if (active) {
+      if (active.cancelStarted) return;
+      active.cancelStarted = true;
+      if (active.remoteLeaseGrant && active.remoteLeaseTarget && !active.leaseRevokeStarted) {
+        active.leaseRevokeStarted = true;
+        await this.revokeRecoverably(active.remoteLeaseGrant, taskId, active.remoteLeaseTarget);
+      }
+      try {
+        await active.provider.cancel({
+          localTaskId: taskId,
+          managedBotRef: active.binding.managedBotRef,
+          expectedBindingFingerprint: active.binding.bindingFingerprint
+        });
+      } catch {
+        // Local cancellation remains authoritative. The durable lease revocation
+        // queue still preserves authority cleanup even if provider cancel fails.
+      }
+      return;
     }
+
+    const checkpoint = this.recovery?.get(taskId);
+    if (!checkpoint || checkpoint.adapterId !== "external-managed") return;
+    const resume = checkpoint.resume;
+    const providerId = typeof resume.provider === "string" ? resume.provider : null;
+    const managedBotRef = typeof resume.managed_bot_ref === "string" ? resume.managed_bot_ref : null;
+    const bindingFingerprint = typeof resume.binding_fingerprint === "string"
+      ? resume.binding_fingerprint
+      : null;
+    if (providerId && managedBotRef && bindingFingerprint && this.providers.has(providerId)) {
+      try {
+        await this.providers.get(providerId).cancel({
+          localTaskId: taskId,
+          managedBotRef,
+          expectedBindingFingerprint: bindingFingerprint
+        });
+      } catch {
+        // Recovered cancellation is best effort at the provider boundary.
+      }
+    }
+    if (checkpoint.leaseGrant) {
+      await this.revokeRecoverably(
+        checkpoint.leaseGrant,
+        taskId,
+        { kind: "managed_profile", ref: checkpoint.targetRef }
+      );
+    }
+    this.recovery?.clear(taskId);
+  }
+
+  async settle(taskId: string): Promise<void> {
+    this.recovery?.clear(taskId);
+  }
+
+  private async revokeRecoverably(
+    grant: RemoteLeaseGrant,
+    localTaskId: string,
+    target: { kind: "managed_profile"; ref: string }
+  ): Promise<void> {
+    if (!this.remoteLeases) return;
+    const pending = this.recovery?.queueRevocation(localTaskId, target, grant) ?? null;
     try {
-      await active.provider.cancel({
-        localTaskId: taskId,
-        managedBotRef: active.binding.managedBotRef,
-        expectedBindingFingerprint: active.binding.bindingFingerprint
-      });
+      await this.remoteLeases.revoke(grant, localTaskId, target);
+      if (pending) this.recovery?.markRevoked(pending.id);
     } catch {
-      // Local cancellation remains authoritative. Provider cancellation is required
-      // by the binding contract but its failure cannot reverse local cancellation.
+      // A durable recovery store retains the failed revocation for reconciliation.
     }
   }
+
 }
