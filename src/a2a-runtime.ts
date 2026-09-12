@@ -232,9 +232,17 @@ function remoteLeaseReceiptMetadata(value: JsonObject): unknown {
   return metadata?.[REMOTE_LEASE_A2A_EXTENSION_URI];
 }
 
-function runtimeEnvelope(context: RuntimeExecutionContext): JsonObject {
-  const leaseTools = stringArray(context.capabilityLease.payload.tools);
-  const leaseConnections = stringArray(context.capabilityLease.payload.connections);
+function runtimeEnvelope(
+  context: RuntimeExecutionContext,
+  remoteLeaseGrant: RemoteLeaseGrant | null = null
+): JsonObject {
+  const leaseTools = remoteLeaseGrant?.granted_tools
+    ?? stringArray(context.capabilityLease.payload.tools);
+  const leaseConnections = remoteLeaseGrant?.granted_connections
+    ?? stringArray(context.capabilityLease.payload.connections);
+  const destructiveActions = remoteLeaseGrant?.destructive_actions
+    ?? context.capabilityLease.payload.destructive_actions
+    ?? null;
   return {
     contract: "ai-verse-multiple-bots/a2a-runtime-envelope-v1",
     authority_order: [
@@ -262,8 +270,9 @@ function runtimeEnvelope(context: RuntimeExecutionContext): JsonObject {
       lease_id: context.capabilityLease.id,
       tools: leaseTools,
       connections: leaseConnections,
-      destructive_actions: context.capabilityLease.payload.destructive_actions ?? null,
-      environment_lease_id: context.environmentLease?.id ?? null
+      destructive_actions: destructiveActions,
+      environment_lease_id: context.environmentLease?.id ?? null,
+      remote_lease_applied: Boolean(remoteLeaseGrant)
     },
     workspace_projection: context.workspaceProjection ? {
       provider: context.workspaceProjection.provider,
@@ -377,7 +386,14 @@ export class A2AJsonRpcRuntimeAdapter implements RuntimeAdapter {
 
     const cardUrl = safeUrl(requiredRuntimeString(runtime, "agent_card_url"), "runtime.agent_card_url");
     const interval = pollInterval(runtime);
-    const needsRemoteLease = Boolean(remoteBinding.machineRef) && runtimeAuthorityNeedsRemoteLease(context);
+    const hasMeaningfulAuthority = runtimeAuthorityNeedsRemoteLease(context);
+    if (hasMeaningfulAuthority && !remoteBinding.machineRef) {
+      throw new A2ARuntimeError(
+        "A2A_REMOTE_AUTHORITY_REQUIRES_PINNED_MACHINE",
+        "A2A Task authority can only be projected to a pinned remote_machine_ref"
+      );
+    }
+    const needsRemoteLease = Boolean(remoteBinding.machineRef) && hasMeaningfulAuthority;
     const remoteLeaseProvider = typeof runtime.remote_lease_provider === "string" && runtime.remote_lease_provider.trim()
       ? runtime.remote_lease_provider.trim()
       : null;
@@ -444,7 +460,7 @@ export class A2AJsonRpcRuntimeAdapter implements RuntimeAdapter {
         }
       }
 
-      const envelope = runtimeEnvelope(context);
+      const envelope = runtimeEnvelope(context, active.remoteLeaseGrant);
       const envelopeText = boundedJson(envelope, A2A_REQUEST_MAX_BYTES, "A2A runtime envelope");
       const messagePart: JsonObject = card.inputMode === "application/json"
         ? { data: envelope, mediaType: "application/json" }
