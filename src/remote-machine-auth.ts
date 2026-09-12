@@ -487,7 +487,17 @@ export class RemoteHttpAccessBroker {
         );
       }
     }
-    safeString(evidence.mechanism, "remote authentication evidence mechanism", 256);
+    if (
+      typeof evidence.mechanism !== "string"
+      || !evidence.mechanism.trim()
+      || evidence.mechanism.length > 256
+      || /[\0\r\n]/.test(evidence.mechanism)
+    ) {
+      throw new RemoteMachineAuthError(
+        "REMOTE_AUTH_INVALID_EVIDENCE",
+        "Remote authentication evidence mechanism must be a non-empty bounded string"
+      );
+    }
 
     if (requirements.length > 0 && evidence.client_authenticated !== true) {
       throw new RemoteMachineAuthError("REMOTE_AUTH_CLIENT_UNVERIFIED", "Remote authentication provider did not prove client authentication");
