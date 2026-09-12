@@ -578,6 +578,8 @@ test("Claude Code adapter uses safe + restricted print mode with an exact built-
       "--restricted",
       "--tools",
       "--disallowedTools",
+      "--strict-mcp-config",
+      "--mcp-config",
       "--permission-mode",
       "--permission-prompts",
       "--output-format",
@@ -597,6 +599,7 @@ test("Claude Code adapter uses safe + restricted print mode with an exact built-
     assert.equal(call.args[allowIndex + 1], "Edit,Glob,Grep,Read,WebSearch,Write");
     const denyIndex = call.args.indexOf("--disallowedTools");
     assert.equal(call.args[denyIndex + 1], "mcp__*");
+    assert.equal(call.args[call.args.indexOf("--mcp-config") + 1], '{"mcpServers":{}}');
     assert.equal(call.args[call.args.indexOf("--permission-mode") + 1], "dontAsk");
     assert.equal(call.args[call.args.indexOf("--permission-prompts") + 1], "none");
     assert.equal(call.args[call.args.indexOf("--output-format") + 1], "json");
@@ -624,7 +627,8 @@ test("Claude Code adapter uses safe + restricted print mode with an exact built-
     assert.equal(receipt.enabled_builtin_tool_count, 6);
     assert.equal(receipt.customization_policy, "safe_mode");
     assert.equal(receipt.machine_boundary, "restricted");
-    assert.equal(receipt.mcp_policy, "safe_mode_plus_explicit_mcp_deny");
+    assert.equal(receipt.mcp_policy, "safe_mode_plus_strict_empty_config_plus_explicit_mcp_deny");
+    assert.equal(receipt.managed_policy, "host_managed_policy_remains_upstream");
     const serialized = JSON.stringify(receipt);
     assert.equal(serialized.includes(fixture.workspace), false);
     assert.equal(serialized.includes("PROCESS_CURRENT_CONTEXT"), false);
@@ -831,6 +835,46 @@ test("shared local CLI transport always uses shell:false, stdin piping, and expl
   assert.equal(stdin, "PROMPT");
   assert.equal(result.exitCode, 0);
   assert.equal(result.stdout, "OUTPUT");
+});
+
+test("shared local CLI transport keeps TERM-to-KILL escalation alive after stdout overflow", async () => {
+  const stdout = new MiniStream();
+  const stderr = new MiniStream();
+  const lifecycle = new MiniStream();
+  const kills: string[] = [];
+  const child: any = {
+    stdout,
+    stderr,
+    stdin: {
+      end() {
+        queueMicrotask(() => stdout.emit("data", "TOO-MUCH-OUTPUT"));
+      }
+    },
+    once: lifecycle.once.bind(lifecycle),
+    kill(signal: string) {
+      kills.push(signal);
+      if (signal === "SIGKILL") lifecycle.emit("exit", null, signal);
+    }
+  };
+  const transport = new SpawnLocalCliProcessTransport((() => child) as any);
+  const controller = new AbortController();
+  await assert.rejects(
+    () => transport.run({
+      command: "tool",
+      args: [],
+      cwd: "/tmp",
+      env: {},
+      stdin: "",
+      signal: controller.signal,
+      timeoutMs: 10_000,
+      maxStdoutBytes: 4
+    }),
+    (error: unknown) => error instanceof LocalCliProcessError
+      && error.code === "LOCAL_CLI_OUTPUT_TOO_LARGE"
+  );
+  assert.deepEqual(kills, ["SIGTERM"]);
+  await new Promise((resolve) => setTimeout(resolve, 1100));
+  assert.deepEqual(kills, ["SIGTERM", "SIGKILL"]);
 });
 
 test("shared local CLI transport converts an outer process deadline into an explicit timeout error", async () => {
