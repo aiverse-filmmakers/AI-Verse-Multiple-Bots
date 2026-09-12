@@ -215,6 +215,21 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
         return;
       }
 
+      const botExternalRebindMatch = url.pathname.match(/^\/v1\/bots\/([^/]+)\/external-managed\/rebind$/);
+      if (method === "POST" && botExternalRebindMatch) {
+        const body = await readJson(req);
+        json(res, 200, gateway.rebindExternalManagedBot(
+          decodeURIComponent(botExternalRebindMatch[1] as string),
+          {
+            provider: requiredString(body, "provider"),
+            managedBotRef: requiredString(body, "managedBotRef"),
+            bindingFingerprint: requiredString(body, "bindingFingerprint")
+          },
+          requiredString(body, "actorId")
+        ));
+        return;
+      }
+
       const botLifecycleMatch = url.pathname.match(/^\/v1\/bots\/([^/]+)\/(activate|disable|archive)$/);
       if (method === "POST" && botLifecycleMatch) {
         const body = await readJson(req);
