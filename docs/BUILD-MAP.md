@@ -17,11 +17,11 @@ Phase 0  Research + Architecture        [COMPLETE]    100%
 Phase 1  Runnable Coordination Core     [COMPLETE]    100%
 Phase 2  Dynamic Multi-Agent Squads     [COMPLETE]    100%
 Phase 3  AI-Verse Native Integration    [COMPLETE]    100%
-Phase 4  Runtime / A2A Interoperability [IN PROGRESS] ~50%
+Phase 4  Runtime / A2A Interoperability [IN PROGRESS] ~60%
 Phase 5  Product + Install + Dashboard  [NOT STARTED]
 ```
 
-**Directional overall first-release progress:** roughly 89% complete.
+**Directional overall first-release progress:** roughly 91% complete.
 
 That overall figure is intentionally approximate because later phases contain different amounts of work. Passed phase gates, not percentages, are authoritative.
 
@@ -501,7 +501,7 @@ AI-Verse native integration now covers safe registration, exact workspace projec
 
 **Status:** IN PROGRESS
 
-**Directional phase progress:** approximately 50%.
+**Directional phase progress:** approximately 60%.
 
 Goal: make durable Bots/temporary Workers portable across supported local and remote runtimes while preserving protocol identity, authority, cancellation, provenance and recovery.
 
@@ -512,8 +512,8 @@ Goal: make durable Bots/temporary Workers portable across supported local and re
 3. OpenClaw adapter - **COMPLETE**
 4. Codex/Claude Code process adapters where appropriate - **COMPLETE**
 5. external managed Bot runtime - **COMPLETE**
-6. remote-machine identity/authentication - **NEXT**
-7. remote capability/environment leases - **NOT STARTED**
+6. remote-machine identity/authentication - **COMPLETE**
+7. remote capability/environment leases - **NEXT**
 8. retry/disconnect/reconnect semantics - **NOT STARTED**
 9. compatibility/evaluation suite - **NOT STARTED**
 
@@ -662,6 +662,35 @@ Implemented:
 
 See `docs/EXTERNAL-MANAGED-BOT-RUNTIME.md` and `docs/PHASE-4-STATUS.md`.
 
+### Phase 4.6 - remote-machine identity/authentication
+
+Implemented:
+
+- public host-neutral remote-machine trust/authentication contracts with stable machine id, exact HTTPS origin and pinned peer identity
+- peer identity modes for HTTPS origin, TLS SPKI digest, TLS certificate digest, SPIFFE ID and custom host-attested identities
+- immutable in-process `RemoteMachineIdentityRegistry` with duplicate/ambiguous remote identity rejection
+- explicit `RemoteHttpAuthenticatorRegistry` for host-injected credential/transport providers
+- `RemoteHttpAccessBroker` enforcing exact registered origin, HTTPS, redirect denial and verified authentication evidence
+- opaque `remote_credential_ref` handles rather than raw credentials in Bot/runtime configuration
+- built-in `HeaderRemoteHttpAuthenticator` for A2A HTTP Bearer and header API-key security schemes
+- public discovery separation so built-in application credentials are never resolved/sent for an unauthenticated Agent Card request
+- explicit rejection of raw credential-like A2A runtime fields
+- normalized A2A v1 security requirements with OR/AND scheme semantics
+- verification that declared security schemes exist before credentials are resolved
+- exact required-scope proof through authentication evidence
+- custom authenticator surface for OAuth2/OIDC, mTLS, SPIFFE and stronger certificate/workload-identity implementations
+- authenticated A2A `SendMessage`, `GetTask` and `CancelTask` through the same pinned machine/auth boundary
+- cross-origin Agent Card interface rejection before credential resolution/transmission
+- bounded A2A auth provenance without token/API-key/credential-ref/certificate/private-key material
+- sanitized third-party authenticator failure boundary
+- local abort racing so auth cancellation does not depend on provider AbortSignal compliance
+- Gateway injection/exposure of remote machine, authenticator and access-broker registries
+- no remote capability/environment lease, reconnect/retry or Phase 5 behavior introduced
+
+**Verified implementation gate:** GitHub Actions CI run 438 (`34717863491`) passed the full **375/375 tests** with 0 failures, 0 canceled and 0 skipped on hardened implementation head `a2fcd4736f37d832c9240476c5b77efa01e462d4`.
+
+See `docs/REMOTE-MACHINE-IDENTITY-AUTH.md` and `docs/PHASE-4-STATUS.md`.
+
 ## Phase 5 - Product, Installer, Omnichannel and Dashboard
 
 **Status:** NOT STARTED
@@ -705,9 +734,9 @@ The first finished release must prove at minimum:
 
 ## Next gate
 
-**Phase 4.6 - remote-machine identity/authentication.**
+**Phase 4.7 - remote capability/environment leases.**
 
-Phase 4.5 is complete. The next canonical slice is remote-machine identity/authentication. Phase 4.6 has not started.
+Phase 4.6 is complete. The next canonical slice is remote capability/environment leases. Phase 4.7 has not started.
 
 ## How to report progress
 

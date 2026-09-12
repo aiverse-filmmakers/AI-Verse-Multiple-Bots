@@ -275,7 +275,7 @@ test("A2A Task execution polls GetTask to completion and preserves temporary Wor
 
 test("A2A adapter fails closed for authentication, required extensions, and unsupported interfaces", async () => {
   for (const [variant, code] of [
-    [{ securityRequirements: [{ bearer: [] }] }, "A2A_AUTH_OUT_OF_SCOPE"],
+    [{ securityRequirements: [{ bearer: [] }] }, "A2A_AUTH_BINDING_REQUIRED"],
     [{ capabilities: { extensions: [{ uri: "https://example/ext", required: true }] } }, "A2A_REQUIRED_EXTENSION_UNSUPPORTED"],
     [{ supportedInterfaces: [{ url: "https://agent.example/rest", protocolBinding: "HTTP+JSON", protocolVersion: "1.0" }] }, "A2A_INTERFACE_UNSUPPORTED"],
     [{ supportedInterfaces: [{ url: "https://agent.example/rpc", protocolBinding: "JSONRPC", protocolVersion: "0.3" }] }, "A2A_INTERFACE_UNSUPPORTED"]
@@ -289,10 +289,24 @@ test("A2A adapter fails closed for authentication, required extensions, and unsu
   }
 
   const adapter = new A2AJsonRpcRuntimeAdapter({ fetchImpl: async () => json(card()) });
-  await assert.rejects(
-    () => adapter.execute(context({ adapter: "a2a", agent_card_url: "https://agent.example/card", api_key_env: "SECRET" })),
-    (error: unknown) => error instanceof A2ARuntimeError && error.code === "A2A_AUTH_OUT_OF_SCOPE"
-  );
+  for (const [field, value] of [
+    ["api_key_env", "SECRET_ENV"],
+    ["bearer_token", "SECRET_TOKEN"],
+    ["authorization", "Bearer SECRET"],
+    ["remote_headers", { authorization: "Bearer SECRET" }],
+    ["cookie", "session=secret"],
+    ["password", "secret"],
+    ["client_secret", "secret"]
+  ] as const) {
+    await assert.rejects(
+      () => adapter.execute(context({
+        adapter: "a2a",
+        agent_card_url: "https://agent.example/card",
+        [field]: value
+      })),
+      (error: unknown) => error instanceof A2ARuntimeError && error.code === "A2A_INLINE_CREDENTIALS_FORBIDDEN"
+    );
+  }
 });
 
 test("A2A interrupted and failed remote states are never converted into successful local Artifacts", async () => {
