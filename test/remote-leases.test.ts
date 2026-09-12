@@ -200,6 +200,7 @@ test("remote provider may narrow authority but can never expand tools, connectio
   }
 
   for (const [patch, code] of [
+    [{ provider: "other-lease-provider" }, "REMOTE_LEASE_PROVIDER_MISMATCH"],
     [{ granted_tools: ["web.search", "admin.delete"] }, "REMOTE_LEASE_AUTHORITY_EXPANSION"],
     [{ granted_connections: ["drive.write"] }, "REMOTE_LEASE_AUTHORITY_EXPANSION"],
     [{ destructive_actions: "allow" }, "REMOTE_LEASE_AUTHORITY_EXPANSION"],
