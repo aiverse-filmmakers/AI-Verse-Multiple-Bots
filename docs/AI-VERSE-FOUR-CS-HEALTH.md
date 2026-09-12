@@ -2,7 +2,7 @@
 
 **Phase:** 3.9
 
-**Status:** implementation pending acceptance gate
+**Status:** COMPLETE
 
 ## Purpose
 
@@ -231,6 +231,8 @@ Phase 3.9 is complete only when tests prove at minimum:
 12. the new Gateway health endpoint is additive and the existing `/health` contract is unchanged
 13. invalid workspace scopes fail without mutating coordination state
 14. the complete existing coordination and Phase 3 suite remains green
+
+**Verified gate:** GitHub Actions CI run 380 (`34709083183`) passed **281/281 tests**, with 0 failures, 0 canceled and 0 skipped, on exact implementation head `d7a44a19dfb5741509692e41b2ded14566f4c898`.
 
 ## Non-goals
 
