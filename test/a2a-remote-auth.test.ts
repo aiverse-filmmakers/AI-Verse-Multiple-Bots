@@ -75,8 +75,8 @@ function context(runtime: JsonObject): RuntimeExecutionContext {
       issued_to: bot.id,
       workspace_id: "ws-remote-auth",
       task_id: "task_remote-auth",
-      tools: ["search.read"],
-      connections: ["docs"],
+      tools: [],
+      connections: [],
       destructive_actions: "deny",
       expires_at: "2030-01-01T00:00:00Z"
     }),
