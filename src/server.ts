@@ -30,6 +30,13 @@ import { OpenClawAgentExecRuntimeAdapter } from "./openclaw-runtime.js";
 import { AiVerseOsWriteCommandSink, OsWriteCommandBoundary } from "./os-write-command.js";
 import { CoordinationPolicy } from "./policy.js";
 import { RoomCoordinator } from "./rooms.js";
+import {
+  RemoteHttpAccessBroker,
+  RemoteHttpAuthenticatorRegistry,
+  RemoteMachineIdentityRegistry,
+  type RemoteHttpAuthenticator,
+  type RemoteMachineIdentity
+} from "./remote-machine-auth.js";
 import { BotRunner } from "./runner.js";
 import { DeterministicRuntimeAdapter, RuntimeRegistry } from "./runtime.js";
 import { SkillsCapabilityRuntimeRegistry } from "./skills-capability-runtime.js";
@@ -42,6 +49,8 @@ export interface GatewayServerOptions {
   dbPath?: string;
   aiVerseOsRoot?: string;
   externalManagedProviders?: ExternalManagedBotProvider[];
+  remoteMachines?: RemoteMachineIdentity[];
+  remoteAuthenticators?: RemoteHttpAuthenticator[];
 }
 
 async function readJson(req: any): Promise<JsonObject> {
@@ -124,10 +133,13 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
   const rooms = new RoomCoordinator(store, gateway);
   const externalManagedProviders = new ExternalManagedBotProviderRegistry();
   for (const provider of options.externalManagedProviders ?? []) externalManagedProviders.register(provider);
+  const remoteMachines = new RemoteMachineIdentityRegistry(options.remoteMachines ?? []);
+  const remoteAuthenticators = new RemoteHttpAuthenticatorRegistry(options.remoteAuthenticators ?? []);
+  const remoteAccess = new RemoteHttpAccessBroker(remoteMachines, remoteAuthenticators);
   const baseRuntimes = new RuntimeRegistry()
     .register(new DeterministicRuntimeAdapter())
     .register(new OpenAICompatibleRuntimeAdapter())
-    .register(new A2AJsonRpcRuntimeAdapter())
+    .register(new A2AJsonRpcRuntimeAdapter({ remoteAccess }))
     .register(new HermesStdioRuntimeAdapter())
     .register(new OpenClawAgentExecRuntimeAdapter())
     .register(new CodexExecRuntimeAdapter())
@@ -688,6 +700,9 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
     rooms,
     runtimes,
     externalManagedProviders,
+    remoteMachines,
+    remoteAuthenticators,
+    remoteAccess,
     runner,
     brainObjectiveSource,
     brainIngress,
