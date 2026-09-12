@@ -555,6 +555,10 @@ test("external managed runtime binds capability and environment authority throug
       assert.ok(remoteLease);
       assert.deepEqual(request.allowedTools, ["github:read"]);
       assert.deepEqual(request.allowedConnections, []);
+      assert.equal((request.envelope.authority as any).remote_lease_applied, true);
+      assert.deepEqual((request.envelope.authority as any).tools, ["github:read"]);
+      assert.deepEqual((request.envelope.authority as any).connections, []);
+      assert.equal((request.envelope.authority as any).environment_lease_id, "envlease_external");
       assert.equal(remoteLease.environment.remote_environment_ref, "managed-env-remote");
       return {
         ...this.result,
