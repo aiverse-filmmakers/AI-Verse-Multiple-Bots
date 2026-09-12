@@ -79,7 +79,7 @@ export class BrainObjectiveRuntimeRegistry extends RuntimeRegistry {
         };
         return { ...result, receipts: [...(result.receipts ?? []), receipt] };
       },
-      ...(inner.cancel ? { cancel: (taskId: string) => inner.cancel!(taskId) } : {})
+      ...(inner.cancel ? { cancel: (taskId: string) => inner.cancel!(taskId) } : {}),\n      ...(inner.settle ? { settle: (taskId: string) => inner.settle!(taskId) } : {})
     };
     this.guarded.set(id, guarded);
     return guarded;
