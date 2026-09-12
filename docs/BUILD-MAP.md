@@ -16,12 +16,12 @@ The target is an installable persistent-teammate layer that can run standalone o
 Phase 0  Research + Architecture        [COMPLETE]    100%
 Phase 1  Runnable Coordination Core     [COMPLETE]    100%
 Phase 2  Dynamic Multi-Agent Squads     [COMPLETE]    100%
-Phase 3  AI-Verse Native Integration    [IN PROGRESS] ~80%
+Phase 3  AI-Verse Native Integration    [IN PROGRESS] ~90%
 Phase 4  Runtime / A2A Interoperability [NOT STARTED]
 Phase 5  Product + Install + Dashboard  [NOT STARTED]
 ```
 
-**Directional overall first-release progress:** roughly 75% complete.
+**Directional overall first-release progress:** roughly 77% complete.
 
 That overall figure is intentionally approximate because later phases contain different amounts of work. Passed phase gates, not percentages, are authoritative.
 
@@ -229,7 +229,7 @@ None.
 
 **Status:** IN PROGRESS
 
-**Directional phase progress:** approximately 80%.
+**Directional phase progress:** approximately 90%.
 
 Goal: attach the finished host-neutral teammate/squad package to AI-Verse OS without moving or duplicating canonical OS/Brain/Memory/Skills state into this repository.
 
@@ -243,8 +243,8 @@ Goal: attach the finished host-neutral teammate/squad package to AI-Verse OS wit
 6. Automations wake/schedule integration - **COMPLETE**
 7. OS write-command boundary - **COMPLETE**
 8. candidate knowledge/decision write-back - **COMPLETE**
-9. 4Cs health integration - **NEXT**
-10. uninstall/upgrade without canonical-state damage - **NOT STARTED**
+9. 4Cs health integration - **COMPLETE**
+10. uninstall/upgrade without canonical-state damage - **NEXT**
 
 ### Phase 3.1 - AI-Verse OS installer/registration contract
 
@@ -433,6 +433,31 @@ Implemented:
 
 See `docs/AI-VERSE-CANDIDATE-WRITEBACK.md` and `docs/PHASE-3-STATUS.md`.
 
+### Phase 3.9 - 4Cs health integration
+
+Implemented:
+
+- public read-only `FourCsHealthProjector` using the canonical AI-Verse OS Four Cs terminology: Context, Connections, Capabilities and Cadence
+- explicit evidence states `verified`, `degraded`, `unknown` and `not_applicable`
+- native workspace Context health probes through the existing Phase 3.2 canonical workspace projector
+- health output exposes bounded metrics and evidence only, never projected workspace text, Memory recall text, Brain intent, Skill instructions, automation definitions or Artifact content
+- prior workspace, Brain, Memory and Skills runtime receipts are counted as bounded execution evidence without copying their payload content
+- connection grants are never treated as proof of live external access
+- Skill-dependent work without an available resolver is degraded rather than falsely healthy
+- configured integrations without successful operation remain unknown rather than verified
+- Phase 3.6 automation-ingressed Tasks and Team Runs provide bounded Cadence evidence while AI-Verse OS remains the scheduler owner
+- deterministic coordination-core evidence includes store doctor state, dead letters, Bots, Workers, Team Runs, Tasks, Artifacts and pending Approvals
+- integration availability is projected separately from operational evidence
+- AI-Verse OS `/audit` remains the canonical health/scoring/finding-lifecycle authority
+- Multiple Bots assigns no Four Cs score and writes no OS health state
+- additive `GET /v1/health/4cs` endpoint with optional exact workspace scope
+- existing `GET /health` contract remains unchanged
+- invalid workspace health scopes fail without coordination mutation
+
+**Verified implementation gate:** GitHub Actions CI run 380 (`34709083183`) passed the full **281/281 tests** with 0 failures, 0 canceled and 0 skipped on exact implementation head `d7a44a19dfb5741509692e41b2ded14566f4c898`.
+
+See `docs/AI-VERSE-FOUR-CS-HEALTH.md` and `docs/PHASE-3-STATUS.md`.
+
 ### Phase 3 boundary
 
 Phase 3 work is additive through explicit host adapters. AI-Verse OS remains canonical for operator/workspace/domain state, capability-provider resolution and automation cadence. AI-Verse Brain remains canonical for strategic intent and objective lifecycle. AI-Verse Memory remains canonical for historical memory and its rebuildable derived index. AI-Verse Skills remains canonical for reusable capability packages and immutable generations. Multiple Bots remains canonical for coordination state created after a bounded host invocation. Host, Brain, Memory, selected Skills and automation invocation projections are scoped views, not competing truth.
@@ -500,9 +525,9 @@ The first finished release must prove at minimum:
 
 ## Next gate
 
-**Phase 3.9 - 4Cs health integration.**
+**Phase 3.10 - uninstall/upgrade without canonical-state damage.**
 
-The next slice must integrate Multiple Bots into the existing AI-Verse 4Cs health model without creating a competing health authority, while keeping health projection bounded, owner-controlled and compatible with standalone operation.
+The next slice must prove that Multiple Bots can be upgraded or uninstalled without deleting or rewriting user-owned AI-Verse OS, Brain, Memory, Skills, workspace, knowledge, decision, automation, or other canonical state. It may remove or migrate only extension-owned installation, registration, derived runtime, and package state under explicit bounded rules.
 
 ## How to report progress
 
