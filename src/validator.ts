@@ -78,9 +78,21 @@ export function validateProtocolObject(value: unknown, expectedKind?: ProtocolKi
         requiredString(role, "mission", issues);
       }
       const runtime = requiredObject(value, "runtime", issues);
-      if (runtime) requiredString(runtime, "adapter", issues);
+      if (runtime) {
+        requiredString(runtime, "adapter", issues);
+        if (runtime.adapter === "external-managed") {
+          requiredString(runtime, "provider", issues);
+          requiredString(runtime, "managed_bot_ref", issues);
+          requiredString(runtime, "binding_fingerprint", issues);
+        }
+      }
       const execution = requiredObject(value, "execution", issues);
-      if (execution) requiredString(execution, "environment_policy", issues);
+      if (execution) {
+        requiredString(execution, "environment_policy", issues);
+        if (runtime?.adapter === "external-managed" && execution.environment_policy !== "external_managed") {
+          issues.push("external-managed Bot execution.environment_policy must equal external_managed");
+        }
+      }
       const scope = requiredObject(value, "scope", issues);
       if (scope) {
         requiredString(scope, "type", issues);
