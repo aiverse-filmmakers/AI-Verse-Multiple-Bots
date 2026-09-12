@@ -125,6 +125,12 @@ export class ExecutionSupervisor {
     for (const decision of decisions) {
       this.syncWorkerRecovery(decision);
       if (decision.action === "requeued") this.trigger(decision.execution.targetId);
+      if (decision.action === "dead_letter") {
+        void this.runner.cancelRuntimeRecovery(
+          decision.execution.itemId,
+          decision.execution.targetId
+        ).catch(() => undefined);
+      }
       if (decision.action === "reconciled" && decision.task) {
         const runId = typeof decision.task.payload.run_id === "string" ? decision.task.payload.run_id : null;
         const run = runId ? this.gateway.store.getObject(runId) : null;
