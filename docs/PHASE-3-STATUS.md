@@ -4,9 +4,9 @@
 
 **Phase:** 3
 
-**Overall status:** IN PROGRESS
+**Overall status:** COMPLETE
 
-**Directional phase progress:** approximately 90%
+**Directional phase progress:** 100%
 
 This file is the implementation ledger for Phase 3. The canonical product roadmap remains `BUILD-MAP.md`.
 
@@ -25,7 +25,7 @@ Attach the completed host-neutral persistent-teammate and squad package to AI-Ve
 7. OS write-command boundary — **COMPLETE**
 8. candidate knowledge/decision write-back — **COMPLETE**
 9. 4Cs health integration — **COMPLETE**
-10. uninstall/upgrade without canonical-state damage — **NEXT**
+10. uninstall/upgrade without canonical-state damage — **COMPLETE**
 
 ## Slice 3.1 - AI-Verse OS installer/registration contract
 
@@ -489,9 +489,58 @@ Phase 3.9 acceptance coverage proves:
 
 See `AI-VERSE-FOUR-CS-HEALTH.md` for the canonical Phase 3.9 boundary.
 
+## Slice 3.10 - uninstall/upgrade without canonical-state damage
+
+**Implementation status:** COMPLETE
+
+Phase 3.10 closes the native-integration lifecycle by allowing bounded upgrade and uninstall operations without granting Multiple Bots authority over canonical AI-Verse domain state.
+
+Implemented:
+
+- upgrade planning/execution APIs that require an existing owned registration
+- exact lifecycle ownership checks for extension id, source, instruction path, engine path, version and adapter metadata
+- foreign same-key registration rejection
+- user-disabled state preservation across upgrade
+- unknown registry and unrelated extension preservation
+- reuse of Phase 3.1 compatibility, lock, installed-file verification and atomic registry replacement
+- uninstall planning/execution APIs
+- own registry entry removal without touching unrelated extensions
+- known-file cleanup restricted to regular registered files inside the Multiple Bots extension root
+- registered paths outside that root preserved rather than deleted
+- unknown extension files never recursively scavenged
+- symlink traversal rejection before registry mutation
+- no-op repeated uninstall after registration is absent
+- explicit coordination-state preservation
+- byte-preservation acceptance fixtures for OS manifest/runtime contract, operator context, workspace manifest, workspace knowledge, Automations and capability state
+- CLI lifecycle plan/execute commands
+- no Phase 5 materialization or package distribution behavior introduced
+
+### 3.10 acceptance proof
+
+The implementation head `eb41d3f690590dd0e2cefd739109058ee5a3eae6` passed GitHub Actions **CI run 384 (`34709530708`) with 287/287 tests**, **0 failures, 0 canceled and 0 skipped**.
+
+Phase 3.10 acceptance coverage proves:
+
+1. upgrade requires an existing owned registration
+2. foreign same-key registrations cannot be upgraded or uninstalled
+3. upgrade preserves user-disabled and unknown registry metadata
+4. upgrade leaves canonical host state byte-identical
+5. uninstall removes only the owned registry entry
+6. uninstall deletes only known registered regular files inside its own extension root
+7. registered files outside the extension root are preserved
+8. unknown extension files are preserved
+9. coordination state is preserved
+10. canonical operator/workspace/knowledge/automation/capability fixtures remain byte-identical
+11. repeated uninstall is idempotent and does not scavenge leftovers
+12. symlinked removal paths fail before registry mutation
+13. upgrade and uninstall respect the existing registry lock
+14. the full pre-existing coordination and Phase 3 suite remains green
+
+See `AI-VERSE-UPGRADE-UNINSTALL-SAFETY.md` for the canonical Phase 3.10 boundary.
+
 ## Ownership boundary
 
-Phase 3.1 through 3.9 do not make Multiple Bots the source of truth for any AI-Verse OS, Brain, Memory, Skills or Automations domain state.
+Phase 3.1 through 3.10 do not make Multiple Bots the source of truth for any AI-Verse OS, Brain, Memory, Skills or Automations domain state.
 
 ```text
 AI-Verse OS
@@ -532,8 +581,14 @@ Registration also does not auto-create AI-Verse OS durable agents. Durable Multi
 
 Phase 3.1 defines and implements safe registration after extension-owned files have been materialized. It deliberately does not claim the final one-command product installer. Production package materialization, clean-machine install and member-facing setup remain Phase 5 responsibilities.
 
+## Phase 3 completion gate
+
+**PASSED.**
+
+All ten Phase 3 slices are complete. The final Phase 3 implementation suite passed **287/287 tests** with no failures, cancellations or skips.
+
 ## Next gate
 
-**Phase 3.10 - uninstall/upgrade without canonical-state damage.**
+**Phase 4.1 - A2A adapter.**
 
-The next slice must define and prove safe upgrade and uninstall mechanics that preserve all user-owned and canonical AI-Verse state while changing only Multiple Bots extension-owned installation, registration, package and derived runtime state.
+Phase 4 has not started. The next canonical BUILD-MAP task is the A2A interoperability adapter.

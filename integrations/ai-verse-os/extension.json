@@ -15,5 +15,13 @@
   "tracked_os_files_mutated": [],
   "registration_grants_permissions": false,
   "registration_asserts_health": false,
-  "owns_os_canonical_state": false
+  "owns_os_canonical_state": false,
+  "lifecycle": {
+    "upgrade_requires_owned_registration": true,
+    "uninstall_removes_only_owned_registration": true,
+    "uninstall_removal_root": ".aiverse/extensions/ai-verse-multiple-bots",
+    "preserves_coordination_state": true,
+    "preserves_canonical_host_state": true,
+    "recursively_purges_unknown_files": false
+  }
 }

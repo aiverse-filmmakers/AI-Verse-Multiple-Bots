@@ -6,7 +6,11 @@ import {
   detectAiVerseOsCompatibility,
   findAiVerseOsRoot,
   planAiVerseOsRegistration,
-  registerAiVerseOsExtension
+  planAiVerseOsUninstall,
+  planAiVerseOsUpgrade,
+  registerAiVerseOsExtension,
+  uninstallAiVerseOsExtension,
+  upgradeAiVerseOsExtension
 } from "./ai-verse-os-registration.js";
 import { CoordinationGateway } from "./gateway.js";
 import { CoordinationStore } from "./store.js";
@@ -19,7 +23,7 @@ function flag(name: string): string | undefined {
 }
 
 function usage(): never {
-  console.error(`AI-Verse Multiple Bots CLI\n\nCommands:\n  init [--db PATH]\n  doctor [--db PATH]\n  bot create --id ID --name NAME --workspace ID --role TITLE --mission TEXT [--db PATH]\n  bot list [--workspace ID] [--db PATH]\n  events [--after N] [--limit N] [--db PATH]\n  serve [--host HOST] [--port N] [--db PATH] [--os-root PATH]\n  os detect [--root PATH]\n  os plan [--root PATH]\n  os register [--root PATH]\n`);
+  console.error(`AI-Verse Multiple Bots CLI\n\nCommands:\n  init [--db PATH]\n  doctor [--db PATH]\n  bot create --id ID --name NAME --workspace ID --role TITLE --mission TEXT [--db PATH]\n  bot list [--workspace ID] [--db PATH]\n  events [--after N] [--limit N] [--db PATH]\n  serve [--host HOST] [--port N] [--db PATH] [--os-root PATH]\n  os detect [--root PATH]\n  os plan [--root PATH]\n  os register [--root PATH]\n  os upgrade-plan [--root PATH]\n  os upgrade [--root PATH]\n  os uninstall-plan [--root PATH]\n  os uninstall [--root PATH]\n`);
   process.exit(2);
   throw new Error("unreachable");
 }
@@ -72,6 +76,14 @@ if (args[0] === "serve") {
       console.log(JSON.stringify({ ok: true, plan: planAiVerseOsRegistration(root) }, null, 2));
     } else if (args[1] === "register") {
       console.log(JSON.stringify({ ok: true, registration: registerAiVerseOsExtension(root) }, null, 2));
+    } else if (args[1] === "upgrade-plan") {
+      console.log(JSON.stringify({ ok: true, upgrade: planAiVerseOsUpgrade(root) }, null, 2));
+    } else if (args[1] === "upgrade") {
+      console.log(JSON.stringify({ ok: true, upgrade: upgradeAiVerseOsExtension(root) }, null, 2));
+    } else if (args[1] === "uninstall-plan") {
+      console.log(JSON.stringify({ ok: true, uninstall: planAiVerseOsUninstall(root) }, null, 2));
+    } else if (args[1] === "uninstall") {
+      console.log(JSON.stringify({ ok: true, uninstall: uninstallAiVerseOsExtension(root) }, null, 2));
     } else {
       usage();
     }

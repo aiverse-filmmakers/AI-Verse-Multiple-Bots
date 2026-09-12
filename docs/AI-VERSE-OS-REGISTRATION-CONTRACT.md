@@ -161,3 +161,5 @@ Phase 3.1 establishes the safe attachment point only. It intentionally does not 
 - upgrade/uninstall state-preservation mechanics
 
 Those are Phase 3.2 through 3.10 and must build on this contract rather than bypass it.
+
+Phase 3.10 now defines the lifecycle completion of this registration contract. Upgrade requires an existing owned registration and preserves disabled/unknown metadata. Uninstall removes only the owned registry entry and known registered regular files inside the extension root, preserves coordination state and canonical host state, and never recursively scavenges unknown files. See `AI-VERSE-UPGRADE-UNINSTALL-SAFETY.md`.
