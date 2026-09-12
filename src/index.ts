@@ -1,3 +1,4 @@
+export * from "./remote-recovery.js";
 export * from "./remote-leases.js";
 export * from "./remote-machine-auth.js";
 export * from "./external-managed-runtime.js";
