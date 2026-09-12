@@ -310,8 +310,8 @@ test("OpenClaw runtime uses agent exec with a temporary read-only exact tool ove
     assert.equal(receipt.tool_policy, "temporary_readonly_global_allow_overlay");
     const serializedReceipt = JSON.stringify(receipt);
     assert.equal(serializedReceipt.includes(fixture.path), false);
-    assert.equal(serializedReceipt.includes("read"), false);
-    assert.equal(serializedReceipt.includes("web_search"), false);
+    assert.equal(serializedReceipt.includes('"read"'), false);
+    assert.equal(serializedReceipt.includes('"web_search"'), false);
     assert.equal(serializedReceipt.includes("OPENCLAW_CURRENT_CONTEXT"), false);
     assert.equal(serializedReceipt.includes("OPENCLAW_STRATEGIC_CONTEXT"), false);
     assert.equal(serializedReceipt.includes("OPENCLAW_INPUT_EVIDENCE"), false);
