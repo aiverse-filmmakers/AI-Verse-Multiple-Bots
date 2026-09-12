@@ -8,6 +8,7 @@ export * from "./brain-objective-ingress.js";
 export * from "./brain-objective-runtime.js";
 export * from "./bot-registry.js";
 export * from "./budget.js";
+export * from "./candidate-writeback.js";
 export * from "./constraints.js";
 export * from "./execution-queue.js";
 export * from "./gateway.js";
