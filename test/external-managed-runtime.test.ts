@@ -325,6 +325,25 @@ test("external managed adapter verifies persistent identity and sends exact Task
   assert.equal(serialized.includes("EXTERNAL_MANAGED_INPUT"), false);
 });
 
+test("external managed provider failures are normalized without copying arbitrary provider error text", async () => {
+  class ThrowingProvider extends FakeManagedProvider {
+    override async inspect(): Promise<ExternalManagedBotInspection> {
+      throw new Error("SECRET_ENDPOINT=https://sensitive.example TOKEN=secret");
+    }
+  }
+  const provider = new ThrowingProvider();
+  const adapter = new ExternalManagedBotRuntimeAdapter(
+    new ExternalManagedBotProviderRegistry().register(provider)
+  );
+  await assert.rejects(
+    () => adapter.execute(runtimeContext()),
+    (error: unknown) => error instanceof ExternalManagedRuntimeError
+      && error.code === "EXTERNAL_MANAGED_PROVIDER_INSPECT_FAILED"
+      && !error.message.includes("TOKEN")
+      && !error.message.includes("sensitive.example")
+  );
+});
+
 test("external managed provider registry is explicit and rejects duplicate provider identity", () => {
   const registry = new ExternalManagedBotProviderRegistry();
   registry.register(new FakeManagedProvider("provider-one"));
@@ -397,6 +416,21 @@ test("external managed adapter rechecks binding fingerprint after provider execu
   await assert.rejects(
     () => adapter.execute(runtimeContext()),
     assertExternalCode("EXTERNAL_MANAGED_BINDING_DRIFT")
+  );
+});
+
+test("external managed provider must explicitly report observed authority, even when empty", async () => {
+  const provider = new FakeManagedProvider();
+  provider.result = {
+    ...provider.result,
+    observed_tools: undefined as any
+  };
+  const adapter = new ExternalManagedBotRuntimeAdapter(
+    new ExternalManagedBotProviderRegistry().register(provider)
+  );
+  await assert.rejects(
+    () => adapter.execute(runtimeContext()),
+    assertExternalCode("EXTERNAL_MANAGED_AUDIT_REQUIRED")
   );
 });
 
@@ -480,7 +514,7 @@ test("Phase 4.5 external managed runtime is durable-Bot only and defers remote e
   }
 });
 
-test("external managed cancellation targets the pinned profile and local cancellation survives provider cancel failure", async () => {
+test("external managed cancellation targets the pinned profile once and local cancellation survives provider cancel failure", async () => {
   const provider = new FakeManagedProvider();
   provider.holdExecution = true;
   provider.cancelThrows = true;
@@ -491,6 +525,8 @@ test("external managed cancellation targets the pinned profile and local cancell
   const running = adapter.execute(runtimeContext("fake-managed", [], [], { signal: controller.signal }));
   while (provider.executeCalls.length < 1) await new Promise((resolve) => setTimeout(resolve, 0));
   controller.abort(new Error("operator canceled"));
+  await adapter.cancel("task_external");
+  await adapter.cancel("task_external");
   await assert.rejects(() => running, /operator canceled/);
   assert.equal(provider.cancelCalls.length, 1);
   assert.deepEqual(provider.cancelCalls[0], {
@@ -581,6 +617,56 @@ test("external managed Bot rebind preserves canonical Bot identity and requires 
     assert.equal(activated.id, "bot_rebind");
     assert.equal(activated.payload.status, "active");
     assert.ok(store.listEventsAfter(0, 100).some((entry) => entry.event.type === "bot.runtime_rebound"));
+  } finally {
+    store.close();
+  }
+});
+
+test("external managed rebind rechecks that a disabled Bot owns no live work", () => {
+  const store = new CoordinationStore(":memory:");
+  const gateway = new CoordinationGateway(store);
+  try {
+    const original: BotManifest = {
+      ...externalBot("bot_live-rebind", "ws_live-rebind", { status: "active" }),
+      runtime: { adapter: "deterministic" },
+      execution: { environment_policy: "shared_workspace" }
+    };
+    gateway.createBot(original);
+    gateway.transitionBot("bot_live-rebind", "disabled", "operator_local");
+
+    store.putObject("task", {
+      schema_version: "1.0",
+      id: "task_live-rebind",
+      type: "task.delegate",
+      created_by: "operator_local",
+      assignee_id: "bot_live-rebind",
+      owner_id: "bot_live-rebind",
+      workspace_id: "ws_live-rebind",
+      root_objective_id: "obj_live-rebind",
+      reason: "Safety fixture",
+      objective: "Remain live",
+      required_constraints: [],
+      expected_output: {},
+      input_artifact_refs: [],
+      lease_id: "lease_live-rebind",
+      environment_lease_id: null,
+      response_target: null,
+      deadline_at: null,
+      budget: {},
+      approval_id: null,
+      hop: 0,
+      max_hops: 6,
+      status: "assigned"
+    });
+
+    assert.throws(
+      () => gateway.rebindExternalManagedBot("bot_live-rebind", {
+        provider: "fake-managed",
+        managedBotRef: "profile:new",
+        bindingFingerprint: "binding:new"
+      }, "operator_local"),
+      assertRegistryCode("BOT_HAS_LIVE_WORK")
+    );
   } finally {
     store.close();
   }
