@@ -277,15 +277,19 @@ export class RemoteMachineIdentityRegistry {
     const origin = exactHttpsOrigin(machine.origin, `remote machine ${id} origin`);
     const expectedPeerIdentity = safePeerIdentity(machine.expected_peer_identity, `remote machine ${id} expected_peer_identity`);
     for (const existing of this.machines.values()) {
-      if (existing.origin === origin && (
-        existing.expected_peer_identity.kind !== expectedPeerIdentity.kind
-        || existing.expected_peer_identity.value !== expectedPeerIdentity.value
-      )) {
+      if (existing.origin !== origin) continue;
+      const samePeer = existing.expected_peer_identity.kind === expectedPeerIdentity.kind
+        && existing.expected_peer_identity.value === expectedPeerIdentity.value;
+      if (samePeer) {
         throw new RemoteMachineAuthError(
-          "REMOTE_MACHINE_ORIGIN_CONFLICT",
-          `Remote origin ${origin} is already pinned to a different peer identity`
+          "REMOTE_MACHINE_BINDING_COLLISION",
+          `Remote origin ${origin} with this pinned peer identity is already registered as ${existing.id}`
         );
       }
+      throw new RemoteMachineAuthError(
+        "REMOTE_MACHINE_ORIGIN_CONFLICT",
+        `Remote origin ${origin} is already pinned to a different peer identity`
+      );
     }
     this.machines.set(id, {
       id,
@@ -455,6 +459,36 @@ export class RemoteHttpAccessBroker {
         `Remote peer identity does not match the pinned identity for ${machine.id}`
       );
     }
+    if (
+      !Array.isArray(evidence.satisfied_schemes)
+      || evidence.satisfied_schemes.some((name) => typeof name !== "string" || !name.trim())
+    ) {
+      throw new RemoteMachineAuthError(
+        "REMOTE_AUTH_INVALID_EVIDENCE",
+        "Remote authentication evidence satisfied_schemes must be an array of non-empty strings"
+      );
+    }
+    const scopeEvidence = asObject(evidence.satisfied_scopes);
+    if (!scopeEvidence) {
+      throw new RemoteMachineAuthError(
+        "REMOTE_AUTH_INVALID_EVIDENCE",
+        "Remote authentication evidence satisfied_scopes must be an object"
+      );
+    }
+    for (const [schemeName, scopes] of Object.entries(scopeEvidence)) {
+      if (
+        !schemeName.trim()
+        || !Array.isArray(scopes)
+        || scopes.some((scope) => typeof scope !== "string")
+      ) {
+        throw new RemoteMachineAuthError(
+          "REMOTE_AUTH_INVALID_EVIDENCE",
+          "Remote authentication evidence contains invalid scope proof"
+        );
+      }
+    }
+    safeString(evidence.mechanism, "remote authentication evidence mechanism", 256);
+
     if (requirements.length > 0 && evidence.client_authenticated !== true) {
       throw new RemoteMachineAuthError("REMOTE_AUTH_CLIENT_UNVERIFIED", "Remote authentication provider did not prove client authentication");
     }
