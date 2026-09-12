@@ -677,6 +677,63 @@ test("external managed remote lease receipt mismatch fails closed", async () => 
   );
 });
 
+test("external managed provider top-level authority audit must agree with its remote lease receipt", async () => {
+  const leaseProvider: RemoteLeaseProvider = {
+    id: "managed-lease",
+    async grant(request) {
+      return {
+        provider: "managed-lease",
+        remote_lease_id: "remote-managed-lease-audit",
+        request_digest: request.requestDigest,
+        grant_fingerprint: "managed-grant:audit",
+        expires_at: request.expiresAt,
+        granted_tools: ["github:read"],
+        granted_connections: [],
+        destructive_actions: "deny",
+        environment: null
+      };
+    },
+    async revoke() {}
+  };
+  class ContradictoryAuditProvider extends FakeManagedProvider {
+    override async execute(request: ExternalManagedBotExecuteRequest): Promise<ExternalManagedBotExecutionResult> {
+      this.executeCalls.push(request);
+      const remoteLease = request.remoteLease as any;
+      return {
+        ...this.result,
+        observed_tools: ["github:read"],
+        observed_connections: [],
+        remote_lease_receipt: {
+          remote_lease_id: remoteLease.remote_lease_id,
+          request_digest: remoteLease.request_digest,
+          grant_fingerprint: remoteLease.grant_fingerprint,
+          observed_tools: [],
+          observed_connections: [],
+          state: "honored"
+        }
+      };
+    }
+  }
+  const provider = new ContradictoryAuditProvider();
+  const adapter = new ExternalManagedBotRuntimeAdapter(
+    new ExternalManagedBotProviderRegistry().register(provider),
+    new RemoteLeaseBroker(new RemoteLeaseProviderRegistry([leaseProvider]))
+  );
+
+  await assert.rejects(
+    () => adapter.execute(runtimeContext("fake-managed", ["github:read"], [], {
+      runtime: {
+        adapter: "external-managed",
+        provider: "fake-managed",
+        managed_bot_ref: "profile:research",
+        binding_fingerprint: "binding:v1",
+        remote_lease_provider: "managed-lease"
+      }
+    })),
+    assertExternalCode("EXTERNAL_MANAGED_REMOTE_LEASE_AUDIT_MISMATCH")
+  );
+});
+
 test("external managed cancellation targets the pinned profile once and local cancellation survives provider cancel failure", async () => {
   const provider = new FakeManagedProvider();
   provider.holdExecution = true;
