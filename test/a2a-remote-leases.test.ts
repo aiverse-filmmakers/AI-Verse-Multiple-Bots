@@ -212,6 +212,10 @@ test("A2A remote lease extension narrows authority, carries the grant, verifies 
     transportGrant = body.params.message.metadata[REMOTE_LEASE_A2A_EXTENSION_URI];
     assert.deepEqual(transportGrant.granted_tools, ["web.search"]);
     assert.deepEqual(transportGrant.granted_connections, ["drive.read"]);
+    const envelope = body.params.message.parts[0].data;
+    assert.deepEqual(envelope.authority.tools, ["web.search"]);
+    assert.deepEqual(envelope.authority.connections, ["drive.read"]);
+    assert.equal(envelope.authority.remote_lease_applied, true);
     return json({
       jsonrpc: "2.0",
       id: body.id,
@@ -312,6 +316,24 @@ test("A2A remote environment lease is bound to the provider-issued environment a
   assert.equal(provider.grants[0]!.environment?.local_environment_ref, "env_local_a2a");
   assert.equal(result.receipts?.[0]?.remote_lease_verified, true);
   assert.equal(result.receipts?.[0]?.environment_verified, true);
+});
+
+test("A2A meaningful Task authority cannot be projected to an unpinned remote endpoint", async () => {
+  const adapter = new A2AJsonRpcRuntimeAdapter({
+    fetchImpl: async () => {
+      throw new Error("network must not be reached");
+    }
+  });
+  await assert.rejects(
+    () => adapter.execute(runtimeContext({
+      runtimePatch: {
+        remote_machine_ref: undefined,
+        remote_lease_provider: undefined
+      }
+    })),
+    (error: unknown) => error instanceof A2ARuntimeError
+      && error.code === "A2A_REMOTE_AUTHORITY_REQUIRES_PINNED_MACHINE"
+  );
 });
 
 test("A2A meaningful authority on a pinned remote machine requires both a lease provider and extension support", async () => {
