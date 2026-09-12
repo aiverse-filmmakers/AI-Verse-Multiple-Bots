@@ -13,6 +13,7 @@ import {
   ClaudeCodePrintRuntimeAdapter,
   ClaudeCodeRuntimeError,
   claudeCodeBuiltInTools,
+  claudeCodeProcessCapabilities,
   parseClaudeCodeJson
 } from "../src/claude-code-runtime.js";
 import {
@@ -662,12 +663,13 @@ test("Claude Code exact capability mapping is stable and provider-scoped", () =>
         "claude-code:web-fetch"
       ]
     );
-    const tools = claudeCodeBuiltInTools(
-      // capability parser is exercised by adapter tests; this directly proves the tool mapping.
-      new Set<any>(["workspace-read", "workspace-write", "shell", "web-search", "web-fetch"])
+    const capabilities = claudeCodeProcessCapabilities(context);
+    assert.deepEqual(
+      [...capabilities].sort(),
+      ["shell", "web-fetch", "web-search", "workspace-read", "workspace-write"]
     );
+    const tools = claudeCodeBuiltInTools(capabilities);
     assert.deepEqual(tools, ["Bash", "Edit", "Glob", "Grep", "Read", "WebFetch", "WebSearch", "Write"]);
-    assert.equal(context.capabilityLease.payload.tools.length, 4);
   } finally {
     rmSync(fixture.dir, { recursive: true, force: true });
   }
