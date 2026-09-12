@@ -139,7 +139,7 @@ export function parseExternalManagedBinding(runtimeValue: unknown): ExternalMana
     if (runtime[key] !== undefined && runtime[key] !== null) {
       throw new ExternalManagedRuntimeError(
         "EXTERNAL_MANAGED_REMOTE_AUTH_OUT_OF_SCOPE",
-        `runtime.${key} is not supported in Phase 4.5; remote-machine identity/authentication belongs to Phase 4.6`
+        `runtime.${key} must not embed remote authentication; use a host-injected provider and the Phase 4.6 trust/auth boundary`
       );
     }
   }
@@ -607,6 +607,26 @@ export class ExternalManagedBotRuntimeAdapter implements RuntimeAdapter {
       assertSubset(observedTools, effectiveTools, "tool");
       assertSubset(observedConnections, effectiveConnections, "connection");
       if (active.remoteLeaseGrant) {
+        const remoteReceipt = asObject(result.remote_lease_receipt);
+        if (remoteReceipt) {
+          const leaseObservedTools = exactReportedRefs(
+            remoteReceipt.observed_tools,
+            "result.remote_lease_receipt.observed_tools"
+          );
+          const leaseObservedConnections = exactReportedRefs(
+            remoteReceipt.observed_connections,
+            "result.remote_lease_receipt.observed_connections"
+          );
+          if (
+            JSON.stringify(leaseObservedTools) !== JSON.stringify(observedTools)
+            || JSON.stringify(leaseObservedConnections) !== JSON.stringify(observedConnections)
+          ) {
+            throw new ExternalManagedRuntimeError(
+              "EXTERNAL_MANAGED_REMOTE_LEASE_AUDIT_MISMATCH",
+              "External managed provider authority audit disagrees with its remote lease receipt"
+            );
+          }
+        }
         try {
           remoteLeaseAudit = this.remoteLeases!.verifyReceipt(
             active.remoteLeaseGrant,
