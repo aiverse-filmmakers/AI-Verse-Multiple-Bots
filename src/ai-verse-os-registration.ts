@@ -59,11 +59,48 @@ export interface AiVerseOsRegistrationResult extends AiVerseOsRegistrationPlan {
   status: "registered" | "updated" | "unchanged";
 }
 
+export interface AiVerseOsUpgradePlan extends AiVerseOsRegistrationPlan {
+  current_entry: JsonRecord;
+  previous_version: string;
+}
+
+export interface AiVerseOsUpgradeResult extends AiVerseOsUpgradePlan {
+  status: "updated" | "unchanged";
+}
+
+export interface AiVerseOsUninstallPlan {
+  host_id: typeof AI_VERSE_OS_HOST_ID;
+  root: string;
+  extension_id: typeof AI_VERSE_MULTIPLE_BOTS_EXTENSION_ID;
+  registry_path: string;
+  compatibility: AiVerseOsCompatibility;
+  current_entry: JsonRecord | null;
+  registered: boolean;
+  registry_write_required: boolean;
+  removable_files: string[];
+  preserved_registered_paths: string[];
+  tracked_os_files_mutated: string[];
+  preserves_unknown_registry_fields: true;
+  preserves_coordination_state: true;
+  preserves_canonical_host_state: true;
+}
+
+export interface AiVerseOsUninstallResult extends AiVerseOsUninstallPlan {
+  status: "unregistered" | "unchanged";
+  registry_entry_removed: boolean;
+  removed_files: string[];
+  residual_registered_paths: string[];
+}
+
 export interface AiVerseOsRegistrationAdapter {
   readonly id: typeof AI_VERSE_OS_HOST_ID;
   detect(root: string): AiVerseOsCompatibility;
   plan(root: string, options?: AiVerseOsRegistrationOptions): AiVerseOsRegistrationPlan;
   register(root: string, options?: AiVerseOsRegistrationOptions): AiVerseOsRegistrationResult;
+  planUpgrade(root: string, options?: AiVerseOsRegistrationOptions): AiVerseOsUpgradePlan;
+  upgrade(root: string, options?: AiVerseOsRegistrationOptions): AiVerseOsUpgradeResult;
+  planUninstall(root: string): AiVerseOsUninstallPlan;
+  uninstall(root: string): AiVerseOsUninstallResult;
 }
 
 export class AiVerseOsRegistrationError extends Error {
@@ -498,9 +535,232 @@ export function registerAiVerseOsExtension(rootInput: string, options: AiVerseOs
   });
 }
 
+function requireLifecycleOwnedEntry(raw: unknown): JsonRecord {
+  const entry = asRecord(raw);
+  if (!entry) {
+    throw new AiVerseOsRegistrationError(
+      "INVALID_EXISTING_EXTENSION_ENTRY",
+      `Existing ${AI_VERSE_MULTIPLE_BOTS_EXTENSION_ID} registration is not an object; left unchanged`
+    );
+  }
+  if (entry.id !== AI_VERSE_MULTIPLE_BOTS_EXTENSION_ID
+    || entry.source !== AI_VERSE_MULTIPLE_BOTS_EXTENSION_SOURCE
+    || entry.instructions !== AI_VERSE_MULTIPLE_BOTS_INSTRUCTIONS_PATH
+    || entry.engine !== AI_VERSE_MULTIPLE_BOTS_ENGINE_PATH) {
+    throw new AiVerseOsRegistrationError(
+      "EXTENSION_OWNERSHIP_MISMATCH",
+      `Refusing lifecycle mutation because the ${AI_VERSE_MULTIPLE_BOTS_EXTENSION_ID} registry entry is not owned by this package`
+    );
+  }
+  if (typeof entry.version !== "string" || !entry.version.trim()) {
+    throw new AiVerseOsRegistrationError("EXTENSION_OWNERSHIP_MISMATCH", "Owned extension registration has no valid version binding");
+  }
+  if (!Array.isArray(entry.adapters) || entry.adapters.some((item) => typeof item !== "string")) {
+    throw new AiVerseOsRegistrationError("EXTENSION_OWNERSHIP_MISMATCH", "Owned extension registration has invalid adapter metadata");
+  }
+  return entry;
+}
+
+function isInsideExtensionRoot(relativePath: string): boolean {
+  const safe = validateAiVerseOsRelativePath(relativePath);
+  return safe === AI_VERSE_MULTIPLE_BOTS_EXTENSION_ROOT || safe.startsWith(`${AI_VERSE_MULTIPLE_BOTS_EXTENSION_ROOT}/`);
+}
+
+function lifecycleRegisteredPaths(entry: JsonRecord): string[] {
+  const values = [
+    String(entry.instructions),
+    String(entry.engine),
+    ...((entry.adapters as string[]).map(String))
+  ].map(validateAiVerseOsRelativePath);
+  return [...new Set(values)].sort();
+}
+
+function removableLifecycleFiles(root: string, entry: JsonRecord): { removable: string[]; preserved: string[] } {
+  const removable: string[] = [];
+  const preserved: string[] = [];
+  for (const relativePath of lifecycleRegisteredPaths(entry)) {
+    if (!isInsideExtensionRoot(relativePath)) {
+      preserved.push(relativePath);
+      continue;
+    }
+    const target = resolveInsideRoot(root, relativePath);
+    assertPathChainHasNoSymlinks(root, relativePath, true);
+    if (!existsSync(target)) continue;
+    const stat = lstatSync(target);
+    if (stat.isSymbolicLink()) {
+      throw new AiVerseOsRegistrationError("SYMLINK_PATH_REJECTED", `Refusing uninstall through symlinked extension path: ${relativePath}`);
+    }
+    if (!stat.isFile()) {
+      preserved.push(relativePath);
+      continue;
+    }
+    removable.push(relativePath);
+  }
+  return { removable: removable.sort(), preserved: preserved.sort() };
+}
+
+function planUpgradeFromRegistry(
+  compatibility: AiVerseOsCompatibility,
+  extensions: JsonRecord,
+  options: AiVerseOsRegistrationOptions
+): AiVerseOsUpgradePlan {
+  const rawExisting = extensions[AI_VERSE_MULTIPLE_BOTS_EXTENSION_ID];
+  if (rawExisting === undefined || rawExisting === null) {
+    throw new AiVerseOsRegistrationError(
+      "EXTENSION_NOT_REGISTERED",
+      `Cannot upgrade ${AI_VERSE_MULTIPLE_BOTS_EXTENSION_ID} because it is not registered; use registration/install instead`
+    );
+  }
+  const owned = requireLifecycleOwnedEntry(rawExisting);
+  const plan = planFromRegistry(compatibility, extensions, options);
+  if (!plan.current_entry) throw new AiVerseOsRegistrationError("EXTENSION_NOT_REGISTERED", "Extension registration disappeared while planning upgrade");
+  return {
+    ...plan,
+    current_entry: owned,
+    previous_version: String(owned.version)
+  };
+}
+
+export function planAiVerseOsUpgrade(rootInput: string, options: AiVerseOsRegistrationOptions = {}): AiVerseOsUpgradePlan {
+  const compatibility = requireCompatible(rootInput);
+  const { extensions } = readRegistryDocument(compatibility.root);
+  return planUpgradeFromRegistry(compatibility, extensions, options);
+}
+
+export function upgradeAiVerseOsExtension(rootInput: string, options: AiVerseOsRegistrationOptions = {}): AiVerseOsUpgradeResult {
+  const initialCompatibility = requireCompatible(rootInput);
+  return withRegistryLock(initialCompatibility.root, () => {
+    const compatibility = requireCompatible(initialCompatibility.root);
+    const registry = readRegistryDocument(compatibility.root);
+    const plan = planUpgradeFromRegistry(compatibility, registry.extensions, options);
+    for (const relativePath of plan.files_to_verify) assertInstalledFile(plan.root, relativePath);
+    if (!plan.requires_write) return { ...plan, status: "unchanged" };
+
+    const nextExtensions: JsonRecord = {
+      ...registry.extensions,
+      [AI_VERSE_MULTIPLE_BOTS_EXTENSION_ID]: plan.next_entry
+    };
+    const nextDocument: JsonRecord = {
+      ...registry.document,
+      schema_version: AI_VERSE_OS_EXTENSION_REGISTRY_SCHEMA,
+      extensions: nextExtensions
+    };
+    writeRegistryAtomic(plan.root, nextDocument, registry.raw_text);
+    return { ...plan, status: "updated" };
+  });
+}
+
+function planUninstallFromRegistry(
+  compatibility: AiVerseOsCompatibility,
+  registry: RegistryDocument
+): AiVerseOsUninstallPlan {
+  const rawExisting = registry.extensions[AI_VERSE_MULTIPLE_BOTS_EXTENSION_ID];
+  if (rawExisting === undefined || rawExisting === null) {
+    return {
+      host_id: AI_VERSE_OS_HOST_ID,
+      root: compatibility.root,
+      extension_id: AI_VERSE_MULTIPLE_BOTS_EXTENSION_ID,
+      registry_path: compatibility.registry_path,
+      compatibility,
+      current_entry: null,
+      registered: false,
+      registry_write_required: false,
+      removable_files: [],
+      preserved_registered_paths: [],
+      tracked_os_files_mutated: [],
+      preserves_unknown_registry_fields: true,
+      preserves_coordination_state: true,
+      preserves_canonical_host_state: true
+    };
+  }
+  const currentEntry = requireLifecycleOwnedEntry(rawExisting);
+  const paths = removableLifecycleFiles(compatibility.root, currentEntry);
+  return {
+    host_id: AI_VERSE_OS_HOST_ID,
+    root: compatibility.root,
+    extension_id: AI_VERSE_MULTIPLE_BOTS_EXTENSION_ID,
+    registry_path: compatibility.registry_path,
+    compatibility,
+    current_entry: currentEntry,
+    registered: true,
+    registry_write_required: true,
+    removable_files: paths.removable,
+    preserved_registered_paths: paths.preserved,
+    tracked_os_files_mutated: [],
+    preserves_unknown_registry_fields: true,
+    preserves_coordination_state: true,
+    preserves_canonical_host_state: true
+  };
+}
+
+export function planAiVerseOsUninstall(rootInput: string): AiVerseOsUninstallPlan {
+  const compatibility = requireCompatible(rootInput);
+  const registry = readRegistryDocument(compatibility.root);
+  return planUninstallFromRegistry(compatibility, registry);
+}
+
+export function uninstallAiVerseOsExtension(rootInput: string): AiVerseOsUninstallResult {
+  const initialCompatibility = requireCompatible(rootInput);
+  return withRegistryLock(initialCompatibility.root, () => {
+    const compatibility = requireCompatible(initialCompatibility.root);
+    const registry = readRegistryDocument(compatibility.root);
+    const plan = planUninstallFromRegistry(compatibility, registry);
+    if (!plan.registered || !plan.current_entry) {
+      return {
+        ...plan,
+        status: "unchanged",
+        registry_entry_removed: false,
+        removed_files: [],
+        residual_registered_paths: []
+      };
+    }
+
+    const nextExtensions: JsonRecord = { ...registry.extensions };
+    delete nextExtensions[AI_VERSE_MULTIPLE_BOTS_EXTENSION_ID];
+    const nextDocument: JsonRecord = {
+      ...registry.document,
+      schema_version: AI_VERSE_OS_EXTENSION_REGISTRY_SCHEMA,
+      extensions: nextExtensions
+    };
+
+    writeRegistryAtomic(plan.root, nextDocument, registry.raw_text);
+
+    const removedFiles: string[] = [];
+    const residual = new Set(plan.preserved_registered_paths);
+    for (const relativePath of plan.removable_files) {
+      const target = resolveInsideRoot(plan.root, relativePath);
+      try {
+        assertPathChainHasNoSymlinks(plan.root, relativePath, true);
+        if (!existsSync(target)) continue;
+        const stat = lstatSync(target);
+        if (stat.isSymbolicLink() || !stat.isFile()) {
+          residual.add(relativePath);
+          continue;
+        }
+        rmSync(target);
+        removedFiles.push(relativePath);
+      } catch {
+        residual.add(relativePath);
+      }
+    }
+
+    return {
+      ...plan,
+      status: "unregistered",
+      registry_entry_removed: true,
+      removed_files: removedFiles.sort(),
+      residual_registered_paths: [...residual].sort()
+    };
+  });
+}
+
 export const aiVerseOsRegistrationAdapter: AiVerseOsRegistrationAdapter = {
   id: AI_VERSE_OS_HOST_ID,
   detect: detectAiVerseOsCompatibility,
   plan: planAiVerseOsRegistration,
-  register: registerAiVerseOsExtension
+  register: registerAiVerseOsExtension,
+  planUpgrade: planAiVerseOsUpgrade,
+  upgrade: upgradeAiVerseOsExtension,
+  planUninstall: planAiVerseOsUninstall,
+  uninstall: uninstallAiVerseOsExtension
 };
