@@ -144,7 +144,7 @@ export class BotRegistryRules {
       );
     }
 
-    const runtime: JsonObject = {
+    const runtime: BotManifest["runtime"] = {
       adapter: EXTERNAL_MANAGED_RUNTIME_ADAPTER_ID,
       provider: input.provider,
       managed_bot_ref: input.managedBotRef,
