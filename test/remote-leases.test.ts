@@ -293,6 +293,54 @@ test("revoked or broad local leases fail before a remote provider is called", as
   }
 });
 
+test("explicit null revocation markers do not revoke a reissued active lease", async () => {
+  const { provider, broker: remote } = broker();
+  const grant = await remote.grant(
+    "fake-lease",
+    context({
+      capabilityPatch: {
+        revoked_at: null,
+        termination_revoked_at: null,
+        cleanup_revoked_at: null
+      },
+      environment: true,
+      environmentPatch: {
+        revoked_at: null,
+        termination_revoked_at: null,
+        cleanup_revoked_at: null
+      }
+    }),
+    { kind: "machine", ref: "machine" }
+  );
+  assert.equal(provider.grants.length, 1);
+  assert.equal(grant.remote_lease_id, "remote-lease-1");
+});
+
+test("a lease receipt arriving after grant expiry is rejected", async () => {
+  const { broker: remote } = broker();
+  assert.throws(
+    () => remote.verifyReceipt({
+      provider: "fake-lease",
+      remote_lease_id: "expired",
+      request_digest: "a".repeat(64),
+      grant_fingerprint: "grant:expired",
+      expires_at: "2020-01-01T00:00:00Z",
+      granted_tools: [],
+      granted_connections: [],
+      destructive_actions: "deny",
+      environment: null
+    }, {
+      remote_lease_id: "expired",
+      request_digest: "a".repeat(64),
+      grant_fingerprint: "grant:expired",
+      observed_tools: [],
+      observed_connections: [],
+      state: "honored"
+    }),
+    assertCode("REMOTE_LEASE_EXPIRED_DURING_EXECUTION")
+  );
+});
+
 test("grant request digest and receipt identity must match exactly", async () => {
   {
     const provider = new FakeLeaseProvider();
