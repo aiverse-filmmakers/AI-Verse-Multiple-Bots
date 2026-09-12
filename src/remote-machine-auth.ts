@@ -56,7 +56,7 @@ export interface RemoteAuthenticatedHttpResult {
 
 export interface RemoteAuthenticatorRequest {
   machine: RemoteMachineIdentity;
-  credentialRef: string;
+  credentialRef: string | null;
   url: string;
   method: string;
   headers: Record<string, string>;
@@ -219,7 +219,7 @@ function validateSecuritySchemeReferences(
 }
 
 function satisfiesRequirement(evidence: RemoteAuthenticationEvidence, requirements: RemoteSecurityRequirement[]): boolean {
-  if (requirements.length === 0) return !evidence.client_authenticated || evidence.satisfied_schemes.length >= 0;
+  if (requirements.length === 0) return true;
   const satisfied = new Set(evidence.satisfied_schemes);
   return requirements.some((requirement) => Object.keys(requirement.schemes).every((name) => satisfied.has(name)));
 }
@@ -329,7 +329,33 @@ export class RemoteHttpAccessBroker {
     validateSecuritySchemeReferences(securitySchemes, requirements);
 
     let result: RemoteAuthenticatedHttpResult;
-    if (requirements.length === 0) {
+    if (input.auth) {
+      const providerId = safeString(input.auth.provider, "remote auth provider", 256);
+      const credentialRef = safeString(input.auth.credential_ref, "remote credential_ref", 1024);
+      const authenticator = this.authenticators.get(providerId);
+      result = await authenticator.request({
+        machine,
+        credentialRef,
+        url,
+        method,
+        headers: input.headers ?? {},
+        ...(input.body !== undefined ? { body: input.body } : {}),
+        securitySchemes,
+        securityRequirements: requirements,
+        ...(input.signal ? { signal: input.signal } : {})
+      });
+    } else if (requirements.length > 0) {
+      throw new RemoteMachineAuthError(
+        "REMOTE_AUTH_BINDING_REQUIRED",
+        `Remote machine ${machine.id} requires authentication but no auth binding was supplied`
+      );
+    } else {
+      if (machine.expected_peer_identity.kind !== "https_origin") {
+        throw new RemoteMachineAuthError(
+          "REMOTE_AUTH_STRONG_IDENTITY_PROVIDER_REQUIRED",
+          `Remote machine ${machine.id} requires a transport authenticator capable of attesting ${machine.expected_peer_identity.kind}`
+        );
+      }
       const response = await this.fetchImpl(url, {
         method,
         headers: input.headers ?? {},
@@ -349,27 +375,6 @@ export class RemoteHttpAccessBroker {
           mechanism: "https-ca"
         }
       };
-    } else {
-      if (!input.auth) {
-        throw new RemoteMachineAuthError(
-          "REMOTE_AUTH_BINDING_REQUIRED",
-          `Remote machine ${machine.id} requires authentication but no auth binding was supplied`
-        );
-      }
-      const providerId = safeString(input.auth.provider, "remote auth provider", 256);
-      const credentialRef = safeString(input.auth.credential_ref, "remote credential_ref", 1024);
-      const authenticator = this.authenticators.get(providerId);
-      result = await authenticator.request({
-        machine,
-        credentialRef,
-        url,
-        method,
-        headers: input.headers ?? {},
-        ...(input.body !== undefined ? { body: input.body } : {}),
-        securitySchemes,
-        securityRequirements: requirements,
-        ...(input.signal ? { signal: input.signal } : {})
-      });
     }
 
     this.assertEvidence(machine, result.evidence, requirements);
@@ -488,6 +493,32 @@ export class HeaderRemoteHttpAuthenticator implements RemoteHttpAuthenticator {
   }
 
   async request(input: RemoteAuthenticatorRequest): Promise<RemoteAuthenticatedHttpResult> {
+    const headers = new Headers(input.headers);
+    if (input.securityRequirements.length === 0) {
+      const response = await this.fetchImpl(input.url, {
+        method: input.method,
+        headers,
+        ...(input.body !== undefined ? { body: input.body } : {}),
+        ...(input.signal ? { signal: input.signal } : {}),
+        redirect: "error"
+      });
+      return {
+        response,
+        evidence: {
+          machine_id: input.machine.id,
+          origin: input.machine.origin,
+          tls_verified: true,
+          peer_identity: { kind: "https_origin", value: input.machine.origin },
+          client_authenticated: false,
+          satisfied_schemes: [],
+          mechanism: "https-ca"
+        }
+      };
+    }
+
+    if (!input.credentialRef) {
+      throw new RemoteMachineAuthError("REMOTE_AUTH_BINDING_REQUIRED", "Authenticated request is missing a credential reference");
+    }
     const material = await this.credentials.resolve(input.credentialRef);
     const value = safeString(material?.value, "resolved remote credential", 16 * 1024);
     if (material.kind !== "bearer" && material.kind !== "api_key") {
@@ -505,7 +536,6 @@ export class HeaderRemoteHttpAuthenticator implements RemoteHttpAuthenticator {
       );
     }
 
-    const headers = new Headers(input.headers);
     if (headers.has(selection.headerName)) {
       throw new RemoteMachineAuthError(
         "REMOTE_AUTH_HEADER_COLLISION",
