@@ -13,6 +13,7 @@ import type { BudgetEnvelope } from "./budget.js";
 import { CandidateWritebackRouter } from "./candidate-writeback.js";
 import type { BotManifest, JsonObject } from "./types.js";
 import { ExecutionQueue, type RecoveryPolicy } from "./execution-queue.js";
+import { FourCsHealthProjector } from "./four-cs-health.js";
 import { CoordinationGateway, type ApprovalRequirement } from "./gateway.js";
 import { MemoryRecallRuntimeRegistry } from "./memory-recall-runtime.js";
 import { OpenAICompatibleRuntimeAdapter } from "./openai-compatible-runtime.js";
@@ -137,6 +138,16 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
   const candidateWritebacks = osWriteCommands
     ? new CandidateWritebackRouter(gateway, osWriteCommands)
     : undefined;
+  const fourCsHealth = new FourCsHealthProjector(store, executionQueue, {
+    nativeMode: Boolean(options.aiVerseOsRoot),
+    workspaceProjector,
+    brainIngressAvailable: Boolean(brainIngress),
+    memoryRecallAvailable: Boolean(memoryRecallSource),
+    skillsResolutionAvailable: Boolean(skillsCapabilitySource),
+    automationIngressAvailable: Boolean(automationIngress),
+    osWriteCommandAvailable: Boolean(osWriteCommands),
+    candidateWritebackAvailable: Boolean(candidateWritebacks)
+  });
   const supervisor = new ExecutionSupervisor(gateway, executionQueue, runner);
   supervisor.start();
 
@@ -147,6 +158,12 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
     try {
       if (method === "GET" && url.pathname === "/health") {
         json(res, 200, store.doctor());
+        return;
+      }
+
+      if (method === "GET" && url.pathname === "/v1/health/4cs") {
+        const workspaceId = url.searchParams.get("workspace") ?? undefined;
+        json(res, 200, fourCsHealth.project(workspaceId));
         return;
       }
 
@@ -644,6 +661,7 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
     osWriteCommandSink,
     osWriteCommands,
     candidateWritebacks,
+    fourCsHealth,
     memoryRecallSource,
     skillsCapabilitySource,
     supervisor,
