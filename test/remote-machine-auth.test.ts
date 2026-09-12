@@ -431,6 +431,126 @@ test("broker rejects spoofed peer identity, unverified TLS, unauthenticated clie
   }
 });
 
+test("broker requires declared OAuth scopes to be explicitly proven by authentication evidence", async () => {
+  const authenticator: RemoteHttpAuthenticator = {
+    id: "oauth-custom",
+    async request(input) {
+      return {
+        response: new Response("{}", { status: 200 }),
+        evidence: {
+          machine_id: input.machine.id,
+          origin: input.machine.origin,
+          tls_verified: true,
+          peer_identity: { kind: "https_origin", value: input.machine.origin },
+          client_authenticated: true,
+          satisfied_schemes: ["oauth"],
+          satisfied_scopes: { oauth: ["agent.read"] },
+          mechanism: "oauth2"
+        }
+      };
+    }
+  };
+  const broker = new RemoteHttpAccessBroker(
+    new RemoteMachineIdentityRegistry([{
+      id: "machine_oauth",
+      origin: "https://agent.example",
+      expected_peer_identity: { kind: "https_origin", value: "https://agent.example" }
+    }]),
+    new RemoteHttpAuthenticatorRegistry([authenticator])
+  );
+
+  await assert.rejects(
+    () => broker.request({
+      machineRef: "machine_oauth",
+      auth: { provider: "oauth-custom", credential_ref: "oauth://research" },
+      url: "https://agent.example/rpc",
+      method: "POST",
+      securitySchemes: {
+        oauth: { oauth2SecurityScheme: { flows: {} } }
+      },
+      securityRequirements: [{ schemes: { oauth: ["agent.execute"] } }]
+    }),
+    assertCode("REMOTE_AUTH_REQUIREMENT_UNSATISFIED")
+  );
+});
+
+test("broker normalizes opaque authenticator failures without leaking provider secrets", async () => {
+  const authenticator: RemoteHttpAuthenticator = {
+    id: "throwing-auth",
+    async request() {
+      throw new Error("TOKEN=SUPER_SECRET endpoint=https://internal.private");
+    }
+  };
+  const broker = new RemoteHttpAccessBroker(
+    new RemoteMachineIdentityRegistry([{
+      id: "machine_throw",
+      origin: "https://agent.example",
+      expected_peer_identity: { kind: "https_origin", value: "https://agent.example" }
+    }]),
+    new RemoteHttpAuthenticatorRegistry([authenticator])
+  );
+
+  await assert.rejects(
+    () => broker.request({
+      machineRef: "machine_throw",
+      auth: { provider: "throwing-auth", credential_ref: "secret://throw" },
+      url: "https://agent.example/rpc",
+      method: "POST",
+      securitySchemes: {
+        bearer: { httpAuthSecurityScheme: { scheme: "Bearer" } }
+      },
+      securityRequirements: [{ schemes: { bearer: [] } }]
+    }),
+    (error: unknown) => error instanceof RemoteMachineAuthError
+      && error.code === "REMOTE_AUTH_PROVIDER_FAILED"
+      && !error.message.includes("SUPER_SECRET")
+      && !error.message.includes("internal.private")
+  );
+});
+
+test("broker cancellation settles even when a custom authenticator ignores AbortSignal", async () => {
+  let requestStartedResolve!: () => void;
+  const requestStarted = new Promise<void>((resolve) => { requestStartedResolve = resolve; });
+  const authenticator: RemoteHttpAuthenticator = {
+    id: "ignoring-auth",
+    async request() {
+      requestStartedResolve();
+      return await new Promise<RemoteAuthenticatedHttpResult>(() => {});
+    }
+  };
+  const broker = new RemoteHttpAccessBroker(
+    new RemoteMachineIdentityRegistry([{
+      id: "machine_cancel",
+      origin: "https://agent.example",
+      expected_peer_identity: { kind: "https_origin", value: "https://agent.example" }
+    }]),
+    new RemoteHttpAuthenticatorRegistry([authenticator])
+  );
+  const controller = new AbortController();
+  const running = broker.request({
+    machineRef: "machine_cancel",
+    auth: { provider: "ignoring-auth", credential_ref: "secret://cancel" },
+    url: "https://agent.example/rpc",
+    method: "POST",
+    securitySchemes: {
+      bearer: { httpAuthSecurityScheme: { scheme: "Bearer" } }
+    },
+    securityRequirements: [{ schemes: { bearer: [] } }],
+    signal: controller.signal
+  });
+  await requestStarted;
+  controller.abort(new Error("local remote-auth cancel"));
+
+  const outcome = await Promise.race([
+    running.then(
+      () => "resolved",
+      (error) => error instanceof Error ? error.message : String(error)
+    ),
+    new Promise<string>((resolve) => setTimeout(() => resolve("timed-out"), 100))
+  ]);
+  assert.equal(outcome, "local remote-auth cancel");
+});
+
 test("authenticator registry is explicit and duplicate-safe", () => {
   const provider: RemoteHttpAuthenticator = {
     id: "custom",
