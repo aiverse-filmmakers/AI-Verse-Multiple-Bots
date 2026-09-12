@@ -1168,7 +1168,8 @@ export class A2AJsonRpcRuntimeAdapter implements RuntimeAdapter {
           ...(discoveryMechanism ? { authenticationMechanism: discoveryMechanism } : {}),
           ...(peerIdentityKind ? { peerIdentityKind } : {})
         } : {}),
-        remoteLeaseExtensionSupported
+        remoteLeaseExtensionSupported,
+        remoteRecoveryExtensionSupported
       };
       break;
     }
