@@ -1,4 +1,12 @@
 import type { RuntimeAdapter, RuntimeExecutionContext, RuntimeExecutionResult } from "./runtime.js";
+import {
+  RemoteHttpAccessBroker,
+  RemoteMachineAuthError,
+  normalizeRemoteSecurityRequirements,
+  parseRemoteAuthBinding,
+  type RemoteAuthBinding,
+  type RemoteSecurityRequirement
+} from "./remote-machine-auth.js";
 import type { JsonObject } from "./types.js";
 
 export const A2A_PROTOCOL_VERSION = "1.0";
@@ -25,6 +33,7 @@ export class A2ARuntimeError extends Error {
 export interface A2ARuntimeOptions {
   fetchImpl?: typeof fetch;
   sleepImpl?: (ms: number, signal: AbortSignal) => Promise<void>;
+  remoteAccess?: RemoteHttpAccessBroker;
 }
 
 interface SafeUrl {
@@ -36,6 +45,12 @@ interface A2AInterface {
   url: SafeUrl;
   protocolVersion: string;
   tenant?: string;
+  remoteMachineRef?: string;
+  remoteAuth?: RemoteAuthBinding | null;
+  securitySchemes?: JsonObject;
+  securityRequirements?: RemoteSecurityRequirement[];
+  authenticationMechanism?: string;
+  peerIdentityKind?: string;
 }
 
 interface A2AAgentCard {
@@ -44,6 +59,7 @@ interface A2AAgentCard {
   interface: A2AInterface;
   inputMode: "application/json" | "text/plain";
   outputModes: string[];
+  authenticationRequired: boolean;
 }
 
 interface ActiveA2ATask {
@@ -282,11 +298,13 @@ export class A2AJsonRpcRuntimeAdapter implements RuntimeAdapter {
   readonly id = "a2a";
   private readonly fetchImpl: typeof fetch;
   private readonly sleepImpl: (ms: number, signal: AbortSignal) => Promise<void>;
+  private readonly remoteAccess: RemoteHttpAccessBroker | null;
   private readonly active = new Map<string, ActiveA2ATask>();
 
   constructor(options: A2ARuntimeOptions = {}) {
     this.fetchImpl = options.fetchImpl ?? fetch;
     this.sleepImpl = options.sleepImpl ?? defaultSleep;
+    this.remoteAccess = options.remoteAccess ?? null;
   }
 
   async execute(context: RuntimeExecutionContext): Promise<RuntimeExecutionResult> {
@@ -294,10 +312,25 @@ export class A2AJsonRpcRuntimeAdapter implements RuntimeAdapter {
     for (const key of ["api_key", "token", "authorization", "api_key_env", "bearer_token_env", "headers"]) {
       if (runtime[key] !== undefined && runtime[key] !== null) {
         throw new A2ARuntimeError(
-          "A2A_AUTH_OUT_OF_SCOPE",
-          `runtime.${key} is not supported by Phase 4.1; A2A authentication belongs to the later remote identity/authentication slice`
+          "A2A_INLINE_CREDENTIALS_FORBIDDEN",
+          `runtime.${key} must not contain remote credentials; use remote_machine_ref plus opaque remote auth references`
         );
       }
+    }
+    let remoteBinding: ReturnType<typeof parseRemoteAuthBinding>;
+    try {
+      remoteBinding = parseRemoteAuthBinding(runtime);
+    } catch (error) {
+      if (error instanceof RemoteMachineAuthError) {
+        throw new A2ARuntimeError(error.code, error.message);
+      }
+      throw error;
+    }
+    if (remoteBinding.machineRef && !this.remoteAccess) {
+      throw new A2ARuntimeError(
+        "A2A_REMOTE_AUTH_BROKER_REQUIRED",
+        "A2A remote_machine_ref requires a configured RemoteHttpAccessBroker"
+      );
     }
 
     const cardUrl = safeUrl(requiredRuntimeString(runtime, "agent_card_url"), "runtime.agent_card_url");
@@ -319,7 +352,7 @@ export class A2AJsonRpcRuntimeAdapter implements RuntimeAdapter {
     else context.signal.addEventListener("abort", abortFromParent, { once: true });
 
     try {
-      const card = await this.discover(cardUrl, controller.signal, active);
+      const card = await this.discover(cardUrl, controller.signal, active, remoteBinding.machineRef, remoteBinding.auth);
       active.interface = card.interface;
       const envelope = runtimeEnvelope(context);
       const envelopeText = boundedJson(envelope, A2A_REQUEST_MAX_BYTES, "A2A runtime envelope");
@@ -427,13 +460,44 @@ export class A2AJsonRpcRuntimeAdapter implements RuntimeAdapter {
     if (!active.controller.signal.aborted) active.controller.abort(new Error(`Runtime Task ${taskId} canceled`));
   }
 
-  private async discover(cardUrl: SafeUrl, signal: AbortSignal, active: ActiveA2ATask): Promise<A2AAgentCard> {
+  private async discover(
+    cardUrl: SafeUrl,
+    signal: AbortSignal,
+    active: ActiveA2ATask,
+    remoteMachineRef: string | null,
+    remoteAuth: RemoteAuthBinding | null
+  ): Promise<A2AAgentCard> {
     active.actionCount += 1;
-    const response = await this.fetchImpl(cardUrl.requestUrl, {
-      method: "GET",
-      headers: { accept: "application/json, application/a2a+json" },
-      signal
-    });
+    let response: Response;
+    let discoveryMechanism: string | undefined;
+    let peerIdentityKind: string | undefined;
+    if (remoteMachineRef) {
+      try {
+        const result = await this.remoteAccess!.request({
+          machineRef: remoteMachineRef,
+          auth: null,
+          url: cardUrl.requestUrl,
+          method: "GET",
+          headers: { accept: "application/json, application/a2a+json" },
+          securitySchemes: {},
+          securityRequirements: [],
+          signal
+        });
+        response = result.response;
+        discoveryMechanism = result.evidence.mechanism;
+        peerIdentityKind = result.evidence.peer_identity.kind;
+      } catch (error) {
+        if (error instanceof RemoteMachineAuthError) throw new A2ARuntimeError(error.code, error.message);
+        throw error;
+      }
+    } else {
+      response = await this.fetchImpl(cardUrl.requestUrl, {
+        method: "GET",
+        headers: { accept: "application/json, application/a2a+json" },
+        signal,
+        redirect: "error"
+      });
+    }
     const card = await this.readJson(response, "Agent Card", A2A_AGENT_CARD_MAX_BYTES);
     if (!response.ok) {
       throw new A2ARuntimeError("A2A_AGENT_CARD_HTTP", `A2A Agent Card HTTP ${response.status}`);
@@ -444,11 +508,24 @@ export class A2AJsonRpcRuntimeAdapter implements RuntimeAdapter {
     if (typeof name !== "string" || !name.trim() || typeof version !== "string" || !version.trim()) {
       throw new A2ARuntimeError("A2A_INVALID_AGENT_CARD", "Agent Card requires non-empty name and version");
     }
-    const securityRequirements = card.securityRequirements;
-    if (Array.isArray(securityRequirements) && securityRequirements.length > 0) {
+    let securityRequirements: RemoteSecurityRequirement[];
+    try {
+      securityRequirements = normalizeRemoteSecurityRequirements(card.securityRequirements);
+    } catch (error) {
+      if (error instanceof RemoteMachineAuthError) throw new A2ARuntimeError(error.code, error.message);
+      throw error;
+    }
+    const securitySchemes = asObject(card.securitySchemes) ?? {};
+    if (securityRequirements.length > 0 && !remoteMachineRef) {
       throw new A2ARuntimeError(
-        "A2A_AUTH_OUT_OF_SCOPE",
-        "Agent Card requires authentication; Phase 4.1 intentionally defers remote identity/authentication"
+        "A2A_AUTH_BINDING_REQUIRED",
+        "Agent Card requires authentication; configure remote_machine_ref and opaque remote auth references"
+      );
+    }
+    if (securityRequirements.length > 0 && !remoteAuth) {
+      throw new A2ARuntimeError(
+        "A2A_AUTH_BINDING_REQUIRED",
+        "Agent Card requires authentication but runtime.remote_auth_provider/runtime.remote_credential_ref are missing"
       );
     }
     const capabilities = asObject(card.capabilities);
@@ -481,7 +558,15 @@ export class A2AJsonRpcRuntimeAdapter implements RuntimeAdapter {
       selected = {
         url,
         protocolVersion: A2A_PROTOCOL_VERSION,
-        ...(typeof item.tenant === "string" && item.tenant.trim() ? { tenant: item.tenant.trim() } : {})
+        ...(typeof item.tenant === "string" && item.tenant.trim() ? { tenant: item.tenant.trim() } : {}),
+        ...(remoteMachineRef ? {
+          remoteMachineRef,
+          remoteAuth,
+          securitySchemes,
+          securityRequirements,
+          ...(discoveryMechanism ? { authenticationMechanism: discoveryMechanism } : {}),
+          ...(peerIdentityKind ? { peerIdentityKind } : {})
+        } : {})
       };
       break;
     }
@@ -494,7 +579,8 @@ export class A2AJsonRpcRuntimeAdapter implements RuntimeAdapter {
       version: version.trim(),
       interface: selected,
       inputMode,
-      outputModes: [...new Set(outputModes)].slice(0, 32)
+      outputModes: [...new Set(outputModes)].slice(0, 32),
+      authenticationRequired: securityRequirements.length > 0
     };
   }
 
@@ -514,16 +600,41 @@ export class A2AJsonRpcRuntimeAdapter implements RuntimeAdapter {
       params
     };
     const body = boundedJson(payload, A2A_REQUEST_MAX_BYTES, `A2A ${method} request`);
-    const response = await this.fetchImpl(iface.url.requestUrl, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "accept": "application/json",
-        "A2A-Version": iface.protocolVersion
-      },
-      body,
-      ...(signal ? { signal } : {})
-    });
+    let response: Response;
+    const baseHeaders = {
+      "content-type": "application/json",
+      "accept": "application/json",
+      "A2A-Version": iface.protocolVersion
+    };
+    if (iface.remoteMachineRef) {
+      try {
+        const result = await this.remoteAccess!.request({
+          machineRef: iface.remoteMachineRef,
+          auth: iface.remoteAuth ?? null,
+          url: iface.url.requestUrl,
+          method: "POST",
+          headers: baseHeaders,
+          body,
+          securitySchemes: iface.securitySchemes ?? {},
+          securityRequirements: iface.securityRequirements ?? [],
+          ...(signal ? { signal } : {})
+        });
+        response = result.response;
+        iface.authenticationMechanism = result.evidence.mechanism;
+        iface.peerIdentityKind = result.evidence.peer_identity.kind;
+      } catch (error) {
+        if (error instanceof RemoteMachineAuthError) throw new A2ARuntimeError(error.code, error.message);
+        throw error;
+      }
+    } else {
+      response = await this.fetchImpl(iface.url.requestUrl, {
+        method: "POST",
+        headers: baseHeaders,
+        body,
+        ...(signal ? { signal } : {}),
+        redirect: "error"
+      });
+    }
     const decoded = await this.readJson(response, `A2A ${method} response`, A2A_RESPONSE_MAX_BYTES);
     if (!response.ok) {
       throw new A2ARuntimeError("A2A_HTTP_ERROR", `A2A ${method} HTTP ${response.status}`);
@@ -650,7 +761,12 @@ export class A2AJsonRpcRuntimeAdapter implements RuntimeAdapter {
       request_count: actionCount,
       principal_kind: context.principalKind,
       local_task_id: context.task.id,
-      authentication: "not_supported_phase_4_1"
+      authentication: card.interface.remoteMachineRef
+        ? (card.authenticationRequired ? "verified" : "server_identity_verified")
+        : "not_configured",
+      remote_machine_ref: card.interface.remoteMachineRef ?? null,
+      authentication_mechanism: card.interface.authenticationMechanism ?? null,
+      peer_identity_kind: card.interface.peerIdentityKind ?? null
     };
   }
 }
