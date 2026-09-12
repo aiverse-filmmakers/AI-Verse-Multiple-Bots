@@ -180,7 +180,12 @@ test("A2A restart recovery resumes a known remote Task with GetTask and never re
 
     assert.deepEqual(methods, ["GetTask"]);
     assert.equal(result.output.remote_task_id, "remote-task-7");
-    assert.equal(result.output.artifacts[0].parts[0].data.resumed, true);
+    const artifacts = result.output.artifacts as JsonObject[];
+    const firstArtifact = artifacts[0] as JsonObject;
+    const parts = firstArtifact.parts as JsonObject[];
+    const firstPart = parts[0] as JsonObject;
+    const data = firstPart.data as JsonObject;
+    assert.equal(data.resumed, true);
     assert.equal(recovery.get("task_local")?.state, "completed");
 
     await adapter.settle("task_local");
