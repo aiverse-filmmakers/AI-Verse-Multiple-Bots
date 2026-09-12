@@ -581,10 +581,9 @@ test("broker rejects malformed authenticator evidence with controlled errors", a
             tls_verified: true,
             peer_identity: { kind: "https_origin", value: input.machine.origin },
             client_authenticated: true,
-            satisfied_schemes: ["bearer"],
-            satisfied_scopes: { bearer: [] },
-            mechanism: "custom",
-            ...patch
+            mechanism: "mechanism" in patch ? patch.mechanism : "custom",
+            satisfied_schemes: "satisfied_schemes" in patch ? patch.satisfied_schemes : ["bearer"],
+            satisfied_scopes: "satisfied_scopes" in patch ? patch.satisfied_scopes : { bearer: [] }
           } as any
         };
       }
