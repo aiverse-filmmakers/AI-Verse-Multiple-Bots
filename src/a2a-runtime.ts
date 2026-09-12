@@ -1241,7 +1241,6 @@ export class A2AJsonRpcRuntimeAdapter implements RuntimeAdapter {
         redirect: "error"
       });
     }
-    const decoded = await this.readJson(response, `A2A ${method} response`, A2A_RESPONSE_MAX_BYTES);
     if (!response.ok) {
       const retryable = new Set([408, 425, 429, 500, 502, 503, 504]).has(response.status);
       throw new A2ARuntimeError(
@@ -1250,6 +1249,7 @@ export class A2AJsonRpcRuntimeAdapter implements RuntimeAdapter {
         retryable
       );
     }
+    const decoded = await this.readJson(response, `A2A ${method} response`, A2A_RESPONSE_MAX_BYTES);
     if (decoded.jsonrpc !== "2.0" || decoded.id !== requestId) {
       throw new A2ARuntimeError("A2A_INVALID_RESPONSE", `A2A ${method} returned an invalid JSON-RPC envelope`);
     }
