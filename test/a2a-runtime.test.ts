@@ -92,8 +92,8 @@ function context(
       issued_to: principal.id,
       workspace_id: "ws-a2a",
       task_id: "task_local",
-      tools: ["search.read"],
-      connections: ["docs"],
+      tools: [],
+      connections: [],
       destructive_actions: "deny",
       expires_at: "2030-01-01T00:00:00Z"
     }),
@@ -196,7 +196,7 @@ test("A2A v1 direct Message execution discovers Agent Card, preserves local iden
   assert.equal(envelope.execution_identity.principal_kind, "bot");
   assert.equal(envelope.execution_identity.workspace_id, "ws-a2a");
   assert.equal(envelope.task.id, "task_local");
-  assert.deepEqual(envelope.authority.tools, ["search.read"]);
+  assert.deepEqual(envelope.authority.tools, []);
   assert.equal(envelope.workspace_projection.data.current_state, "CURRENT_CONTEXT");
   assert.equal(envelope.strategic_intent.data.goal, "STRATEGIC_CONTEXT");
   assert.equal(envelope.input_artifacts[0].inline_content.observation, "INPUT_EVIDENCE");

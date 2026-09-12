@@ -1,5 +1,11 @@
 import type { RuntimeUsage } from "./budget.js";
 import type { RuntimeAdapter, RuntimeExecutionContext, RuntimeExecutionResult } from "./runtime.js";
+import {
+  RemoteLeaseBroker,
+  RemoteLeaseError,
+  type RemoteLeaseAudit,
+  type RemoteLeaseGrant
+} from "./remote-leases.js";
 import type { JsonObject } from "./types.js";
 
 export const EXTERNAL_MANAGED_RUNTIME_ADAPTER_ID = "external-managed";
@@ -42,6 +48,7 @@ export interface ExternalManagedBotExecuteRequest {
   allowedTools: string[];
   allowedConnections: string[];
   destructiveActions: string;
+  remoteLease?: JsonObject | null;
   signal: AbortSignal;
 }
 
@@ -53,6 +60,7 @@ export interface ExternalManagedBotExecutionResult {
   usage?: RuntimeUsage;
   observed_tools: string[];
   observed_connections: string[];
+  remote_lease_receipt?: JsonObject | null;
 }
 
 export interface ExternalManagedBotCancelRequest {
@@ -72,6 +80,9 @@ interface ActiveManagedExecution {
   provider: ExternalManagedBotProvider;
   binding: ExternalManagedBotBinding;
   cancelStarted: boolean;
+  remoteLeaseGrant: RemoteLeaseGrant | null;
+  remoteLeaseTarget: { kind: "managed_profile"; ref: string } | null;
+  leaseRevokeStarted: boolean;
 }
 
 function asObject(value: unknown): JsonObject | null {
@@ -128,7 +139,7 @@ export function parseExternalManagedBinding(runtimeValue: unknown): ExternalMana
     if (runtime[key] !== undefined && runtime[key] !== null) {
       throw new ExternalManagedRuntimeError(
         "EXTERNAL_MANAGED_REMOTE_AUTH_OUT_OF_SCOPE",
-        `runtime.${key} is not supported in Phase 4.5; remote-machine identity/authentication belongs to Phase 4.6`
+        `runtime.${key} must not embed remote authentication; use a host-injected provider and the Phase 4.6 trust/auth boundary`
       );
     }
   }
@@ -265,7 +276,9 @@ function runtimeEnvelope(
   context: RuntimeExecutionContext,
   binding: ExternalManagedBotBinding,
   tools: string[],
-  connections: string[]
+  connections: string[],
+  destructiveActions: string,
+  remoteLeaseApplied: boolean
 ): JsonObject {
   return boundedEnvelope({
     contract: EXTERNAL_MANAGED_RUNTIME_ENVELOPE,
@@ -291,9 +304,10 @@ function runtimeEnvelope(
       lease_id: context.capabilityLease.id,
       tools,
       connections,
-      destructive_actions: context.capabilityLease.payload.destructive_actions ?? "deny",
-      environment_lease_id: null,
-      rule: "The external provider must enforce exactly this Task lease. External profile state cannot widen local authority."
+      destructive_actions: destructiveActions,
+      environment_lease_id: context.environmentLease?.id ?? null,
+      remote_lease_applied: remoteLeaseApplied,
+      rule: "The external provider must enforce exactly this effective Task lease. External profile state cannot widen local authority."
     },
     workspace_projection: context.workspaceProjection ? {
       provider: context.workspaceProjection.provider,
@@ -450,7 +464,10 @@ export class ExternalManagedBotRuntimeAdapter implements RuntimeAdapter {
   readonly id = EXTERNAL_MANAGED_RUNTIME_ADAPTER_ID;
   private readonly active = new Map<string, ActiveManagedExecution>();
 
-  constructor(readonly providers: ExternalManagedBotProviderRegistry = new ExternalManagedBotProviderRegistry()) {}
+  constructor(
+    readonly providers: ExternalManagedBotProviderRegistry = new ExternalManagedBotProviderRegistry(),
+    readonly remoteLeases: RemoteLeaseBroker | null = null
+  ) {}
 
   async execute(context: RuntimeExecutionContext): Promise<RuntimeExecutionResult> {
     if (context.principalKind !== "bot" || !context.bot) {
@@ -466,14 +483,23 @@ export class ExternalManagedBotRuntimeAdapter implements RuntimeAdapter {
         "External managed Bots must use execution.environment_policy=external_managed"
       );
     }
-    if (context.environmentLease) {
+    const binding = parseExternalManagedBinding(context.runtime);
+    const remoteLeaseProvider = typeof context.runtime.remote_lease_provider === "string"
+      && context.runtime.remote_lease_provider.trim()
+      ? context.runtime.remote_lease_provider.trim()
+      : null;
+    if (context.environmentLease && !remoteLeaseProvider) {
       throw new ExternalManagedRuntimeError(
-        "EXTERNAL_MANAGED_REMOTE_LEASE_OUT_OF_SCOPE",
-        "Phase 4.5 does not accept external environment leases; remote capability/environment leases belong to Phase 4.7"
+        "EXTERNAL_MANAGED_REMOTE_LEASE_PROVIDER_REQUIRED",
+        "External managed environment authority requires runtime.remote_lease_provider"
       );
     }
-
-    const binding = parseExternalManagedBinding(context.runtime);
+    if (remoteLeaseProvider && !this.remoteLeases) {
+      throw new ExternalManagedRuntimeError(
+        "EXTERNAL_MANAGED_REMOTE_LEASE_BROKER_REQUIRED",
+        "runtime.remote_lease_provider requires a configured RemoteLeaseBroker"
+      );
+    }
     const provider = this.providers.get(binding.provider);
     const tools = exactRefs(context.capabilityLease.payload.tools, "capabilityLease.tools");
     const connections = exactRefs(context.capabilityLease.payload.connections, "capabilityLease.connections");
@@ -481,7 +507,14 @@ export class ExternalManagedBotRuntimeAdapter implements RuntimeAdapter {
       ? context.capabilityLease.payload.destructive_actions
       : "deny";
 
-    const active: ActiveManagedExecution = { provider, binding, cancelStarted: false };
+    const active: ActiveManagedExecution = {
+      provider,
+      binding,
+      cancelStarted: false,
+      remoteLeaseGrant: null,
+      remoteLeaseTarget: null,
+      leaseRevokeStarted: false
+    };
     this.active.set(context.task.id, active);
     const abortFromParent = () => { void this.cancel(context.task.id); };
     if (context.signal.aborted) abortFromParent();
@@ -505,6 +538,26 @@ export class ExternalManagedBotRuntimeAdapter implements RuntimeAdapter {
       }
       assertInspection(inspection, binding);
 
+      let remoteLeaseAudit: RemoteLeaseAudit | null = null;
+      if (remoteLeaseProvider) {
+        try {
+          active.remoteLeaseTarget = {
+            kind: "managed_profile",
+            ref: `${binding.provider}::${binding.managedBotRef}`
+          };
+          active.remoteLeaseGrant = await this.remoteLeases!.grant(
+            remoteLeaseProvider,
+            context,
+            active.remoteLeaseTarget
+          );
+        } catch (error) {
+          if (error instanceof RemoteLeaseError) {
+            throw new ExternalManagedRuntimeError(error.code, error.message);
+          }
+          throw error;
+        }
+      }
+
       let result: ExternalManagedBotExecutionResult;
       try {
         result = await raceWithAbort(provider.execute({
@@ -514,10 +567,20 @@ export class ExternalManagedBotRuntimeAdapter implements RuntimeAdapter {
         expectedBindingFingerprint: binding.bindingFingerprint,
         principalId: context.principal.id,
         workspaceId: String(context.task.workspaceId ?? ""),
-        envelope: runtimeEnvelope(context, binding, tools, connections),
-        allowedTools: tools,
-        allowedConnections: connections,
-          destructiveActions,
+        envelope: runtimeEnvelope(
+          context,
+          binding,
+          active.remoteLeaseGrant?.granted_tools ?? tools,
+          active.remoteLeaseGrant?.granted_connections ?? connections,
+          active.remoteLeaseGrant?.destructive_actions ?? destructiveActions,
+          Boolean(active.remoteLeaseGrant)
+        ),
+        allowedTools: active.remoteLeaseGrant?.granted_tools ?? tools,
+        allowedConnections: active.remoteLeaseGrant?.granted_connections ?? connections,
+          destructiveActions: active.remoteLeaseGrant?.destructive_actions ?? destructiveActions,
+          ...(active.remoteLeaseGrant ? {
+            remoteLease: this.remoteLeases!.transportProjection(active.remoteLeaseGrant)
+          } : {}),
           signal: context.signal
         }), context.signal);
       } catch {
@@ -539,8 +602,43 @@ export class ExternalManagedBotRuntimeAdapter implements RuntimeAdapter {
       }
       const observedTools = exactReportedRefs(result.observed_tools, "result.observed_tools");
       const observedConnections = exactReportedRefs(result.observed_connections, "result.observed_connections");
-      assertSubset(observedTools, tools, "tool");
-      assertSubset(observedConnections, connections, "connection");
+      const effectiveTools = active.remoteLeaseGrant?.granted_tools ?? tools;
+      const effectiveConnections = active.remoteLeaseGrant?.granted_connections ?? connections;
+      assertSubset(observedTools, effectiveTools, "tool");
+      assertSubset(observedConnections, effectiveConnections, "connection");
+      if (active.remoteLeaseGrant) {
+        const remoteReceipt = asObject(result.remote_lease_receipt);
+        if (remoteReceipt) {
+          const leaseObservedTools = exactReportedRefs(
+            remoteReceipt.observed_tools,
+            "result.remote_lease_receipt.observed_tools"
+          );
+          const leaseObservedConnections = exactReportedRefs(
+            remoteReceipt.observed_connections,
+            "result.remote_lease_receipt.observed_connections"
+          );
+          if (
+            JSON.stringify(leaseObservedTools) !== JSON.stringify(observedTools)
+            || JSON.stringify(leaseObservedConnections) !== JSON.stringify(observedConnections)
+          ) {
+            throw new ExternalManagedRuntimeError(
+              "EXTERNAL_MANAGED_REMOTE_LEASE_AUDIT_MISMATCH",
+              "External managed provider authority audit disagrees with its remote lease receipt"
+            );
+          }
+        }
+        try {
+          remoteLeaseAudit = this.remoteLeases!.verifyReceipt(
+            active.remoteLeaseGrant,
+            result.remote_lease_receipt
+          );
+        } catch (error) {
+          if (error instanceof RemoteLeaseError) {
+            throw new ExternalManagedRuntimeError(error.code, error.message);
+          }
+          throw error;
+        }
+      }
       const output = boundedJsonObject(result.output, EXTERNAL_MANAGED_MAX_OUTPUT_BYTES, "result.output");
       const usage = normalizeUsage(result.usage);
       const rawSummary = typeof result.summary === "string" ? result.summary.trim() : "";
@@ -576,11 +674,24 @@ export class ExternalManagedBotRuntimeAdapter implements RuntimeAdapter {
           observed_tool_count: observedTools.length,
           observed_connection_count: observedConnections.length,
           idempotency_contract: "local_task_id",
-          remote_authentication: "host_injected_provider_only_phase_4_5",
-          remote_environment_leases: "not_supported_phase_4_5"
+          remote_authentication: "host_injected_provider",
+          ...(active.remoteLeaseGrant && remoteLeaseAudit
+            ? this.remoteLeases!.receiptProjection(active.remoteLeaseGrant, remoteLeaseAudit)
+            : {
+                remote_lease_verified: false,
+                environment_verified: false
+              })
         }]
       };
     } finally {
+      if (active.remoteLeaseGrant && active.remoteLeaseTarget && !active.leaseRevokeStarted) {
+        active.leaseRevokeStarted = true;
+        void this.remoteLeases!.revoke(
+          active.remoteLeaseGrant,
+          context.task.id,
+          active.remoteLeaseTarget
+        ).catch(() => undefined);
+      }
       this.active.delete(context.task.id);
       context.signal.removeEventListener("abort", abortFromParent);
     }
@@ -590,6 +701,14 @@ export class ExternalManagedBotRuntimeAdapter implements RuntimeAdapter {
     const active = this.active.get(taskId);
     if (!active || active.cancelStarted) return;
     active.cancelStarted = true;
+    if (active.remoteLeaseGrant && active.remoteLeaseTarget && !active.leaseRevokeStarted) {
+      active.leaseRevokeStarted = true;
+      void this.remoteLeases!.revoke(
+        active.remoteLeaseGrant,
+        taskId,
+        active.remoteLeaseTarget
+      ).catch(() => undefined);
+    }
     try {
       await active.provider.cancel({
         localTaskId: taskId,

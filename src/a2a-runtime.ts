@@ -7,6 +7,13 @@ import {
   type RemoteAuthBinding,
   type RemoteSecurityRequirement
 } from "./remote-machine-auth.js";
+import {
+  REMOTE_LEASE_A2A_EXTENSION_URI,
+  RemoteLeaseBroker,
+  RemoteLeaseError,
+  type RemoteLeaseAudit,
+  type RemoteLeaseGrant
+} from "./remote-leases.js";
 import type { JsonObject } from "./types.js";
 
 export const A2A_PROTOCOL_VERSION = "1.0";
@@ -34,6 +41,7 @@ export interface A2ARuntimeOptions {
   fetchImpl?: typeof fetch;
   sleepImpl?: (ms: number, signal: AbortSignal) => Promise<void>;
   remoteAccess?: RemoteHttpAccessBroker;
+  remoteLeases?: RemoteLeaseBroker;
 }
 
 interface SafeUrl {
@@ -51,6 +59,7 @@ interface A2AInterface {
   securityRequirements?: RemoteSecurityRequirement[];
   authenticationMechanism?: string;
   peerIdentityKind?: string;
+  remoteLeaseExtensionSupported?: boolean;
 }
 
 interface A2AAgentCard {
@@ -60,6 +69,7 @@ interface A2AAgentCard {
   inputMode: "application/json" | "text/plain";
   outputModes: string[];
   authenticationRequired: boolean;
+  remoteLeaseExtensionSupported: boolean;
 }
 
 interface ActiveA2ATask {
@@ -68,6 +78,9 @@ interface ActiveA2ATask {
   interface: A2AInterface | null;
   cancelRequested: boolean;
   actionCount: number;
+  remoteLeaseGrant: RemoteLeaseGrant | null;
+  remoteLeaseTarget: { kind: "machine"; ref: string } | null;
+  leaseRevokeStarted: boolean;
 }
 
 function asObject(value: unknown): JsonObject | null {
@@ -205,9 +218,31 @@ function validateA2AArtifacts(value: unknown): JsonObject[] {
   });
 }
 
-function runtimeEnvelope(context: RuntimeExecutionContext): JsonObject {
-  const leaseTools = stringArray(context.capabilityLease.payload.tools);
-  const leaseConnections = stringArray(context.capabilityLease.payload.connections);
+function runtimeAuthorityNeedsRemoteLease(context: RuntimeExecutionContext): boolean {
+  const tools = stringArray(context.capabilityLease.payload.tools);
+  const connections = stringArray(context.capabilityLease.payload.connections);
+  const destructive = typeof context.capabilityLease.payload.destructive_actions === "string"
+    ? context.capabilityLease.payload.destructive_actions
+    : "deny";
+  return tools.length > 0 || connections.length > 0 || destructive !== "deny" || Boolean(context.environmentLease);
+}
+
+function remoteLeaseReceiptMetadata(value: JsonObject): unknown {
+  const metadata = asObject(value.metadata);
+  return metadata?.[REMOTE_LEASE_A2A_EXTENSION_URI];
+}
+
+function runtimeEnvelope(
+  context: RuntimeExecutionContext,
+  remoteLeaseGrant: RemoteLeaseGrant | null = null
+): JsonObject {
+  const leaseTools = remoteLeaseGrant?.granted_tools
+    ?? stringArray(context.capabilityLease.payload.tools);
+  const leaseConnections = remoteLeaseGrant?.granted_connections
+    ?? stringArray(context.capabilityLease.payload.connections);
+  const destructiveActions = remoteLeaseGrant?.destructive_actions
+    ?? context.capabilityLease.payload.destructive_actions
+    ?? null;
   return {
     contract: "ai-verse-multiple-bots/a2a-runtime-envelope-v1",
     authority_order: [
@@ -235,8 +270,9 @@ function runtimeEnvelope(context: RuntimeExecutionContext): JsonObject {
       lease_id: context.capabilityLease.id,
       tools: leaseTools,
       connections: leaseConnections,
-      destructive_actions: context.capabilityLease.payload.destructive_actions ?? null,
-      environment_lease_id: context.environmentLease?.id ?? null
+      destructive_actions: destructiveActions,
+      environment_lease_id: context.environmentLease?.id ?? null,
+      remote_lease_applied: Boolean(remoteLeaseGrant)
     },
     workspace_projection: context.workspaceProjection ? {
       provider: context.workspaceProjection.provider,
@@ -299,12 +335,14 @@ export class A2AJsonRpcRuntimeAdapter implements RuntimeAdapter {
   private readonly fetchImpl: typeof fetch;
   private readonly sleepImpl: (ms: number, signal: AbortSignal) => Promise<void>;
   private readonly remoteAccess: RemoteHttpAccessBroker | null;
+  private readonly remoteLeases: RemoteLeaseBroker | null;
   private readonly active = new Map<string, ActiveA2ATask>();
 
   constructor(options: A2ARuntimeOptions = {}) {
     this.fetchImpl = options.fetchImpl ?? fetch;
     this.sleepImpl = options.sleepImpl ?? defaultSleep;
     this.remoteAccess = options.remoteAccess ?? null;
+    this.remoteLeases = options.remoteLeases ?? null;
   }
 
   async execute(context: RuntimeExecutionContext): Promise<RuntimeExecutionResult> {
@@ -348,13 +386,45 @@ export class A2AJsonRpcRuntimeAdapter implements RuntimeAdapter {
 
     const cardUrl = safeUrl(requiredRuntimeString(runtime, "agent_card_url"), "runtime.agent_card_url");
     const interval = pollInterval(runtime);
+    const hasMeaningfulAuthority = runtimeAuthorityNeedsRemoteLease(context);
+    if (hasMeaningfulAuthority && !remoteBinding.machineRef) {
+      throw new A2ARuntimeError(
+        "A2A_REMOTE_AUTHORITY_REQUIRES_PINNED_MACHINE",
+        "A2A Task authority can only be projected to a pinned remote_machine_ref"
+      );
+    }
+    const needsRemoteLease = Boolean(remoteBinding.machineRef) && hasMeaningfulAuthority;
+    const remoteLeaseProvider = typeof runtime.remote_lease_provider === "string" && runtime.remote_lease_provider.trim()
+      ? runtime.remote_lease_provider.trim()
+      : null;
+    if (context.environmentLease && !remoteBinding.machineRef) {
+      throw new A2ARuntimeError(
+        "A2A_REMOTE_ENVIRONMENT_REQUIRES_MACHINE",
+        "A2A environment leases require a pinned remote_machine_ref"
+      );
+    }
+    if (needsRemoteLease && !remoteLeaseProvider) {
+      throw new A2ARuntimeError(
+        "A2A_REMOTE_LEASE_PROVIDER_REQUIRED",
+        "Remote A2A authority requires runtime.remote_lease_provider"
+      );
+    }
+    if (remoteLeaseProvider && !this.remoteLeases) {
+      throw new A2ARuntimeError(
+        "A2A_REMOTE_LEASE_BROKER_REQUIRED",
+        "runtime.remote_lease_provider requires a configured RemoteLeaseBroker"
+      );
+    }
     const controller = new AbortController();
     const active: ActiveA2ATask = {
       controller,
       remoteTaskId: null,
       interface: null,
       cancelRequested: false,
-      actionCount: 0
+      actionCount: 0,
+      remoteLeaseGrant: null,
+      remoteLeaseTarget: null,
+      leaseRevokeStarted: false
     };
     this.active.set(context.task.id, active);
 
@@ -365,9 +435,32 @@ export class A2AJsonRpcRuntimeAdapter implements RuntimeAdapter {
     else context.signal.addEventListener("abort", abortFromParent, { once: true });
 
     try {
-      const card = await this.discover(cardUrl, controller.signal, active, remoteBinding.machineRef, remoteBinding.auth);
+      const card = await this.discover(
+        cardUrl,
+        controller.signal,
+        active,
+        remoteBinding.machineRef,
+        remoteBinding.auth,
+        needsRemoteLease
+      );
       active.interface = card.interface;
-      const envelope = runtimeEnvelope(context);
+
+      let remoteLeaseAudit: RemoteLeaseAudit | null = null;
+      if (remoteLeaseProvider && remoteBinding.machineRef) {
+        try {
+          active.remoteLeaseTarget = { kind: "machine", ref: remoteBinding.machineRef };
+          active.remoteLeaseGrant = await this.remoteLeases!.grant(
+            remoteLeaseProvider,
+            context,
+            active.remoteLeaseTarget
+          );
+        } catch (error) {
+          if (error instanceof RemoteLeaseError) throw new A2ARuntimeError(error.code, error.message);
+          throw error;
+        }
+      }
+
+      const envelope = runtimeEnvelope(context, active.remoteLeaseGrant);
       const envelopeText = boundedJson(envelope, A2A_REQUEST_MAX_BYTES, "A2A runtime envelope");
       const messagePart: JsonObject = card.inputMode === "application/json"
         ? { data: envelope, mediaType: "application/json" }
@@ -383,8 +476,12 @@ export class A2AJsonRpcRuntimeAdapter implements RuntimeAdapter {
             local_task_id: context.task.id,
             local_principal_id: context.principal.id,
             local_principal_kind: context.principalKind,
-            workspace_id: context.task.workspaceId
-          }
+            workspace_id: context.task.workspaceId,
+            ...(active.remoteLeaseGrant ? {
+              [REMOTE_LEASE_A2A_EXTENSION_URI]: this.remoteLeases!.transportProjection(active.remoteLeaseGrant)
+            } : {})
+          },
+          ...(active.remoteLeaseGrant ? { extensions: [REMOTE_LEASE_A2A_EXTENSION_URI] } : {})
         },
         configuration: {
           acceptedOutputModes: card.outputModes,
@@ -393,7 +490,10 @@ export class A2AJsonRpcRuntimeAdapter implements RuntimeAdapter {
         },
         metadata: {
           local_task_id: context.task.id,
-          root_objective_id: context.task.payload.root_objective_id ?? null
+          root_objective_id: context.task.payload.root_objective_id ?? null,
+          ...(active.remoteLeaseGrant ? {
+            [REMOTE_LEASE_A2A_EXTENSION_URI]: this.remoteLeases!.transportProjection(active.remoteLeaseGrant)
+          } : {})
         }
       };
       if (card.interface.tenant) params.tenant = card.interface.tenant;
@@ -410,7 +510,20 @@ export class A2AJsonRpcRuntimeAdapter implements RuntimeAdapter {
       const initialTask = asObject(sendResult.task);
 
       if (direct && initialTask) throw new A2ARuntimeError("A2A_INVALID_RESPONSE", "SendMessage response contained both task and message");
-      if (direct) return this.resultFromMessage(context, card, direct, active.actionCount);
+      if (direct) {
+        if (active.remoteLeaseGrant) {
+          try {
+            remoteLeaseAudit = this.remoteLeases!.verifyReceipt(
+              active.remoteLeaseGrant,
+              remoteLeaseReceiptMetadata(direct)
+            );
+          } catch (error) {
+            if (error instanceof RemoteLeaseError) throw new A2ARuntimeError(error.code, error.message);
+            throw error;
+          }
+        }
+        return this.resultFromMessage(context, card, direct, active.actionCount, active.remoteLeaseGrant, remoteLeaseAudit);
+      }
       if (!initialTask) throw new A2ARuntimeError("A2A_INVALID_RESPONSE", "SendMessage response contained neither task nor message");
 
       const remoteTaskId = initialTask.id;
@@ -443,7 +556,18 @@ export class A2AJsonRpcRuntimeAdapter implements RuntimeAdapter {
 
       const state = stateOf(task);
       if (state === "TASK_STATE_COMPLETED") {
-        return this.resultFromTask(context, card, task, active.actionCount);
+        if (active.remoteLeaseGrant) {
+          try {
+            remoteLeaseAudit = this.remoteLeases!.verifyReceipt(
+              active.remoteLeaseGrant,
+              remoteLeaseReceiptMetadata(task)
+            );
+          } catch (error) {
+            if (error instanceof RemoteLeaseError) throw new A2ARuntimeError(error.code, error.message);
+            throw error;
+          }
+        }
+        return this.resultFromTask(context, card, task, active.actionCount, active.remoteLeaseGrant, remoteLeaseAudit);
       }
       if (state === "TASK_STATE_INPUT_REQUIRED") {
         throw new A2ARuntimeError("A2A_INPUT_REQUIRED", remoteFailureMessage(task));
@@ -459,6 +583,14 @@ export class A2AJsonRpcRuntimeAdapter implements RuntimeAdapter {
       }
       throw new A2ARuntimeError("A2A_REMOTE_FAILED", remoteFailureMessage(task));
     } finally {
+      if (active.remoteLeaseGrant && active.remoteLeaseTarget && !active.leaseRevokeStarted) {
+        active.leaseRevokeStarted = true;
+        void this.remoteLeases!.revoke(
+          active.remoteLeaseGrant,
+          context.task.id,
+          active.remoteLeaseTarget
+        ).catch(() => undefined);
+      }
       this.active.delete(context.task.id);
       context.signal.removeEventListener("abort", abortFromParent);
       if (!controller.signal.aborted) controller.abort(new Error("A2A execution finished"));
@@ -470,6 +602,10 @@ export class A2AJsonRpcRuntimeAdapter implements RuntimeAdapter {
     if (!active) return;
     active.cancelRequested = true;
     void this.cancelRemote(active).catch(() => undefined);
+    if (active.remoteLeaseGrant && active.remoteLeaseTarget && !active.leaseRevokeStarted) {
+      active.leaseRevokeStarted = true;
+      void this.remoteLeases!.revoke(active.remoteLeaseGrant, taskId, active.remoteLeaseTarget).catch(() => undefined);
+    }
     if (!active.controller.signal.aborted) active.controller.abort(new Error(`Runtime Task ${taskId} canceled`));
   }
 
@@ -478,7 +614,8 @@ export class A2AJsonRpcRuntimeAdapter implements RuntimeAdapter {
     signal: AbortSignal,
     active: ActiveA2ATask,
     remoteMachineRef: string | null,
-    remoteAuth: RemoteAuthBinding | null
+    remoteAuth: RemoteAuthBinding | null,
+    requireRemoteLease: boolean
   ): Promise<A2AAgentCard> {
     active.actionCount += 1;
     let response: Response;
@@ -544,8 +681,24 @@ export class A2AJsonRpcRuntimeAdapter implements RuntimeAdapter {
     const capabilities = asObject(card.capabilities);
     if (!capabilities) throw new A2ARuntimeError("A2A_INVALID_AGENT_CARD", "Agent Card requires capabilities");
     const extensions = Array.isArray(capabilities.extensions) ? capabilities.extensions : [];
-    if (extensions.some((raw) => asObject(raw)?.required === true)) {
-      throw new A2ARuntimeError("A2A_REQUIRED_EXTENSION_UNSUPPORTED", "Agent Card requires an A2A extension not implemented by Phase 4.1");
+    const extensionObjects = extensions.map(asObject).filter((item): item is JsonObject => Boolean(item));
+    const remoteLeaseExtensionSupported = extensionObjects.some(
+      (item) => item.uri === REMOTE_LEASE_A2A_EXTENSION_URI
+    );
+    const unsupportedRequired = extensionObjects.find(
+      (item) => item.required === true && item.uri !== REMOTE_LEASE_A2A_EXTENSION_URI
+    );
+    if (unsupportedRequired) {
+      throw new A2ARuntimeError(
+        "A2A_REQUIRED_EXTENSION_UNSUPPORTED",
+        "Agent Card requires an A2A extension that this adapter does not implement"
+      );
+    }
+    if (requireRemoteLease && !remoteLeaseExtensionSupported) {
+      throw new A2ARuntimeError(
+        "A2A_REMOTE_LEASE_EXTENSION_REQUIRED",
+        "Remote A2A authority requires support for the AI-Verse remote Task lease extension"
+      );
     }
 
     const inputModes = stringArray(card.defaultInputModes);
@@ -579,7 +732,8 @@ export class A2AJsonRpcRuntimeAdapter implements RuntimeAdapter {
           securityRequirements,
           ...(discoveryMechanism ? { authenticationMechanism: discoveryMechanism } : {}),
           ...(peerIdentityKind ? { peerIdentityKind } : {})
-        } : {})
+        } : {}),
+        remoteLeaseExtensionSupported
       };
       break;
     }
@@ -593,7 +747,8 @@ export class A2AJsonRpcRuntimeAdapter implements RuntimeAdapter {
       interface: selected,
       inputMode,
       outputModes: [...new Set(outputModes)].slice(0, 32),
-      authenticationRequired: securityRequirements.length > 0
+      authenticationRequired: securityRequirements.length > 0,
+      remoteLeaseExtensionSupported
     };
   }
 
@@ -614,10 +769,13 @@ export class A2AJsonRpcRuntimeAdapter implements RuntimeAdapter {
     };
     const body = boundedJson(payload, A2A_REQUEST_MAX_BYTES, `A2A ${method} request`);
     let response: Response;
-    const baseHeaders = {
+    const baseHeaders: Record<string, string> = {
       "content-type": "application/json",
       "accept": "application/json",
-      "A2A-Version": iface.protocolVersion
+      "A2A-Version": iface.protocolVersion,
+      ...(iface.remoteLeaseExtensionSupported ? {
+        "A2A-Extensions": REMOTE_LEASE_A2A_EXTENSION_URI
+      } : {})
     };
     if (iface.remoteMachineRef) {
       try {
@@ -688,7 +846,17 @@ export class A2AJsonRpcRuntimeAdapter implements RuntimeAdapter {
     if (!active.interface || !active.remoteTaskId) return;
     const params: JsonObject = {
       id: active.remoteTaskId,
-      metadata: { source: "ai-verse-multiple-bots", reason: "local_task_canceled" }
+      metadata: {
+        source: "ai-verse-multiple-bots",
+        reason: "local_task_canceled",
+        ...(active.remoteLeaseGrant ? {
+          [REMOTE_LEASE_A2A_EXTENSION_URI]: {
+            remote_lease_id: active.remoteLeaseGrant.remote_lease_id,
+            request_digest: active.remoteLeaseGrant.request_digest,
+            grant_fingerprint: active.remoteLeaseGrant.grant_fingerprint
+          }
+        } : {})
+      }
     };
     if (active.interface.tenant) params.tenant = active.interface.tenant;
     await this.rpc(
@@ -704,7 +872,9 @@ export class A2AJsonRpcRuntimeAdapter implements RuntimeAdapter {
     context: RuntimeExecutionContext,
     card: A2AAgentCard,
     message: JsonObject,
-    actionCount: number
+    actionCount: number,
+    remoteLeaseGrant: RemoteLeaseGrant | null = null,
+    remoteLeaseAudit: RemoteLeaseAudit | null = null
   ): RuntimeExecutionResult {
     const parts = partsOf(message.parts);
     if (parts.length === 0) throw new A2ARuntimeError("A2A_INVALID_RESPONSE", "Direct A2A Message response has no parts");
@@ -719,7 +889,7 @@ export class A2AJsonRpcRuntimeAdapter implements RuntimeAdapter {
         execution_principal_kind: context.principalKind
       },
       usage: { input_tokens: 0, output_tokens: 0, cost: 0, actions: actionCount },
-      receipts: [this.receipt(context, card, null, null, 0, actionCount)]
+      receipts: [this.receipt(context, card, null, null, 0, actionCount, remoteLeaseGrant, remoteLeaseAudit)]
     };
   }
 
@@ -727,7 +897,9 @@ export class A2AJsonRpcRuntimeAdapter implements RuntimeAdapter {
     context: RuntimeExecutionContext,
     card: A2AAgentCard,
     task: JsonObject,
-    actionCount: number
+    actionCount: number,
+    remoteLeaseGrant: RemoteLeaseGrant | null = null,
+    remoteLeaseAudit: RemoteLeaseAudit | null = null
   ): RuntimeExecutionResult {
     const artifacts = validateA2AArtifacts(task.artifacts);
     const firstArtifactSummary = artifacts
@@ -747,7 +919,16 @@ export class A2AJsonRpcRuntimeAdapter implements RuntimeAdapter {
         execution_principal_kind: context.principalKind
       },
       usage: { input_tokens: 0, output_tokens: 0, cost: 0, actions: actionCount },
-      receipts: [this.receipt(context, card, String(task.id), contextId, artifacts.length, actionCount)]
+      receipts: [this.receipt(
+        context,
+        card,
+        String(task.id),
+        contextId,
+        artifacts.length,
+        actionCount,
+        remoteLeaseGrant,
+        remoteLeaseAudit
+      )]
     };
   }
 
@@ -757,7 +938,9 @@ export class A2AJsonRpcRuntimeAdapter implements RuntimeAdapter {
     remoteTaskId: string | null,
     contextId: string | null,
     artifactCount: number,
-    actionCount: number
+    actionCount: number,
+    remoteLeaseGrant: RemoteLeaseGrant | null = null,
+    remoteLeaseAudit: RemoteLeaseAudit | null = null
   ): JsonObject {
     return {
       kind: "a2a_execution",
@@ -779,7 +962,13 @@ export class A2AJsonRpcRuntimeAdapter implements RuntimeAdapter {
         : "not_configured",
       remote_machine_ref: card.interface.remoteMachineRef ?? null,
       authentication_mechanism: card.interface.authenticationMechanism ?? null,
-      peer_identity_kind: card.interface.peerIdentityKind ?? null
+      peer_identity_kind: card.interface.peerIdentityKind ?? null,
+      ...(remoteLeaseGrant && remoteLeaseAudit
+        ? this.remoteLeases!.receiptProjection(remoteLeaseGrant, remoteLeaseAudit)
+        : {
+            remote_lease_verified: false,
+            environment_verified: false
+          })
     };
   }
 }
