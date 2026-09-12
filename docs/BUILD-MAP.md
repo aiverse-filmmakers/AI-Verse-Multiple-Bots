@@ -17,11 +17,11 @@ Phase 0  Research + Architecture        [COMPLETE]    100%
 Phase 1  Runnable Coordination Core     [COMPLETE]    100%
 Phase 2  Dynamic Multi-Agent Squads     [COMPLETE]    100%
 Phase 3  AI-Verse Native Integration    [COMPLETE]    100%
-Phase 4  Runtime / A2A Interoperability [IN PROGRESS] ~20%
+Phase 4  Runtime / A2A Interoperability [IN PROGRESS] ~30%
 Phase 5  Product + Install + Dashboard  [NOT STARTED]
 ```
 
-**Directional overall first-release progress:** roughly 83% complete.
+**Directional overall first-release progress:** roughly 85% complete.
 
 That overall figure is intentionally approximate because later phases contain different amounts of work. Passed phase gates, not percentages, are authoritative.
 
@@ -501,7 +501,7 @@ AI-Verse native integration now covers safe registration, exact workspace projec
 
 **Status:** IN PROGRESS
 
-**Directional phase progress:** approximately 20%.
+**Directional phase progress:** approximately 30%.
 
 Goal: make durable Bots/temporary Workers portable across supported local and remote runtimes while preserving protocol identity, authority, cancellation, provenance and recovery.
 
@@ -509,8 +509,8 @@ Goal: make durable Bots/temporary Workers portable across supported local and re
 
 1. A2A adapter - **COMPLETE**
 2. Hermes adapter - **COMPLETE**
-3. OpenClaw adapter - **NEXT**
-4. Codex/Claude Code process adapters where appropriate - **NOT STARTED**
+3. OpenClaw adapter - **COMPLETE**
+4. Codex/Claude Code process adapters where appropriate - **NEXT**
 5. external managed Bot runtime - **NOT STARTED**
 6. remote-machine identity/authentication - **NOT STARTED**
 7. remote capability/environment leases - **NOT STARTED**
@@ -570,6 +570,36 @@ Implemented:
 
 See `docs/HERMES-RUNTIME-ADAPTER.md` and `docs/PHASE-4-STATUS.md`.
 
+### Phase 4.3 - OpenClaw adapter
+
+Implemented:
+
+- public host-neutral `OpenClawAgentExecRuntimeAdapter` with runtime id `openclaw`
+- current OpenClaw one-shot `openclaw agent exec` headless execution contract instead of the long-running Gateway
+- active config discovery through the documented `openclaw config file --json` command or an explicit local config path
+- regular-file/non-symlink validation for the selected operator config
+- per-Task temporary root-`$include` overlay preserving the operator's config while applying a sibling global `tools.allow` cap
+- `OPENCLAW_CONFIG_READONLY=1` plus preserved/extended `OPENCLAW_INCLUDE_ROOTS` so execution can read but not rewrite the operator config
+- exact capability-lease tool mapping with optional `openclaw:<tool>` namespace prefix
+- groups, globs and wildcard authority rejected rather than widened
+- zero-tool leases converted to a non-empty impossible-tool sentinel so an empty allowlist cannot accidentally become unrestricted
+- post-run `toolSummary.tools` containment verification as defense in depth
+- structured execution envelope preserving local Bot/Worker identity, workspace scope, Task constraints, expected output, leases, host context, resolved Skills and input Artifacts
+- stable `agent exec --json` success/error/timeout translation
+- visible `final` result only; OpenClaw reasoning/commentary payloads are not persisted
+- token/cost/assistant-turn/tool-call usage mapped into the existing Multiple Bots budget contract
+- exact one-shot process cancellation with bounded TERM/KILL lifecycle
+- bounded outer process deadline in addition to OpenClaw's own `--timeout`
+- bounded provenance receipt without copied config paths, tool names, workspace/Brain/Memory/Skills/Artifact content or hidden reasoning
+- child execution with `shell: false`
+- remote/Gateway auth fields explicitly rejected so Phase 4.6 remains the remote identity/authentication owner
+- Gateway registration as a normal runtime for durable Bots and temporary Workers
+- no Codex/Claude Code, external-managed-Bot, remote-lease, reconnect/retry or Phase 5 behavior introduced
+
+**Verified implementation gate:** GitHub Actions CI run 401 (`34711466346`) passed the full **318/318 tests** with 0 failures, 0 canceled and 0 skipped on hardened implementation head `51d06d08b0c7e053c750dbfa3c2fc49be62eae02`.
+
+See `docs/OPENCLAW-RUNTIME-ADAPTER.md` and `docs/PHASE-4-STATUS.md`.
+
 ## Phase 5 - Product, Installer, Omnichannel and Dashboard
 
 **Status:** NOT STARTED
@@ -613,9 +643,9 @@ The first finished release must prove at minimum:
 
 ## Next gate
 
-**Phase 4.3 - OpenClaw adapter.**
+**Phase 4.4 - Codex/Claude Code process adapters where appropriate.**
 
-Phase 4.2 is complete. The next canonical slice is the OpenClaw runtime adapter. Phase 4.3 has not started.
+Phase 4.3 is complete. The next canonical slice is the bounded local process-adapter work for Codex/Claude Code where the architecture calls for it. Phase 4.4 has not started.
 
 ## How to report progress
 
