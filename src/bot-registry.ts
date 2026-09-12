@@ -62,6 +62,12 @@ export interface BotTransitionPlan {
   payload: BotManifest;
 }
 
+export interface ExternalManagedRebindInput {
+  provider: string;
+  managedBotRef: string;
+  bindingFingerprint: string;
+}
+
 export class BotRegistryError extends Error {
   constructor(readonly code: string, message: string) {
     super(message);
@@ -124,6 +130,42 @@ export class BotRegistryRules {
       }
     } as BotManifest);
     return { bot: stored, previousStatus, targetStatus, payload };
+  }
+
+  prepareExternalManagedRebind(botId: string, input: ExternalManagedRebindInput): BotManifest {
+    const stored = this.requireBot(botId);
+    if (stored.payload.status === "archived") {
+      throw new BotRegistryError("ARCHIVED_TERMINAL", `Bot ${botId} is archived and cannot be rebound`);
+    }
+    if (stored.payload.status !== "disabled") {
+      throw new BotRegistryError(
+        "EXTERNAL_MANAGED_REBIND_REQUIRES_DISABLED",
+        `Bot ${botId} must be disabled before its external managed binding can change`
+      );
+    }
+
+    const runtime: JsonObject = {
+      adapter: EXTERNAL_MANAGED_RUNTIME_ADAPTER_ID,
+      provider: input.provider,
+      managed_bot_ref: input.managedBotRef,
+      binding_fingerprint: input.bindingFingerprint
+    };
+    parseExternalManagedBinding(runtime);
+
+    const payload = validateBotManifest({
+      ...stored.payload,
+      runtime,
+      execution: {
+        ...(asObject(stored.payload.execution) ?? {}),
+        environment_policy: "external_managed"
+      },
+      lifecycle: {
+        ...(asObject(stored.payload.lifecycle) ?? {}),
+        runtime_rebound_at: new Date().toISOString()
+      }
+    } as BotManifest);
+    this.assertExternalManagedBindingAvailability(payload, stored.id);
+    return payload;
   }
 
   assertRelationships(manifest: BotManifest): void {
