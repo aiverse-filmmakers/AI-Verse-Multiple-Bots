@@ -156,9 +156,9 @@ function actionRank(value: string): number {
 
 function activeExpiry(lease: StoredObject, label: string): number {
   if (
-    lease.payload.revoked_at !== undefined
-    || lease.payload.termination_revoked_at !== undefined
-    || lease.payload.cleanup_revoked_at !== undefined
+    (lease.payload.revoked_at !== undefined && lease.payload.revoked_at !== null)
+    || (lease.payload.termination_revoked_at !== undefined && lease.payload.termination_revoked_at !== null)
+    || (lease.payload.cleanup_revoked_at !== undefined && lease.payload.cleanup_revoked_at !== null)
   ) {
     throw new RemoteLeaseError("REMOTE_LEASE_LOCAL_REVOKED", `${label} ${lease.id} has been revoked`);
   }
@@ -480,6 +480,13 @@ export class RemoteLeaseBroker {
   }
 
   verifyReceipt(grant: RemoteLeaseGrant, receiptValue: unknown): RemoteLeaseAudit {
+    const grantExpiry = Date.parse(grant.expires_at);
+    if (!Number.isFinite(grantExpiry) || grantExpiry <= Date.now()) {
+      throw new RemoteLeaseError(
+        "REMOTE_LEASE_EXPIRED_DURING_EXECUTION",
+        "Remote execution completed after the granted Task authority expired"
+      );
+    }
     const receipt = asObject(receiptValue);
     if (!receipt) {
       throw new RemoteLeaseError("REMOTE_LEASE_RECEIPT_REQUIRED", "Remote execution did not return a lease receipt");
