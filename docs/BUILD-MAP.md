@@ -17,11 +17,11 @@ Phase 0  Research + Architecture        [COMPLETE]    100%
 Phase 1  Runnable Coordination Core     [COMPLETE]    100%
 Phase 2  Dynamic Multi-Agent Squads     [COMPLETE]    100%
 Phase 3  AI-Verse Native Integration    [COMPLETE]    100%
-Phase 4  Runtime / A2A Interoperability [IN PROGRESS] ~40%
+Phase 4  Runtime / A2A Interoperability [IN PROGRESS] ~50%
 Phase 5  Product + Install + Dashboard  [NOT STARTED]
 ```
 
-**Directional overall first-release progress:** roughly 87% complete.
+**Directional overall first-release progress:** roughly 89% complete.
 
 That overall figure is intentionally approximate because later phases contain different amounts of work. Passed phase gates, not percentages, are authoritative.
 
@@ -501,7 +501,7 @@ AI-Verse native integration now covers safe registration, exact workspace projec
 
 **Status:** IN PROGRESS
 
-**Directional phase progress:** approximately 40%.
+**Directional phase progress:** approximately 50%.
 
 Goal: make durable Bots/temporary Workers portable across supported local and remote runtimes while preserving protocol identity, authority, cancellation, provenance and recovery.
 
@@ -511,8 +511,8 @@ Goal: make durable Bots/temporary Workers portable across supported local and re
 2. Hermes adapter - **COMPLETE**
 3. OpenClaw adapter - **COMPLETE**
 4. Codex/Claude Code process adapters where appropriate - **COMPLETE**
-5. external managed Bot runtime - **NEXT**
-6. remote-machine identity/authentication - **NOT STARTED**
+5. external managed Bot runtime - **COMPLETE**
+6. remote-machine identity/authentication - **NEXT**
 7. remote capability/environment leases - **NOT STARTED**
 8. retry/disconnect/reconnect semantics - **NOT STARTED**
 9. compatibility/evaluation suite - **NOT STARTED**
@@ -631,6 +631,37 @@ Implemented:
 
 See `docs/CODEX-CLAUDE-CODE-PROCESS-ADAPTERS.md` and `docs/PHASE-4-STATUS.md`.
 
+### Phase 4.5 - external managed Bot runtime
+
+Implemented:
+
+- public host-neutral `ExternalManagedBotRuntimeAdapter` with runtime id `external-managed`
+- host-injected `ExternalManagedBotProvider` / provider registry rather than credentials or remote transport embedded in Bot manifests
+- durable one-to-one binding from canonical Multiple Bots Bot identity to provider + managed profile ref + stable binding fingerprint
+- global uniqueness enforcement for provider/ref and provider/fingerprint so one external persistent identity cannot back multiple canonical Bots
+- archived binding reservation to prevent accidental identity/history reassignment
+- external-managed Bot manifest validation requiring a pinned provider/ref/fingerprint and `execution.environment_policy=external_managed`
+- live provider inspection before every Task requiring persistent-profile identity, exact Task-lease authority, visible-result-only output and cancellation support
+- binding fingerprint verification both before and after execution
+- bounded external-managed execution envelope carrying local identity, Task constraints, exact authority and already-resolved host context
+- deterministic provider idempotency key derived from the local Task id
+- exact tool/connection lease references with wildcard/group/glob rejection
+- mandatory post-run provider audit of observed tools/connections with local subset verification
+- bounded result/usage translation into the normal local Artifact and budget contract
+- bounded provenance receipt without managed profile ref/fingerprint, authority names, copied context or credentials
+- normalized provider failures that do not copy arbitrary provider error text into local Task failures
+- cancellation that targets the pinned managed identity at most once and settles locally even when a provider ignores AbortSignal or cancel fails
+- operator-only disabled-Bot rebind flow preserving the canonical Bot id while requiring no live work and a collision-free new binding
+- `bot.runtime_rebound` coordination event plus narrow HTTP rebind boundary
+- durable-Bot-only scope for the persistent managed-profile runtime; temporary Workers remain on existing runtime/Team Run paths
+- explicit rejection of inline remote auth/transport fields so Phase 4.6 remains the remote-machine identity/authentication owner
+- explicit rejection of external environment leases so Phase 4.7 remains the remote lease owner
+- no retry/reconnect/reconciliation or Phase 5 channel/onboarding behavior introduced
+
+**Verified implementation gate:** GitHub Actions CI run 421 (`34716643438`) passed the full **355/355 tests** with 0 failures, 0 canceled and 0 skipped on hardened implementation head `c88082c677e291baf359b37acb21316b2be2f0a5`.
+
+See `docs/EXTERNAL-MANAGED-BOT-RUNTIME.md` and `docs/PHASE-4-STATUS.md`.
+
 ## Phase 5 - Product, Installer, Omnichannel and Dashboard
 
 **Status:** NOT STARTED
@@ -674,9 +705,9 @@ The first finished release must prove at minimum:
 
 ## Next gate
 
-**Phase 4.5 - external managed Bot runtime.**
+**Phase 4.6 - remote-machine identity/authentication.**
 
-Phase 4.4 is complete. The next canonical slice is the external managed Bot runtime boundary. Phase 4.5 has not started.
+Phase 4.5 is complete. The next canonical slice is remote-machine identity/authentication. Phase 4.6 has not started.
 
 ## How to report progress
 
