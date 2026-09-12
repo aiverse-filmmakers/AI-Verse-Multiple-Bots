@@ -16,6 +16,11 @@ import { ClaudeCodePrintRuntimeAdapter } from "./claude-code-runtime.js";
 import { CodexExecRuntimeAdapter } from "./codex-runtime.js";
 import type { BotManifest, JsonObject } from "./types.js";
 import { ExecutionQueue, type RecoveryPolicy } from "./execution-queue.js";
+import {
+  ExternalManagedBotProviderRegistry,
+  ExternalManagedBotRuntimeAdapter,
+  type ExternalManagedBotProvider
+} from "./external-managed-runtime.js";
 import { FourCsHealthProjector } from "./four-cs-health.js";
 import { HermesStdioRuntimeAdapter } from "./hermes-runtime.js";
 import { CoordinationGateway, type ApprovalRequirement } from "./gateway.js";
@@ -36,6 +41,7 @@ export interface GatewayServerOptions {
   port?: number;
   dbPath?: string;
   aiVerseOsRoot?: string;
+  externalManagedProviders?: ExternalManagedBotProvider[];
 }
 
 async function readJson(req: any): Promise<JsonObject> {
@@ -116,6 +122,8 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
   const policy = new CoordinationPolicy(store, { requireRegisteredBots: true });
   const gateway = new CoordinationGateway(store, executionQueue, policy);
   const rooms = new RoomCoordinator(store, gateway);
+  const externalManagedProviders = new ExternalManagedBotProviderRegistry();
+  for (const provider of options.externalManagedProviders ?? []) externalManagedProviders.register(provider);
   const baseRuntimes = new RuntimeRegistry()
     .register(new DeterministicRuntimeAdapter())
     .register(new OpenAICompatibleRuntimeAdapter())
@@ -123,7 +131,8 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
     .register(new HermesStdioRuntimeAdapter())
     .register(new OpenClawAgentExecRuntimeAdapter())
     .register(new CodexExecRuntimeAdapter())
-    .register(new ClaudeCodePrintRuntimeAdapter());
+    .register(new ClaudeCodePrintRuntimeAdapter())
+    .register(new ExternalManagedBotRuntimeAdapter(externalManagedProviders));
   const skillsRuntimes = new SkillsCapabilityRuntimeRegistry(baseRuntimes, skillsCapabilitySource);
   const memoryRuntimes = new MemoryRecallRuntimeRegistry(skillsRuntimes, memoryRecallSource);
   const runtimes = brainObjectiveSource
@@ -663,6 +672,7 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
     gateway,
     rooms,
     runtimes,
+    externalManagedProviders,
     runner,
     brainObjectiveSource,
     brainIngress,
