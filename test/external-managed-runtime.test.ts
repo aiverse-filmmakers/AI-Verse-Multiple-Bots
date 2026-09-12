@@ -536,6 +536,39 @@ test("external managed cancellation targets the pinned profile once and local ca
   });
 });
 
+test("local external-managed cancellation settles even when the provider ignores AbortSignal", async () => {
+  class IgnoringProvider extends FakeManagedProvider {
+    override async execute(request: ExternalManagedBotExecuteRequest): Promise<ExternalManagedBotExecutionResult> {
+      this.executeCalls.push(request);
+      return await new Promise<ExternalManagedBotExecutionResult>(() => {});
+    }
+
+    override async cancel(request: ExternalManagedBotCancelRequest): Promise<void> {
+      this.cancelCalls.push(request);
+    }
+  }
+
+  const provider = new IgnoringProvider();
+  const adapter = new ExternalManagedBotRuntimeAdapter(
+    new ExternalManagedBotProviderRegistry().register(provider)
+  );
+  const controller = new AbortController();
+  const running = adapter.execute(runtimeContext("fake-managed", [], [], { signal: controller.signal }));
+  while (provider.executeCalls.length < 1) await new Promise((resolve) => setTimeout(resolve, 0));
+
+  controller.abort(new Error("hard local cancel"));
+  const outcome = await Promise.race([
+    running.then(
+      () => "resolved",
+      (error) => error instanceof Error ? error.message : String(error)
+    ),
+    new Promise<string>((resolve) => setTimeout(() => resolve("timed-out"), 100))
+  ]);
+
+  assert.equal(outcome, "hard local cancel");
+  assert.equal(provider.cancelCalls.length, 1);
+});
+
 test("Bot registry reserves one external persistent profile for one canonical Bot identity globally", () => {
   const store = new CoordinationStore(":memory:");
   const gateway = new CoordinationGateway(store);
