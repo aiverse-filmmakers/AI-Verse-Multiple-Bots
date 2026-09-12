@@ -1,4 +1,10 @@
 import { CoordinationStore } from "./store.js";
+import {
+  EXTERNAL_MANAGED_RUNTIME_ADAPTER_ID,
+  externalManagedBindingKey,
+  externalManagedFingerprintKey,
+  parseExternalManagedBinding
+} from "./external-managed-runtime.js";
 import type { BotManifest, JsonObject, StoredObject } from "./types.js";
 import { validateBotManifest } from "./validator.js";
 
@@ -75,6 +81,7 @@ export class BotRegistryRules {
       throw new BotRegistryError("INVALID_INITIAL_STATUS", "A new Bot cannot be created directly as archived");
     }
     this.assertAddressAvailability(bot);
+    this.assertExternalManagedBindingAvailability(bot);
     this.assertRelationships(bot);
     this.assertInboundPeerDeclarations(bot);
     return bot;
@@ -98,6 +105,7 @@ export class BotRegistryRules {
     }
     if (targetStatus === "active") {
       this.assertAddressAvailability(stored.payload, stored.id);
+      this.assertExternalManagedBindingAvailability(stored.payload, stored.id);
       this.assertRelationships(stored.payload);
       this.assertInboundPeerDeclarations(stored.payload);
     }
@@ -183,6 +191,30 @@ export class BotRegistryRules {
       throw new BotRegistryError("AMBIGUOUS_ADDRESS", `Operator Bot address @${wanted} is ambiguous: ${matches.map((bot) => bot.id).join(", ")}`);
     }
     return matches[0] ?? null;
+  }
+
+  private assertExternalManagedBindingAvailability(manifest: BotManifest, ignoreBotId?: string): void {
+    const runtime = asObject(manifest.runtime);
+    if (runtime?.adapter !== EXTERNAL_MANAGED_RUNTIME_ADAPTER_ID) return;
+
+    const binding = parseExternalManagedBinding(runtime);
+    const wantedRef = externalManagedBindingKey(binding);
+    const wantedFingerprint = externalManagedFingerprintKey(binding);
+
+    for (const stored of this.store.listObjects("bot") as StoredObject<BotManifest>[]) {
+      if (stored.id === ignoreBotId) continue;
+      const existingRuntime = asObject(stored.payload.runtime);
+      if (existingRuntime?.adapter !== EXTERNAL_MANAGED_RUNTIME_ADAPTER_ID) continue;
+      const existing = parseExternalManagedBinding(existingRuntime);
+      const sameRef = externalManagedBindingKey(existing) === wantedRef;
+      const sameFingerprint = externalManagedFingerprintKey(existing) === wantedFingerprint;
+      if (!sameRef && !sameFingerprint) continue;
+
+      throw new BotRegistryError(
+        "EXTERNAL_MANAGED_BINDING_COLLISION",
+        `External managed Bot ${manifest.id} conflicts with ${stored.id}: one external persistent profile cannot back multiple canonical Bot identities`
+      );
+    }
   }
 
   private assertAddressAvailability(manifest: BotManifest, ignoreBotId?: string): void {
