@@ -320,7 +320,7 @@ The initial installed-package implementation gate at head `69878f4640af42374dbe3
 - packed artifact: **212 files**;
 - **0 failures, 0 canceled, 0 skipped**.
 
-The final hardened branch head `96eef0e3ad65aa9b456dab18f679566d0c6eea69` also passed GitHub Actions **CI run 553 (`34780581616`)** with the same **471/471 repository tests**, **5/5 Phase 4 compatibility evaluations**, **212-file packed artifact**, every prior package smoke, and the installed-package secure-remote Gateway smoke.
+The hardened implementation head `96eef0e3ad65aa9b456dab18f679566d0c6eea69` also passed GitHub Actions **CI run 553 (`34780581616`)** with the same **471/471 repository tests**, **5/5 Phase 4 compatibility evaluations**, **212-file packed artifact**, every prior package smoke, and the installed-package secure-remote Gateway smoke.
 
 ## Phase boundary
 
