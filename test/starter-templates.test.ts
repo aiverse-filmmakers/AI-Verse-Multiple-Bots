@@ -210,7 +210,7 @@ test("Phase 5.5 partial exact state can be completed without overwriting the cur
     };
     const plan = planStarterTemplate(store, options);
     const lead = plan.objects.find((object) => object.id.endsWith("_lead"));
-    assert.ok(lead);
+    if (!lead) throw new Error("research-team template did not plan a lead Bot");
     store.putObject("bot", lead.payload);
 
     const before = store.getObject(lead.id);
