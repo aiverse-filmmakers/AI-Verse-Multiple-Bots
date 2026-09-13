@@ -15,7 +15,7 @@ function run(command, args, options = {}) {
   const result = spawnSync(command, args, {
     cwd: options.cwd ?? root,
     encoding: "utf8",
-    env: process.env,
+    env: { ...process.env, ...(options.env ?? {}) },
     shell: false
   });
   if (result.status !== 0) {
@@ -70,6 +70,8 @@ try {
     "dist/src/ai-verse-os-update.js",
     "dist/src/coordination-migration.js",
     "dist/src/versioning.js",
+    "dist/src/gateway-security.js",
+    "dist/src/secure-remote-gateway.js",
     "schemas/coordination-v1.schema.json",
     "templates/bot.yaml",
     "templates/room.yaml",
@@ -185,6 +187,61 @@ try {
     productionStandaloneDoctor.checked_depths,
     ["structural", "attachment", "runtime", "dependency", "operational"]
   );
+
+  const fakeTailscalePath = join(installDir, "tailscale-fake");
+  writeFileSync(fakeTailscalePath, `#!/usr/bin/env node
+const args = process.argv.slice(2);
+if (args[0] === "version") {
+  console.log("1.99.0-package-smoke");
+  process.exit(0);
+}
+if (args[0] === "serve") {
+  console.log("Available within your tailnet:");
+  console.log("https://package-smoke.example.ts.net");
+  const timer = setInterval(() => {}, 1000);
+  process.on("SIGTERM", () => { clearInterval(timer); process.exit(0); });
+  process.on("SIGINT", () => { clearInterval(timer); process.exit(0); });
+} else {
+  process.exit(2);
+}
+`, { encoding: "utf8", mode: 0o755 });
+
+  const remoteToken = "package-smoke-remote-token-abcdefghijklmnopqrstuvwxyz";
+  const remotePlan = JSON.parse(run(
+    binPath,
+    [
+      "remote", "plan",
+      "--mode", "standalone",
+      "--root", setupStandaloneRoot,
+      "--local-port", "0",
+      "--tailscale-bin", fakeTailscalePath
+    ],
+    {
+      cwd: installDir,
+      env: { AI_VERSE_GATEWAY_TOKEN: remoteToken }
+    }
+  ));
+  assert.equal(remotePlan.ok, true);
+  assert.equal(remotePlan.remote.provider, "tailscale-serve");
+  assert.equal(remotePlan.remote.mode, "standalone");
+  assert.equal(remotePlan.remote.local_host, "127.0.0.1");
+  assert.equal(remotePlan.remote.transport.exposure, "tailnet-only");
+  assert.equal(remotePlan.remote.transport.tls_terminated_by, "tailscale-serve");
+  assert.equal(remotePlan.remote.auth.configured, true);
+  assert.equal(JSON.stringify(remotePlan).includes(remoteToken), false);
+
+  const installedRoot = join(installDir, "node_modules", "@ai-verse", "multiple-bots");
+  const installedServerUrl = pathToFileURL(join(installedRoot, "dist", "src", "server.js")).href;
+  const installedSecurityUrl = pathToFileURL(join(installedRoot, "dist", "src", "gateway-security.js")).href;
+  const inboundAuthSmoke = JSON.parse(run(process.execPath, [
+    "--input-type=module",
+    "--eval",
+    `const s=await import(${JSON.stringify(installedServerUrl)}); const g=await import(${JSON.stringify(installedSecurityUrl)}); const token=${JSON.stringify(remoteToken)}; const service=s.createGatewayServer({dbPath:':memory:',port:0,inboundAuth:g.resolveGatewayBearerAuth('AI_VERSE_GATEWAY_TOKEN',{AI_VERSE_GATEWAY_TOKEN:token})}); const a=await service.listen(); try { const u='http://127.0.0.1:'+a.port+'/health'; const no=await fetch(u); const yes=await fetch(u,{headers:{authorization:'Bearer '+token}}); const body=await yes.json(); console.log(JSON.stringify({unauthorized:no.status,authorized:yes.status,ok:body.ok,nosniff:yes.headers.get('x-content-type-options')})); } finally { await service.close(); }`
+  ], { cwd: installDir }));
+  assert.equal(inboundAuthSmoke.unauthorized, 401);
+  assert.equal(inboundAuthSmoke.authorized, 200);
+  assert.equal(inboundAuthSmoke.ok, true);
+  assert.equal(inboundAuthSmoke.nosniff, "nosniff");
 
   const standaloneConfigPath = join(setupStandaloneRoot, ".ai-verse-bots", "config.json");
   const standaloneReceiptPath = join(setupStandaloneRoot, ".ai-verse-bots", "install.json");
@@ -417,7 +474,8 @@ try {
     setup_onboarding_smoke: "passed",
     starter_template_smoke: "passed",
     production_doctor_smoke: "passed",
-    update_migration_smoke: "passed"
+    update_migration_smoke: "passed",
+    secure_remote_gateway_smoke: "passed"
   }, null, 2));
 } finally {
   rmSync(tempRoot, { recursive: true, force: true });
