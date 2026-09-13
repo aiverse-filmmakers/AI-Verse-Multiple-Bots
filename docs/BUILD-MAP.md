@@ -18,7 +18,7 @@ Phase 1  Runnable Coordination Core     [COMPLETE]    100%
 Phase 2  Dynamic Multi-Agent Squads     [COMPLETE]    100%
 Phase 3  AI-Verse Native Integration    [COMPLETE]    100%
 Phase 4  Runtime / A2A Interoperability [COMPLETE]    100%
-Phase 5  Product + Install + Dashboard  [IN PROGRESS] ~20%
+Phase 5  Product + Install + Dashboard  [IN PROGRESS] ~25%
 ```
 
 **Directional overall first-release progress:** roughly 95% complete.
@@ -779,7 +779,7 @@ See `docs/PHASE-4-COMPATIBILITY-EVALUATION.md`, `evals/phase-4-runtime-compatibi
 
 **Status:** IN PROGRESS
 
-**Directional phase progress:** approximately 20%
+**Directional phase progress:** approximately 25%
 
 Goal: turn the completed coordination/integration/interoperability layers into a member-installable product with health, onboarding, remote/channel access and observability.
 
@@ -789,8 +789,8 @@ Remaining major slices:
 2. standalone install mode - **COMPLETE**
 3. AI-Verse OS install mode - **COMPLETE**
 4. setup/onboarding flow - **COMPLETE**
-5. Bot/team templates - **NEXT**
-6. production health/doctor - **NOT STARTED**
+5. Bot/team templates - **COMPLETE**
+6. production health/doctor - **NEXT**
 7. upgrade/migration strategy - **NOT STARTED**
 8. secure remote Gateway option - **NOT STARTED**
 9. Dashboard projections/control endpoints - **NOT STARTED**
@@ -880,6 +880,27 @@ Implemented:
 
 See `docs/SETUP-ONBOARDING.md` and `docs/PHASE-5-STATUS.md`.
 
+### Phase 5.5 - Bot/team templates
+
+Implemented:
+
+- machine-readable starter catalog
+- public template list/show/plan/apply commands
+- three reusable single-Bot starters and two durable team/Room starters
+- deterministic workspace-scoped IDs
+- explicit peer allow-lists and no durable-Bot creation authority in templates
+- explicit runtime override with fail-closed external-managed binding
+- read-only planning with missing/current/conflict states
+- atomic durable team creation with absent-object race protection
+- collision refusal and exact-state idempotence
+- durable team templates never create Team Runs or temporary Workers by side effect
+- setup onboarding now links to the real starter-template surface
+- installed-package starter-template smoke
+
+**Verified implementation gate:** GitHub Actions CI run 519 (`34770445984`) passed the full **449/449 tests**, Phase 4 compatibility **5/5**, all install/setup/runtime smokes and the starter-template smoke on integrated implementation head `52a2efa569a2fd6f668199d04a15309a20262709`.
+
+See `docs/BOT-TEAM-TEMPLATES.md` and `docs/PHASE-5-STATUS.md`.
+
 ## Release acceptance
 
 The first finished release must prove at minimum:
@@ -900,9 +921,9 @@ The first finished release must prove at minimum:
 
 ## Next gate
 
-**Phase 5.5 - Bot/team templates.**
+**Phase 5.6 - production health/doctor.**
 
-Phase 5.4 is complete. The next canonical slice is reusable starter Bot/team templates.
+Phase 5.5 is complete. The next canonical slice is truthful production health/readiness.
 
 ## How to report progress
 
