@@ -18,7 +18,7 @@ Phase 1  Runnable Coordination Core     [COMPLETE]    100%
 Phase 2  Dynamic Multi-Agent Squads     [COMPLETE]    100%
 Phase 3  AI-Verse Native Integration    [COMPLETE]    100%
 Phase 4  Runtime / A2A Interoperability [COMPLETE]    100%
-Phase 5  Product + Install + Dashboard  [NOT STARTED]
+Phase 5  Product + Install + Dashboard  [IN PROGRESS] ~5%
 ```
 
 **Directional overall first-release progress:** roughly 95% complete.
@@ -777,26 +777,49 @@ See `docs/PHASE-4-COMPATIBILITY-EVALUATION.md`, `evals/phase-4-runtime-compatibi
 
 ## Phase 5 - Product, Installer, Omnichannel and Dashboard
 
-**Status:** NOT STARTED
+**Status:** IN PROGRESS
+
+**Directional phase progress:** approximately 5%
 
 Goal: turn the completed coordination/integration/interoperability layers into a member-installable product with health, onboarding, remote/channel access and observability.
 
 Remaining major slices:
 
-1. simple install command/package
-2. standalone install mode
-3. AI-Verse OS install mode
-4. setup/onboarding flow
-5. Bot/team templates
-6. production health/doctor
-7. upgrade/migration strategy
-8. secure remote Gateway option
-9. Dashboard projections/control endpoints
-10. Telegram/Discord/other channel bridge contracts
-11. operator approvals/attention UX
-12. observability/usage views
-13. release docs/examples
-14. full release acceptance suite
+1. simple install command/package - **COMPLETE**
+2. standalone install mode - **NEXT**
+3. AI-Verse OS install mode - **NOT STARTED**
+4. setup/onboarding flow - **NOT STARTED**
+5. Bot/team templates - **NOT STARTED**
+6. production health/doctor - **NOT STARTED**
+7. upgrade/migration strategy - **NOT STARTED**
+8. secure remote Gateway option - **NOT STARTED**
+9. Dashboard projections/control endpoints - **NOT STARTED**
+10. Telegram/Discord/other channel bridge contracts - **NOT STARTED**
+11. operator approvals/attention UX - **NOT STARTED**
+12. observability/usage views - **NOT STARTED**
+13. release docs/examples - **NOT STARTED**
+14. full release acceptance suite - **NOT STARTED**
+
+### Phase 5.1 - simple install command/package
+
+Implemented:
+
+- public scoped npm package metadata for `@ai-verse/multiple-bots`
+- stable installed CLI command `ai-verse-multiple-bots`
+- explicit package file allowlist for compiled runtime code, schemas, templates and integration assets
+- `prepack` build and public scoped-package publish configuration
+- no install-time host mutation through `preinstall`, `install` or `postinstall`
+- package surface acceptance tests
+- real npm tarball creation and clean-project installation smoke test
+- installed CLI `init` and `doctor` verification
+- explicit `npm run pack:check` CI gate
+- no standalone-mode, AI-Verse OS-mode or onboarding behavior pulled forward
+
+**Verified implementation gate:** GitHub Actions CI run 490 (`34765115030`) passed the full **420/420 tests**, the Phase 4 compatibility suite **5/5**, and the real package build/pack/install smoke check on hardened implementation head `9a71934528d90d9813dc527c6c2499b4d5abdeea`.
+
+The artifact is proven installable from a built npm tarball. Public npm-registry publication is not claimed by this implementation gate.
+
+See `docs/PHASE-5-STATUS.md`.
 
 ## Release acceptance
 
@@ -818,9 +841,9 @@ The first finished release must prove at minimum:
 
 ## Next gate
 
-**Phase 5.1 - simple install command/package.**
+**Phase 5.2 - standalone install mode.**
 
-Phase 4 is complete. The next canonical work is Phase 5 productization, beginning with the simple install command/package. Phase 5 has not started.
+Phase 5.1 is complete. The next canonical slice is standalone installation/configuration. AI-Verse OS install mode remains Phase 5.3.
 
 ## How to report progress
 
