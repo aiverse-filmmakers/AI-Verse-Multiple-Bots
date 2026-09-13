@@ -6,7 +6,7 @@
 
 **Overall status:** IN PROGRESS
 
-**Directional phase progress:** approximately 35%
+**Directional phase progress:** approximately 40%
 
 This file is the implementation ledger for Phase 5. The canonical product roadmap remains `BUILD-MAP.md`.
 
@@ -23,8 +23,8 @@ Turn the completed coordination, AI-Verse integration and runtime-interoperabili
 5. Bot/team templates - **COMPLETE**
 6. production health/doctor - **COMPLETE**
 7. upgrade/migration strategy - **COMPLETE**
-8. secure remote Gateway option - **NEXT**
-9. Dashboard projections/control endpoints - **NOT STARTED**
+8. secure remote Gateway option - **COMPLETE**
+9. Dashboard projections/control endpoints - **NEXT**
 10. Telegram/Discord/other channel bridge contracts - **NOT STARTED**
 11. operator approvals/attention UX - **NOT STARTED**
 12. observability/usage views - **NOT STARTED**
@@ -338,6 +338,55 @@ The hardened implementation head `34ff85fa4e9546237a00ef81b1e37ced71eef1b1` pass
 
 See `docs/UPDATE-MIGRATION-STRATEGY.md`.
 
+## Slice 5.8 - secure remote Gateway option
+
+**Implementation status:** COMPLETE
+
+Phase 5.8 adds authenticated remote access without exposing the Coordination Gateway as a raw non-loopback HTTP service.
+
+Implemented:
+
+- direct non-loopback Gateway binding rejected with `DIRECT_REMOTE_BIND_FORBIDDEN`
+- standalone Gateway configuration restricted to loopback hosts
+- public `remote plan` read-only preflight
+- public `remote serve` managed remote runtime
+- one managed remote provider: Tailscale Serve
+- tailnet-only HTTPS exposure; Tailscale Funnel/public ingress is not enabled
+- Tailscale CLI presence + connected-tailnet `BackendState: Running` verification
+- local Gateway remains on `127.0.0.1`
+- bearer authentication for the entire managed remote Gateway surface
+- bearer secret resolved only from an environment handle, default `AI_VERSE_GATEWAY_TOKEN`
+- minimum 32-character, whitespace-free bearer secret validation
+- no secret value in config, registry, plans or CLI output
+- no unauthenticated remote health/readiness/event-stream bypass
+- request routing independent of the untrusted Host header
+- bounded JSON request body size
+- response hardening headers
+- foreground Tailscale Serve lifecycle tied to Gateway lifecycle
+- unexpected transport exit closes the managed local Gateway
+- both standalone and AI-Verse OS modes supported
+- installed-package secure-remote acceptance smoke
+
+### 5.8 acceptance proof
+
+The hardened branch head `96eef0e3ad65aa9b456dab18f679566d0c6eea69` passed GitHub Actions **CI run 553 (`34780581616`)**:
+
+- full repository suite: **471/471 tests passed**
+- Phase 4 compatibility suite: **5/5 tests passed**
+- package install smoke: **passed**
+- standalone install smoke: **passed**
+- AI-Verse OS install smoke: **passed**
+- materialized AI-Verse OS engine startup/health smoke: **passed**
+- setup/onboarding smoke: **passed**
+- starter-template smoke: **passed**
+- production-doctor smoke: **passed**
+- update/migration smoke: **passed**
+- installed-package secure-remote Gateway smoke: **passed**
+- packed artifact: **212 files**
+- **0 failures, 0 canceled and 0 skipped**
+
+See `docs/SECURE-REMOTE-GATEWAY.md`.
+
 ## Ownership boundary
 
 Phase 5.1 intentionally does not choose or configure an operating mode during npm installation.
@@ -349,6 +398,6 @@ Phase 5.1 intentionally does not choose or configure an operating mode during np
 
 ## Next gate
 
-**Phase 5.8 - secure remote Gateway option.**
+**Phase 5.9 - Dashboard projections/control endpoints.**
 
-Phase 5.7 is complete. The next task is safe authenticated remote Gateway exposure without weakening the existing loopback-first or authority boundaries.
+Phase 5.8 is complete. The next task is the Dashboard-facing projection/control contract without moving coordination truth into the Dashboard.
