@@ -25,7 +25,7 @@ Turn the completed coordination, AI-Verse integration and runtime-interoperabili
 7. upgrade/migration strategy - **COMPLETE**
 8. secure remote Gateway option - **COMPLETE**
 9. Dashboard projections/control endpoints - **COMPLETE**
-10. Telegram/Discord/other channel bridge contracts - **COMPLETE IMPLEMENTATION, ACCEPTANCE PENDING CI**
+10. Telegram/Discord/other channel bridge contracts - **COMPLETE**
 11. operator approvals/attention UX - **NEXT**
 12. observability/usage views - **NOT STARTED**
 13. release docs/examples - **NOT STARTED**
@@ -439,7 +439,7 @@ See `docs/DASHBOARD-PROJECTION-CONTROL.md`.
 
 ## Slice 5.10 - Telegram/Discord/other channel bridge contracts
 
-**Implementation status:** COMPLETE IMPLEMENTATION, ACCEPTANCE PENDING CI
+**Implementation status:** COMPLETE
 
 Phase 5.10 adds a provider-neutral omnichannel boundary without creating another scheduler, identity database or coordination authority.
 
@@ -470,7 +470,25 @@ Implemented:
 - no provider network delivery inside Multiple Bots
 - installed-package channel ingress/egress smoke coverage
 
-Acceptance proof will be recorded after hosted CI passes on the PR head.
+### 5.10 acceptance proof
+
+The implementation head `bde706770aba08a14150af51732c8e578460fca4` passed GitHub Actions **CI run 577 (`34782846365`)**:
+
+- full repository suite: **482/482 tests passed**
+- Phase 4 compatibility suite: **5/5 tests passed**
+- package install smoke: **passed**
+- standalone install smoke: **passed**
+- AI-Verse OS install smoke: **passed**
+- materialized AI-Verse OS engine smoke: **passed**
+- setup/onboarding smoke: **passed**
+- starter-template smoke: **passed**
+- production-doctor smoke: **passed**
+- update/migration smoke: **passed**
+- secure-remote Gateway smoke: **passed**
+- Dashboard projection/control smoke: **passed**
+- installed-package channel ingress/egress smoke: **passed**
+- packed artifact: **221 files**
+- **0 failures, 0 canceled and 0 skipped**
 
 See `docs/CHANNEL-BRIDGE-CONTRACTS.md`.
 
@@ -487,4 +505,4 @@ Phase 5.1 intentionally does not choose or configure an operating mode during np
 
 **Phase 5.11 - operator approvals/attention UX.**
 
-Phase 5.10 implementation is complete pending hosted acceptance. The next product slice is the operator-facing approvals and attention contract over the existing canonical approval/attention state.
+Phase 5.10 is complete. The next product slice is the operator-facing approvals and attention contract over the existing canonical approval/attention state.
