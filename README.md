@@ -24,9 +24,9 @@ The target experience is inspired most strongly by xAI's Grok Bot persistent-tea
 
 **Phase 4: Runtime and Agent Interoperability: COMPLETE**
 
-**Phase 5: Product, Installer, Omnichannel and Dashboard: IN PROGRESS (~20%)**
+**Phase 5: Product, Installer, Omnichannel and Dashboard: IN PROGRESS (~25%)**
 
-Phase 5.1 provides the installable package surface, Phase 5.2 standalone mode, Phase 5.3 AI-Verse OS installation, and Phase 5.4 the unified setup/onboarding flow. The current verified implementation gate passes **441/441 repository tests**, **5/5 Phase 4 compatibility evaluations**, all install/runtime smokes, and the installed-package setup/onboarding smoke. Phase 5.5 Bot/team templates are next.
+Phase 5.1 provides the installable package surface, Phase 5.2 standalone mode, Phase 5.3 AI-Verse OS installation, Phase 5.4 setup/onboarding, and Phase 5.5 reusable Bot/team templates. The current verified implementation gate passes **449/449 repository tests**, **5/5 Phase 4 compatibility evaluations**, all install/setup/runtime smokes, and the installed-package starter-template smoke. Phase 5.6 production health/doctor is next.
 
 ## Install
 
@@ -108,7 +108,41 @@ ai-verse-multiple-bots serve \
   --db /path/to/AI-Verse-OS/runtime/ai-verse-bots/coordination.db
 ```
 
-Setup also returns the exact resolved commands/paths for the selected installation. Durable Bot creation remains explicit; Phase 5.5 adds reusable starter Bot/team templates.
+Setup also returns the exact resolved commands/paths for the selected installation. Durable Bot/team creation remains explicit.
+
+## Starter Bot and team templates
+
+Browse the built-in catalog:
+
+```bash
+ai-verse-multiple-bots template list
+```
+
+Inspect and plan before creating anything:
+
+```bash
+ai-verse-multiple-bots template show --id research-team
+
+ai-verse-multiple-bots template plan \
+  --id research-team \
+  --workspace my-workspace \
+  --db /path/to/coordination.db
+```
+
+Apply explicitly:
+
+```bash
+ai-verse-multiple-bots template apply \
+  --id research-team \
+  --workspace my-workspace \
+  --db /path/to/coordination.db
+```
+
+Current starters include `research-lead`, `reviewer`, `coordinator`, `research-team`, and `delivery-team`.
+
+Team templates create durable Bots plus a bounded Room. They do **not** create a Team Run or temporary Workers automatically. The normal collaboration gate still decides when one task justifies temporary multi-agent execution.
+
+See [`docs/BOT-TEAM-TEMPLATES.md`](docs/BOT-TEAM-TEMPLATES.md).
 
 ## Update / disable / uninstall
 
@@ -198,7 +232,7 @@ The current package includes:
 - exact Brain re-ingress contract protection for authority, deadlines, hops, leases and Approvals
 - explicit AI-Verse Memory recall through the installed Memory engine without reading or owning its SQLite index
 - bounded canonical Memory source/path/provenance validation with runtime-only recalled text for durable Bots and temporary Workers
-- installable `ai-verse-multiple-bots` CLI with unified `setup`, standalone `init`/`doctor`/`serve`, AI-Verse OS `install-plan`/`install`, and lower-level OS registration/lifecycle surfaces
+- installable `ai-verse-multiple-bots` CLI with unified `setup`, starter-template list/show/plan/apply, standalone `init`/`doctor`/`serve`, AI-Verse OS `install-plan`/`install`, and lower-level OS registration/lifecycle surfaces
 
 See [`docs/BUILD-MAP.md`](docs/BUILD-MAP.md) for the canonical project progress map and [`docs/PHASE-5-STATUS.md`](docs/PHASE-5-STATUS.md) for the current productization ledger.
 
@@ -689,6 +723,7 @@ Therefore the system selects the **smallest sufficient topology** and keeps mult
 - [`docs/STANDALONE-INSTALL.md`](docs/STANDALONE-INSTALL.md) - Phase 5.2 standalone installation contract
 - [`docs/AI-VERSE-OS-INSTALL.md`](docs/AI-VERSE-OS-INSTALL.md) - Phase 5.3 AI-Verse OS installation contract
 - [`docs/SETUP-ONBOARDING.md`](docs/SETUP-ONBOARDING.md) - Phase 5.4 setup/onboarding contract
+- [`docs/BOT-TEAM-TEMPLATES.md`](docs/BOT-TEAM-TEMPLATES.md) - Phase 5.5 reusable starter Bot/team template contract
 - [`docs/AI-VERSE-OS-REGISTRATION-CONTRACT.md`](docs/AI-VERSE-OS-REGISTRATION-CONTRACT.md) - Phase 3.1 host contract
 - [`docs/AI-VERSE-BRAIN-OBJECTIVE-INGRESS.md`](docs/AI-VERSE-BRAIN-OBJECTIVE-INGRESS.md) - Phase 3.3 Brain ingress contract
 - [`docs/AI-VERSE-MEMORY-RECALL.md`](docs/AI-VERSE-MEMORY-RECALL.md) - Phase 3.4 Memory recall contract
@@ -701,6 +736,7 @@ Therefore the system selects the **smallest sufficient topology** and keeps mult
 - [`schemas/coordination-v1.schema.json`](schemas/coordination-v1.schema.json)
 - [`templates/bot.yaml`](templates/bot.yaml)
 - [`templates/room.yaml`](templates/room.yaml)
+- [`templates/starter-catalog.json`](templates/starter-catalog.json)
 - [`integrations/ai-verse-os/extension.json`](integrations/ai-verse-os/extension.json)
 
 Contracts are tightened through implementation/evaluation rather than treated as frozen forever.
@@ -709,7 +745,7 @@ Contracts are tightened through implementation/evaluation rather than treated as
 
 Phases 0 through 4 are complete. Phase 5 is in progress.
 
-Phase 5.1 package installation, Phase 5.2 standalone mode, Phase 5.3 AI-Verse OS install mode, and Phase 5.4 setup/onboarding are complete. Remaining productization work starts with Bot/team templates, followed by production health, lifecycle, secure remote access, Dashboard/channel surfaces, observability, release documentation and the final release acceptance suite.
+Phase 5.1 package installation, Phase 5.2 standalone mode, Phase 5.3 AI-Verse OS install mode, Phase 5.4 setup/onboarding, and Phase 5.5 Bot/team templates are complete. Remaining productization work starts with production health/doctor, followed by lifecycle, secure remote access, Dashboard/channel surfaces, observability, release documentation and the final release acceptance suite.
 
 The visual Bot roster belongs in AI-Verse Dashboard. Multiple Bots remains the backend coordination authority for Bot identity, routing, Tasks, Handoffs, Rooms, Team Runs and runtime orchestration.
 
