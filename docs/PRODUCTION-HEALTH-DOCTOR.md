@@ -295,7 +295,8 @@ Phase 5.6 does not implement:
 - automated repair;
 - update/migration execution (doctor only reports the Phase 5.7 lifecycle state);
 - standardized public enable/disable lifecycle;
-- secure remote Gateway exposure;
 - Dashboard/channel UI.
 
-Update/migration strategy is implemented by Phase 5.7. Secure remote Gateway exposure is Phase 5.8.
+Secure remote Gateway exposure is implemented separately by Phase 5.8. `remote plan` uses this doctor as one of its read-only preflight inputs and then additionally verifies bearer-auth configuration plus the Tailscale transport.
+
+Update/migration strategy is implemented by Phase 5.7. Phase 5.8 secure remote preflight composes this production doctor read-only and refuses remote startup unless component state is `ready`.
