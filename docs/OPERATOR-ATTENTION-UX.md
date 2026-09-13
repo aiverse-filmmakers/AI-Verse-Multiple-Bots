@@ -2,7 +2,7 @@
 
 **Phase:** 5.11
 
-**Status:** COMPLETE IMPLEMENTATION, ACCEPTANCE PENDING CI
+**Status:** COMPLETE
 
 ## Purpose
 
@@ -250,3 +250,15 @@ Phase 5.11 is accepted when:
 - projection reads create no coordination state;
 - installed-package operator attention/approval smoke passes;
 - full repository and Phase 4 compatibility suites remain green.
+
+
+## Acceptance evidence
+
+GitHub Actions **CI run 584 (`34785373757`)** on implementation head `6028dca16f6ace413927918399dd746889a19b8a` passed:
+
+- **487/487** repository tests
+- **5/5** Phase 4 runtime compatibility tests
+- all package/install/setup/doctor/update/remote/Dashboard/channel smokes
+- installed-package operator attention/Approval smoke
+- **224-file** packed artifact
+- **0 failures, 0 canceled, 0 skipped**
