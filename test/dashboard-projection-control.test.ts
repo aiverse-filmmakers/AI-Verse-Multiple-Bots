@@ -280,7 +280,10 @@ test("Phase 5.9 Dashboard task cancel and retry route through canonical runner/r
   const service = createGatewayServer({ dbPath: ":memory:", port: 0 });
   const address = await service.listen();
   try {
-    service.gateway.createBot(manifest("bot_a", "ws_a"));
+    service.store.putObject("bot", {
+      ...manifest("bot_a", "ws_a"),
+      runtime: { adapter: "dashboard-test-nonexecuting" }
+    });
 
     service.store.putObject("task", task("task_cancel", "ws_a", "bot_a"));
     service.executionQueue.enqueueTask("task_cancel", "bot_a", "ws_a");
