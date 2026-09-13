@@ -26,6 +26,16 @@ import { FourCsHealthProjector } from "./four-cs-health.js";
 import { HermesStdioRuntimeAdapter } from "./hermes-runtime.js";
 import { CoordinationGateway, type ApprovalRequirement } from "./gateway.js";
 import {
+  DashboardControlBoundary,
+  DashboardControlError,
+  type DashboardControlAction
+} from "./dashboard-control.js";
+import {
+  DASHBOARD_PROJECTION_PROVIDER,
+  DashboardProjectionError,
+  DashboardProjectionProjector
+} from "./dashboard-projection.js";
+import {
   DEFAULT_GATEWAY_MAX_BODY_BYTES,
   GatewaySecurityError,
   assertLoopbackGatewayHost,
@@ -58,6 +68,8 @@ import { DeterministicRuntimeAdapter, RuntimeRegistry } from "./runtime.js";
 import { SkillsCapabilityRuntimeRegistry } from "./skills-capability-runtime.js";
 import { CoordinationStore } from "./store.js";
 import { ExecutionSupervisor } from "./supervisor.js";
+import { TeamRunControl } from "./team-run-control.js";
+import { TeamRunCoordinator } from "./team-runs.js";
 
 export interface GatewayServerOptions {
   host?: string;
@@ -104,8 +116,13 @@ function json(res: any, status: number, body: unknown, headers: Record<string, s
 function errorResponse(res: any, error: unknown): void {
   const message = error instanceof Error ? error.message : String(error);
   const securityError = error instanceof GatewaySecurityError ? error : null;
-  json(res, securityError?.status ?? 400, {
-    error: securityError?.code ?? "BAD_REQUEST",
+  const dashboardError = error instanceof DashboardProjectionError || error instanceof DashboardControlError
+    ? error
+    : null;
+  const status = securityError?.status
+    ?? (dashboardError?.code === "DASHBOARD_TARGET_NOT_FOUND" ? 404 : 400);
+  json(res, status, {
+    error: securityError?.code ?? dashboardError?.code ?? "BAD_REQUEST",
     message
   });
 }
@@ -227,7 +244,17 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
     osWriteCommandAvailable: Boolean(osWriteCommands),
     candidateWritebackAvailable: Boolean(candidateWritebacks)
   });
+  const teamRunCoordinator = new TeamRunCoordinator(store);
+  const teamRunControl = new TeamRunControl(teamRunCoordinator, gateway, executionQueue, runner);
   const supervisor = new ExecutionSupervisor(gateway, executionQueue, runner);
+  const dashboardProjection = new DashboardProjectionProjector(store, executionQueue);
+  const dashboardControl = new DashboardControlBoundary(
+    dashboardProjection,
+    gateway,
+    runner,
+    supervisor,
+    teamRunControl
+  );
   supervisor.start();
 
   const reconcileRemoteRevocations = () => {
@@ -280,6 +307,114 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
       if (method === "GET" && url.pathname === "/v1/health/4cs") {
         const workspaceId = url.searchParams.get("workspace") ?? undefined;
         json(res, 200, fourCsHealth.project(workspaceId));
+        return;
+      }
+
+      if (method === "GET" && url.pathname === "/v1/dashboard/capabilities") {
+        const workspaceId = url.searchParams.get("workspace");
+        if (!workspaceId) throw new DashboardProjectionError(
+          "INVALID_DASHBOARD_WORKSPACE",
+          "Dashboard capabilities require ?workspace=<id>"
+        );
+        dashboardProjection.project(workspaceId);
+        json(res, 200, {
+          schema_version: "1.0",
+          provider: DASHBOARD_PROJECTION_PROVIDER,
+          projection_only: true,
+          dashboard_owns_truth: false,
+          workspace_id: workspaceId,
+          queries: [
+            "dashboard.snapshot",
+            "dashboard.events",
+            "dashboard.events.stream"
+          ],
+          controls: [
+            "bot.activate",
+            "bot.disable",
+            "bot.archive",
+            "approval.approve",
+            "approval.deny",
+            "task.cancel",
+            "task.retry",
+            "team_run.cancel"
+          ],
+          event_transport: "server-sent-events",
+          canonical_owner: "ai-verse-multiple-bots"
+        });
+        return;
+      }
+
+      if (method === "GET" && url.pathname === "/v1/dashboard/snapshot") {
+        const workspaceId = url.searchParams.get("workspace");
+        if (!workspaceId) throw new DashboardProjectionError(
+          "INVALID_DASHBOARD_WORKSPACE",
+          "Dashboard snapshot requires ?workspace=<id>"
+        );
+        json(res, 200, dashboardProjection.project(workspaceId));
+        return;
+      }
+
+      if (method === "GET" && url.pathname === "/v1/dashboard/events") {
+        const workspaceId = url.searchParams.get("workspace");
+        if (!workspaceId) throw new DashboardProjectionError(
+          "INVALID_DASHBOARD_WORKSPACE",
+          "Dashboard events require ?workspace=<id>"
+        );
+        dashboardProjection.project(workspaceId);
+        const after = Number(url.searchParams.get("after") ?? "0");
+        const limit = Math.max(1, Math.min(Number(url.searchParams.get("limit") ?? "100"), 1000));
+        if (!Number.isInteger(after) || after < 0 || !Number.isInteger(limit)) {
+          throw new DashboardProjectionError("INVALID_DASHBOARD_CURSOR", "Dashboard event cursor/limit is invalid");
+        }
+        json(res, 200, {
+          schema_version: "1.0",
+          provider: DASHBOARD_PROJECTION_PROVIDER,
+          projection_only: true,
+          workspace_id: workspaceId,
+          events: store.listWorkspaceEventsAfter(workspaceId, after, limit),
+          event_cursor: store.latestEventSequence()
+        });
+        return;
+      }
+
+      if (method === "GET" && url.pathname === "/v1/dashboard/events/stream") {
+        const workspaceId = url.searchParams.get("workspace");
+        if (!workspaceId) throw new DashboardProjectionError(
+          "INVALID_DASHBOARD_WORKSPACE",
+          "Dashboard event stream requires ?workspace=<id>"
+        );
+        dashboardProjection.project(workspaceId);
+        const after = Number(url.searchParams.get("after") ?? "0");
+        if (!Number.isInteger(after) || after < 0) {
+          throw new DashboardProjectionError("INVALID_DASHBOARD_CURSOR", "Dashboard event cursor is invalid");
+        }
+        res.writeHead(200, {
+          "content-type": "text/event-stream",
+          ...gatewaySecurityHeaders(),
+          "cache-control": "no-cache",
+          "connection": "keep-alive"
+        });
+        for (const event of store.listWorkspaceEventsAfter(workspaceId, after, 1000)) {
+          res.write(`id: ${event.sequence}\nevent: coordination\ndata: ${JSON.stringify(event)}\n\n`);
+        }
+        const unsubscribe = gateway.subscribeEvents((event) => {
+          if (event.event.workspace_id !== workspaceId) return;
+          res.write(`id: ${event.sequence}\nevent: coordination\ndata: ${JSON.stringify(event)}\n\n`);
+        });
+        req.on("close", unsubscribe);
+        return;
+      }
+
+      if (method === "POST" && url.pathname === "/v1/dashboard/control") {
+        const body = await readJson(req, maxBodyBytes);
+        const result = await dashboardControl.execute({
+          action: requiredString(body, "action") as DashboardControlAction,
+          workspaceId: requiredString(body, "workspaceId"),
+          targetId: requiredString(body, "targetId"),
+          actorId: requiredString(body, "actorId"),
+          ...(typeof body.reason === "string" ? { reason: body.reason } : {})
+        });
+        json(res, 200, result);
         return;
       }
 
@@ -801,6 +936,10 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
     osWriteCommands,
     candidateWritebacks,
     fourCsHealth,
+    teamRunCoordinator,
+    teamRunControl,
+    dashboardProjection,
+    dashboardControl,
     memoryRecallSource,
     skillsCapabilitySource,
     supervisor,
