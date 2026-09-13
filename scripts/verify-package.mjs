@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
@@ -27,6 +28,10 @@ function run(command, args, options = {}) {
     );
   }
   return result.stdout.trim();
+}
+
+function sha256(path) {
+  return createHash("sha256").update(readFileSync(path)).digest("hex");
 }
 
 try {
@@ -59,6 +64,12 @@ try {
     "dist/src/setup.js",
     "dist/src/template-catalog.js",
     "dist/src/production-health.js",
+    "dist/src/update.js",
+    "dist/src/standalone-update.js",
+    "dist/src/standalone-receipt.js",
+    "dist/src/ai-verse-os-update.js",
+    "dist/src/coordination-migration.js",
+    "dist/src/versioning.js",
     "schemas/coordination-v1.schema.json",
     "templates/bot.yaml",
     "templates/room.yaml",
@@ -175,6 +186,47 @@ try {
     ["structural", "attachment", "runtime", "dependency", "operational"]
   );
 
+  const standaloneConfigPath = join(setupStandaloneRoot, ".ai-verse-bots", "config.json");
+  const standaloneReceiptPath = join(setupStandaloneRoot, ".ai-verse-bots", "install.json");
+  const standaloneDbPath = join(setupStandaloneRoot, ".ai-verse-bots", "runtime", "coordination.db");
+  assert.equal(existsSync(standaloneReceiptPath), true);
+  const standaloneConfigBeforeUpdate = readFileSync(standaloneConfigPath, "utf8");
+  const standaloneDbBeforeUpdate = sha256(standaloneDbPath);
+
+  rmSync(standaloneReceiptPath, { force: true });
+  const legacyStandalonePlan = JSON.parse(run(
+    binPath,
+    ["update-plan", "--mode", "standalone", "--root", setupStandaloneRoot],
+    { cwd: installDir }
+  ));
+  assert.equal(legacyStandalonePlan.ok, true);
+  assert.equal(legacyStandalonePlan.update.mode, "standalone");
+  assert.equal(legacyStandalonePlan.update.update_required, true);
+  assert.equal(legacyStandalonePlan.update.migration_required, false);
+  assert.equal(legacyStandalonePlan.update.can_update, true);
+  assert.equal(legacyStandalonePlan.update.plan.installed_version_state, "legacy-unversioned");
+
+  const legacyStandaloneUpdate = JSON.parse(run(
+    binPath,
+    ["update", "--mode", "standalone", "--root", setupStandaloneRoot],
+    { cwd: installDir }
+  ));
+  assert.equal(legacyStandaloneUpdate.ok, true);
+  assert.equal(legacyStandaloneUpdate.update.mode, "standalone");
+  assert.equal(legacyStandaloneUpdate.update.status, "adopted");
+  assert.equal(legacyStandaloneUpdate.update.migration_performed, false);
+  assert.equal(existsSync(standaloneReceiptPath), true);
+  assert.equal(readFileSync(standaloneConfigPath, "utf8"), standaloneConfigBeforeUpdate);
+  assert.equal(sha256(standaloneDbPath), standaloneDbBeforeUpdate);
+
+  const standaloneUpdateAgain = JSON.parse(run(
+    binPath,
+    ["standalone", "update", "--root", setupStandaloneRoot],
+    { cwd: installDir }
+  ));
+  assert.equal(standaloneUpdateAgain.ok, true);
+  assert.equal(standaloneUpdateAgain.update.status, "unchanged");
+
   const dbPath = join(installDir, "runtime", "install-smoke.db");
   const initOutput = run(binPath, ["init", "--db", dbPath], { cwd: installDir });
   const init = JSON.parse(initOutput);
@@ -277,6 +329,58 @@ try {
   assert.equal(resolve(engineResult.root), resolve(osRoot));
   assert.equal(resolve(engineResult.db), resolve(osDbPath));
 
+  const osDbBeforeUpdate = sha256(osDbPath);
+  const registryForUpdate = JSON.parse(readFileSync(registryPath, "utf8"));
+  registryForUpdate.extensions["ai-verse-multiple-bots"].version = "0.1.0-alpha.0";
+  writeFileSync(registryPath, JSON.stringify(registryForUpdate, null, 2) + "\n", "utf8");
+  writeFileSync(instructionsPath, "# old package instructions\n", "utf8");
+  writeFileSync(enginePath, "export const oldPackageEngine = true;\n", "utf8");
+
+  const osUpdatePlan = JSON.parse(run(
+    binPath,
+    ["os", "update-plan", "--root", osRoot],
+    { cwd: installDir }
+  ));
+  assert.equal(osUpdatePlan.ok, true);
+  assert.equal(osUpdatePlan.update.current_version, "0.1.0-alpha.0");
+  assert.equal(osUpdatePlan.update.current_version_state, "older");
+  assert.equal(osUpdatePlan.update.update_required, true);
+  assert.equal(osUpdatePlan.update.migration_required, false);
+  assert.equal(osUpdatePlan.update.can_update, true);
+
+  const osUpdate = JSON.parse(run(
+    binPath,
+    ["os", "update", "--root", osRoot],
+    { cwd: installDir }
+  ));
+  assert.equal(osUpdate.ok, true);
+  assert.equal(osUpdate.update.status, "updated");
+  assert.equal(osUpdate.update.previous_version, "0.1.0-alpha.0");
+  assert.equal(osUpdate.update.registration_status, "updated");
+  assert.deepEqual(osUpdate.update.changed_files, [
+    ".aiverse/extensions/ai-verse-multiple-bots/INSTRUCTIONS.md",
+    ".aiverse/extensions/ai-verse-multiple-bots/engine.mjs"
+  ].sort());
+  assert.equal(sha256(osDbPath), osDbBeforeUpdate);
+  assert.equal(JSON.parse(readFileSync(registryPath, "utf8")).extensions["ai-verse-multiple-bots"].version, "0.1.0-alpha.1");
+  assert.notEqual(readFileSync(instructionsPath, "utf8"), "# old package instructions\n");
+  assert.notEqual(readFileSync(enginePath, "utf8"), "export const oldPackageEngine = true;\n");
+  assert.deepEqual({
+    manifest: readFileSync(join(osRoot, "AI-VERSE.yaml"), "utf8"),
+    agents: readFileSync(join(osRoot, "AGENTS.md"), "utf8"),
+    extensionContract: readFileSync(join(osRoot, "system", "extensions", "README.md"), "utf8"),
+    operator: readFileSync(join(osRoot, "operator", "sentinel.md"), "utf8"),
+    workspace: readFileSync(join(osRoot, "workspaces", "sentinel.md"), "utf8")
+  }, canonicalBefore);
+
+  const osUpgradeAlias = JSON.parse(run(
+    binPath,
+    ["os", "upgrade", "--root", osRoot],
+    { cwd: installDir }
+  ));
+  assert.equal(osUpgradeAlias.ok, true);
+  assert.equal(osUpgradeAlias.upgrade.status, "unchanged");
+
   const osInstallAgain = JSON.parse(run(binPath, ["os", "install", "--root", osRoot], { cwd: installDir }));
   assert.equal(osInstallAgain.install.status, "unchanged");
   assert.equal(osInstallAgain.install.database_initialized, false);
@@ -312,7 +416,8 @@ try {
     ai_verse_os_engine_smoke: "passed",
     setup_onboarding_smoke: "passed",
     starter_template_smoke: "passed",
-    production_doctor_smoke: "passed"
+    production_doctor_smoke: "passed",
+    update_migration_smoke: "passed"
   }, null, 2));
 } finally {
   rmSync(tempRoot, { recursive: true, force: true });
