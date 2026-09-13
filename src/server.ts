@@ -51,6 +51,10 @@ import {
 import { MemoryRecallRuntimeRegistry } from "./memory-recall-runtime.js";
 import { OpenAICompatibleRuntimeAdapter } from "./openai-compatible-runtime.js";
 import { OpenClawAgentExecRuntimeAdapter } from "./openclaw-runtime.js";
+import {
+  OperatorAttentionBoundary,
+  OperatorAttentionError
+} from "./operator-attention.js";
 import { AiVerseOsWriteCommandSink, OsWriteCommandBoundary } from "./os-write-command.js";
 import { CoordinationPolicy } from "./policy.js";
 import { doctorProduction } from "./production-health.js";
@@ -125,11 +129,13 @@ function errorResponse(res: any, error: unknown): void {
     ? error
     : null;
   const channelError = error instanceof ChannelBridgeError ? error : null;
+  const operatorError = error instanceof OperatorAttentionError ? error : null;
   const status = securityError?.status
     ?? channelError?.status
+    ?? operatorError?.status
     ?? (dashboardError?.code === "DASHBOARD_TARGET_NOT_FOUND" ? 404 : 400);
   json(res, status, {
-    error: securityError?.code ?? channelError?.code ?? dashboardError?.code ?? "BAD_REQUEST",
+    error: securityError?.code ?? channelError?.code ?? operatorError?.code ?? dashboardError?.code ?? "BAD_REQUEST",
     message
   });
 }
@@ -268,6 +274,7 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
     store,
     options.channelBindings ?? []
   );
+  const operatorAttention = new OperatorAttentionBoundary(gateway, executionQueue);
   supervisor.start();
 
   const reconcileRemoteRevocations = () => {
@@ -320,6 +327,70 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
       if (method === "GET" && url.pathname === "/v1/health/4cs") {
         const workspaceId = url.searchParams.get("workspace") ?? undefined;
         json(res, 200, fourCsHealth.project(workspaceId));
+        return;
+      }
+
+      if (method === "GET" && url.pathname === "/v1/operator/capabilities") {
+        const workspaceId = url.searchParams.get("workspace");
+        if (!workspaceId) {
+          throw new OperatorAttentionError(
+            "INVALID_OPERATOR_WORKSPACE",
+            "Operator capabilities require ?workspace=<id>"
+          );
+        }
+        json(res, 200, operatorAttention.projector.capabilities(workspaceId));
+        return;
+      }
+
+      if (method === "GET" && url.pathname === "/v1/operator/attention") {
+        const workspaceId = url.searchParams.get("workspace");
+        if (!workspaceId) {
+          throw new OperatorAttentionError(
+            "INVALID_OPERATOR_WORKSPACE",
+            "Operator attention requires ?workspace=<id>"
+          );
+        }
+        const after = Number(url.searchParams.get("after") ?? "0");
+        json(res, 200, operatorAttention.projector.project(workspaceId, after));
+        return;
+      }
+
+      if (method === "GET" && url.pathname === "/v1/operator/approvals") {
+        const workspaceId = url.searchParams.get("workspace");
+        if (!workspaceId) {
+          throw new OperatorAttentionError(
+            "INVALID_OPERATOR_WORKSPACE",
+            "Operator approvals require ?workspace=<id>"
+          );
+        }
+        json(
+          res,
+          200,
+          operatorAttention.projector.approvals(
+            workspaceId,
+            url.searchParams.get("status") ?? undefined
+          )
+        );
+        return;
+      }
+
+      const operatorApprovalDecisionMatch = url.pathname.match(/^\/v1\/operator\/approvals\/([^/]+)\/decision$/);
+      if (method === "POST" && operatorApprovalDecisionMatch) {
+        const body = await readJson(req, maxBodyBytes);
+        const decision = requiredString(body, "decision");
+        if (decision !== "approve" && decision !== "deny") {
+          throw new OperatorAttentionError(
+            "INVALID_APPROVAL_DECISION",
+            "Approval decision must be approve or deny"
+          );
+        }
+        json(res, 200, operatorAttention.decideApproval({
+          workspaceId: requiredString(body, "workspaceId"),
+          approvalId: decodeURIComponent(operatorApprovalDecisionMatch[1] as string),
+          actorId: requiredString(body, "actorId"),
+          decision,
+          ...(typeof body.reason === "string" ? { reason: body.reason } : {})
+        }));
         return;
       }
 
@@ -1019,6 +1090,7 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
     dashboardProjection,
     dashboardControl,
     channelBridge,
+    operatorAttention,
     memoryRecallSource,
     skillsCapabilitySource,
     supervisor,

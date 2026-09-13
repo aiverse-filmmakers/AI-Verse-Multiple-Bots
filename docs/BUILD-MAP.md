@@ -18,10 +18,10 @@ Phase 1  Runnable Coordination Core     [COMPLETE]    100%
 Phase 2  Dynamic Multi-Agent Squads     [COMPLETE]    100%
 Phase 3  AI-Verse Native Integration    [COMPLETE]    100%
 Phase 4  Runtime / A2A Interoperability [COMPLETE]    100%
-Phase 5  Product + Install + Dashboard  [IN PROGRESS] ~55%
+Phase 5  Product + Install + Dashboard  [IN PROGRESS] ~70%
 ```
 
-**Directional overall first-release progress:** roughly 96% complete.
+**Directional overall first-release progress:** roughly 97% complete.
 
 That overall figure is intentionally approximate because later phases contain different amounts of work. Passed phase gates, not percentages, are authoritative.
 
@@ -779,7 +779,7 @@ See `docs/PHASE-4-COMPATIBILITY-EVALUATION.md`, `evals/phase-4-runtime-compatibi
 
 **Status:** IN PROGRESS
 
-**Directional phase progress:** approximately 55%
+**Directional phase progress:** approximately 65%
 
 Goal: turn the completed coordination/integration/interoperability layers into a member-installable product with health, onboarding, remote/channel access and observability.
 
@@ -795,10 +795,28 @@ Remaining major slices:
 8. secure remote Gateway option - **COMPLETE**
 9. Dashboard projections/control endpoints - **COMPLETE**
 10. Telegram/Discord/other channel bridge contracts - **COMPLETE**
-11. operator approvals/attention UX - **NEXT**
-12. observability/usage views - **NOT STARTED**
+11. operator approvals/attention UX - **COMPLETE**
+12. observability/usage views - **NEXT**
 13. release docs/examples - **NOT STARTED**
 14. full release acceptance suite - **NOT STARTED**
+
+### Phase 5.11 - operator approvals/attention UX
+
+Implemented:
+
+- dedicated operator capability, attention and Approval-card projections
+- exact architecture priority order for operator attention
+- current actionable state derived from canonical Approval/Task/Handoff/execution objects
+- transient event notices driven by the canonical event cursor instead of a notification database
+- dedicated operator Approval decision endpoint routed through canonical Gateway approval methods
+- cross-workspace and non-operator decisions fail closed
+- retry visibility respects existing dead-letter/retry-safe/attempt-ceiling rules
+- no private model reasoning or duplicated UI truth
+- installed-package operator attention/Approval smoke
+
+**Hosted acceptance:** GitHub Actions CI run 584 (`34785373757`) passed 487/487 tests, 5/5 Phase 4 compatibility tests, and the complete package/install smoke gate with a 224-file artifact.
+
+See `docs/OPERATOR-ATTENTION-UX.md` and `docs/PHASE-5-STATUS.md`.
 
 ### Phase 5.10 - Telegram/Discord/other channel bridge contracts
 

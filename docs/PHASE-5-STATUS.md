@@ -6,7 +6,7 @@
 
 **Overall status:** IN PROGRESS
 
-**Directional phase progress:** approximately 55%
+**Directional phase progress:** approximately 70%
 
 This file is the implementation ledger for Phase 5. The canonical product roadmap remains `BUILD-MAP.md`.
 
@@ -26,8 +26,8 @@ Turn the completed coordination, AI-Verse integration and runtime-interoperabili
 8. secure remote Gateway option - **COMPLETE**
 9. Dashboard projections/control endpoints - **COMPLETE**
 10. Telegram/Discord/other channel bridge contracts - **COMPLETE**
-11. operator approvals/attention UX - **NEXT**
-12. observability/usage views - **NOT STARTED**
+11. operator approvals/attention UX - **COMPLETE**
+12. observability/usage views - **NEXT**
 13. release docs/examples - **NOT STARTED**
 14. full release acceptance suite - **NOT STARTED**
 
@@ -492,6 +492,54 @@ The implementation head `bde706770aba08a14150af51732c8e578460fca4` passed GitHub
 
 See `docs/CHANNEL-BRIDGE-CONTRACTS.md`.
 
+## Slice 5.11 - operator approvals/attention UX
+
+**Implementation status:** COMPLETE
+
+Phase 5.11 turns canonical approval, Task, Handoff, execution and attention state into a compact operator-facing queue without creating a notification/read-state database.
+
+Implemented:
+
+- `GET /v1/operator/capabilities?workspace=...`
+- `GET /v1/operator/attention?workspace=...&after=...`
+- `GET /v1/operator/approvals?workspace=...&status=...`
+- `POST /v1/operator/approvals/:id/decision`
+- deterministic priority order: needs approval, needs input, blocked, failed, handoff waiting, unread result
+- current-state attention from canonical Approval/Task/Handoff/execution state
+- transient event attention through the canonical event cursor
+- no durable read/unread or notification store
+- rich Approval decision cards with Task/action context
+- explicit workspace isolation before Approval mutation
+- explicit `operator_*` decision identity
+- Approval approve/deny routed through existing `CoordinationGateway` ownership
+- blocked retry advertised only when existing recovery rules permit it
+- existing Task retry/cancel control router reused rather than duplicated
+- no private model reasoning exposed
+- installed-package operator attention/Approval smoke coverage
+
+### 5.11 acceptance proof
+
+The implementation head `6028dca16f6ace413927918399dd746889a19b8a` passed GitHub Actions **CI run 584 (`34785373757`)**:
+
+- full repository suite: **487/487 tests passed**
+- Phase 4 compatibility suite: **5/5 tests passed**
+- package install smoke: **passed**
+- standalone install smoke: **passed**
+- AI-Verse OS install smoke: **passed**
+- materialized AI-Verse OS engine smoke: **passed**
+- setup/onboarding smoke: **passed**
+- starter-template smoke: **passed**
+- production-doctor smoke: **passed**
+- update/migration smoke: **passed**
+- secure-remote Gateway smoke: **passed**
+- Dashboard projection/control smoke: **passed**
+- channel bridge smoke: **passed**
+- installed-package operator attention/Approval smoke: **passed**
+- packed artifact: **224 files**
+- **0 failures, 0 canceled and 0 skipped**
+
+See `docs/OPERATOR-ATTENTION-UX.md`.
+
 ## Ownership boundary
 
 Phase 5.1 intentionally does not choose or configure an operating mode during npm installation.
@@ -503,6 +551,6 @@ Phase 5.1 intentionally does not choose or configure an operating mode during np
 
 ## Next gate
 
-**Phase 5.11 - operator approvals/attention UX.**
+**Phase 5.12 - observability/usage views.**
 
-Phase 5.10 is complete. The next product slice is the operator-facing approvals and attention contract over the existing canonical approval/attention state.
+Phase 5.11 is complete. The next product slice is structured observability and usage projection over the existing canonical event/execution substrate.

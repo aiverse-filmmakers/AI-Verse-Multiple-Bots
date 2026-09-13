@@ -75,6 +75,7 @@ try {
     "dist/src/dashboard-projection.js",
     "dist/src/dashboard-control.js",
     "dist/src/channel-bridge.js",
+    "dist/src/operator-attention.js",
     "schemas/coordination-v1.schema.json",
     "templates/bot.yaml",
     "templates/room.yaml",
@@ -276,6 +277,20 @@ if (args[0] === "serve") {
   assert.equal(channelSmoke.replyTo, "9");
   assert.equal(channelSmoke.method, "sendMessage");
   assert.equal(channelSmoke.channelOwnsTruth, false);
+
+  const operatorAttentionSmoke = JSON.parse(run(process.execPath, [
+    "--input-type=module",
+    "--eval",
+    `const s=await import(${JSON.stringify(installedServerUrl)}); const service=s.createGatewayServer({dbPath:':memory:',port:0}); service.gateway.createBot({schema_version:'1.0',id:'bot_operator_requester',name:'Requester',kind:'durable',status:'active',role:{title:'Requester',mission:'Request approval'},runtime:{adapter:'deterministic'},execution:{environment_policy:'shared_workspace'},scope:{type:'workspace',workspace_id:'ws_operator_package'},permissions:{policy_ref:'default-bot',allowed_peers:['bot_operator_worker']},coordination:{default_mode:'direct'}}); service.gateway.createBot({schema_version:'1.0',id:'bot_operator_worker',name:'Worker',kind:'durable',status:'active',role:{title:'Worker',mission:'Execute approved work'},runtime:{adapter:'deterministic'},execution:{environment_policy:'shared_workspace'},scope:{type:'workspace',workspace_id:'ws_operator_package'},permissions:{policy_ref:'default-bot',allowed_peers:['*']},coordination:{default_mode:'direct'}}); const d=service.gateway.delegate({createdBy:'bot_operator_requester',assigneeId:'bot_operator_worker',workspaceId:'ws_operator_package',rootObjectiveId:'objective_operator_package',objective:'Publish approved package result',reason:'Package operator smoke',approval:{required:true,action:{kind:'publish.external',summary:'Publish package result'}}}); const a=await service.listen(); try { const base='http://127.0.0.1:'+a.port; const attention=await (await fetch(base+'/v1/operator/attention?workspace=ws_operator_package')).json(); const cards=await (await fetch(base+'/v1/operator/approvals?workspace=ws_operator_package&status=pending')).json(); const decision=await (await fetch(base+'/v1/operator/approvals/'+d.approval.id+'/decision',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({workspaceId:'ws_operator_package',actorId:'operator_package',decision:'approve'})})).json(); console.log(JSON.stringify({provider:attention.provider,ownsTruth:attention.operator_ux_owns_truth,top:attention.items[0]?.state,pending:cards.approvals.length,summary:cards.approvals[0]?.action_summary,decision:decision.decision,approvalStatus:decision.approval_status,taskStatus:decision.task_status})); } finally { await service.close(); }`
+  ], { cwd: installDir }));
+  assert.equal(operatorAttentionSmoke.provider, "ai-verse-multiple-bots/operator-attention-v1");
+  assert.equal(operatorAttentionSmoke.ownsTruth, false);
+  assert.equal(operatorAttentionSmoke.top, "needs_approval");
+  assert.equal(operatorAttentionSmoke.pending, 1);
+  assert.equal(operatorAttentionSmoke.summary, "Publish package result");
+  assert.equal(operatorAttentionSmoke.decision, "approve");
+  assert.equal(operatorAttentionSmoke.approvalStatus, "approved");
+  assert.equal(operatorAttentionSmoke.taskStatus, "assigned");
 
   const standaloneConfigPath = join(setupStandaloneRoot, ".ai-verse-bots", "config.json");
   const standaloneReceiptPath = join(setupStandaloneRoot, ".ai-verse-bots", "install.json");
@@ -511,7 +526,8 @@ if (args[0] === "serve") {
     update_migration_smoke: "passed",
     secure_remote_gateway_smoke: "passed",
     dashboard_projection_control_smoke: "passed",
-    channel_bridge_smoke: "passed"
+    channel_bridge_smoke: "passed",
+    operator_attention_smoke: "passed"
   }, null, 2));
 } finally {
   rmSync(tempRoot, { recursive: true, force: true });
