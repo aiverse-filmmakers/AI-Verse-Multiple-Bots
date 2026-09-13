@@ -161,17 +161,17 @@ try {
   assert.equal(standaloneStatus.state, "ready");
   assert.equal(standaloneStatus.ready, true);
 
-  const standaloneDoctor = JSON.parse(run(
+  const productionStandaloneDoctor = JSON.parse(run(
     binPath,
     ["doctor", "--mode", "standalone", "--root", setupStandaloneRoot],
     { cwd: installDir }
   ));
-  assert.equal(standaloneDoctor.provider, "ai-verse-multiple-bots/production-health-v1");
-  assert.equal(standaloneDoctor.state, "ready");
-  assert.equal(standaloneDoctor.ready, true);
-  assert.equal(standaloneDoctor.read_only, true);
+  assert.equal(productionStandaloneDoctor.provider, "ai-verse-multiple-bots/production-health-v1");
+  assert.equal(productionStandaloneDoctor.state, "ready");
+  assert.equal(productionStandaloneDoctor.ready, true);
+  assert.equal(productionStandaloneDoctor.read_only, true);
   assert.deepEqual(
-    standaloneDoctor.checked_depths,
+    productionStandaloneDoctor.checked_depths,
     ["structural", "attachment", "runtime", "dependency", "operational"]
   );
 
@@ -209,9 +209,11 @@ try {
     { cwd: installDir }
   );
   const standaloneDoctor = JSON.parse(standaloneDoctorOutput);
-  assert.equal(standaloneDoctor.ok, true);
+  assert.equal(standaloneDoctor.provider, "ai-verse-multiple-bots/production-health-v1");
+  assert.equal(standaloneDoctor.state, "ready");
+  assert.equal(standaloneDoctor.ready, true);
   assert.equal(standaloneDoctor.mode, "standalone");
-  assert.equal(standaloneDoctor.schemaVersion, "1");
+  assert.equal(standaloneDoctor.read_only, true);
 
   const osRoot = join(installDir, "ai-verse-os");
   mkdirSync(join(osRoot, "operator"), { recursive: true });
