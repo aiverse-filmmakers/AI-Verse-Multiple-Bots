@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -29,7 +29,8 @@ function run(command, args, options = {}) {
 }
 
 try {
-  run("mkdir", ["-p", packDir, installDir]);
+  mkdirSync(packDir, { recursive: true });
+  mkdirSync(installDir, { recursive: true });
 
   const packedJson = run("npm", [
     "pack",
@@ -84,7 +85,8 @@ try {
   assert.deepEqual(installed.bin, { "ai-verse-multiple-bots": "dist/src/cli.js" });
   assert.equal(installed.scripts?.postinstall, undefined, "package must not mutate the host during npm install");
 
-  const binPath = join(installDir, "node_modules", ".bin", "ai-verse-multiple-bots");
+  const binName = process.platform === "win32" ? "ai-verse-multiple-bots.cmd" : "ai-verse-multiple-bots";
+  const binPath = join(installDir, "node_modules", ".bin", binName);
   assert.equal(existsSync(binPath), true, "npm install did not expose the CLI bin");
 
   const dbPath = join(installDir, "runtime", "install-smoke.db");
