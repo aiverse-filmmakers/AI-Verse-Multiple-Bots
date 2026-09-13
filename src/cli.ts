@@ -15,6 +15,13 @@ import {
 import { CoordinationGateway } from "./gateway.js";
 import { CoordinationStore } from "./store.js";
 import { createGatewayServer } from "./server.js";
+import {
+  StandaloneInstallError,
+  doctorStandalone,
+  findStandaloneRoot,
+  initializeStandalone,
+  standaloneGatewayOptions
+} from "./standalone-install.js";
 import type { BotManifest } from "./types.js";
 
 function flag(name: string): string | undefined {
@@ -23,7 +30,7 @@ function flag(name: string): string | undefined {
 }
 
 function usage(): never {
-  console.error(`AI-Verse Multiple Bots CLI\n\nCommands:\n  init [--db PATH]\n  doctor [--db PATH]\n  bot create --id ID --name NAME --workspace ID --role TITLE --mission TEXT [--db PATH]\n  bot list [--workspace ID] [--db PATH]\n  events [--after N] [--limit N] [--db PATH]\n  serve [--host HOST] [--port N] [--db PATH] [--os-root PATH]\n  os detect [--root PATH]\n  os plan [--root PATH]\n  os register [--root PATH]\n  os upgrade-plan [--root PATH]\n  os upgrade [--root PATH]\n  os uninstall-plan [--root PATH]\n  os uninstall [--root PATH]\n`);
+  console.error(`AI-Verse Multiple Bots CLI\n\nCommands:\n  standalone init [--root PATH] [--host HOST] [--port N]\n  standalone doctor [--root PATH]\n  standalone serve [--root PATH]\n  init [--db PATH]\n  doctor [--db PATH]\n  bot create --id ID --name NAME --workspace ID --role TITLE --mission TEXT [--db PATH]\n  bot list [--workspace ID] [--db PATH]\n  events [--after N] [--limit N] [--db PATH]\n  serve [--host HOST] [--port N] [--db PATH] [--os-root PATH]\n  os detect [--root PATH]\n  os plan [--root PATH]\n  os register [--root PATH]\n  os upgrade-plan [--root PATH]\n  os upgrade [--root PATH]\n  os uninstall-plan [--root PATH]\n  os uninstall [--root PATH]\n`);
   process.exit(2);
   throw new Error("unreachable");
 }
@@ -44,9 +51,74 @@ function reportOsError(error: unknown): void {
   process.exitCode = 1;
 }
 
+function requestedStandaloneRoot(requireExisting: boolean): string {
+  const explicit = flag("root");
+  if (explicit) return resolve(explicit);
+  const discovered = findStandaloneRoot(process.cwd());
+  if (discovered) return discovered;
+  if (!requireExisting) return resolve(process.cwd());
+  throw new StandaloneInstallError(
+    "STANDALONE_INSTALL_NOT_FOUND",
+    "No .ai-verse-bots/config.json was found in the current directory or its ancestors; pass --root PATH"
+  );
+}
+
+function reportStandaloneError(error: unknown): void {
+  const standaloneError = error instanceof StandaloneInstallError ? error : null;
+  console.error(JSON.stringify({
+    ok: false,
+    mode: "standalone",
+    code: standaloneError?.code ?? "STANDALONE_INSTALL_ERROR",
+    error: error instanceof Error ? error.message : String(error)
+  }, null, 2));
+  process.exitCode = 1;
+}
+
 const args = process.argv.slice(2);
 const dbPath = flag("db") ?? "runtime/ai-verse-bots/coordination.db";
-if (args[0] === "serve") {
+if (args[0] === "standalone") {
+  try {
+    if (args[1] === "init") {
+      const root = requestedStandaloneRoot(false);
+      const host = flag("host");
+      const portFlag = flag("port");
+      const result = initializeStandalone(root, {
+        ...(host !== undefined ? { host } : {}),
+        ...(portFlag !== undefined ? { port: Number(portFlag) } : {})
+      });
+      console.log(JSON.stringify({ ok: true, mode: "standalone", installation: result }, null, 2));
+    } else if (args[1] === "doctor") {
+      const root = requestedStandaloneRoot(true);
+      const result = doctorStandalone(root);
+      console.log(JSON.stringify(result, null, 2));
+      if (!result.ok) process.exitCode = 1;
+    } else if (args[1] === "serve") {
+      const root = requestedStandaloneRoot(true);
+      const options = standaloneGatewayOptions(root);
+      const service = createGatewayServer({
+        host: options.host,
+        port: options.port,
+        dbPath: options.dbPath
+      });
+      const address = await service.listen();
+      console.log(JSON.stringify({
+        ok: true,
+        mode: "standalone",
+        root: options.root,
+        home: options.home,
+        gateway: `http://${address.host}:${address.port}`,
+        db: service.store.dbPath,
+        ai_verse_os_root: null
+      }, null, 2));
+      process.on("SIGINT", async () => { await service.close(); process.exit(0); });
+      process.on("SIGTERM", async () => { await service.close(); process.exit(0); });
+    } else {
+      usage();
+    }
+  } catch (error) {
+    reportStandaloneError(error);
+  }
+} else if (args[0] === "serve") {
   const host = flag("host") ?? "127.0.0.1";
   const port = Number(flag("port") ?? "8787");
   const osRoot = flag("os-root");
