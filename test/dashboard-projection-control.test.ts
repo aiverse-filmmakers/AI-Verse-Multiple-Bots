@@ -304,7 +304,7 @@ test("Phase 5.9 Dashboard task cancel and retry route through canonical runner/r
     assert.equal(service.store.getObject("task_cancel")?.payload.status, "canceled");
     assert.equal(service.executionQueue.getByItem("task_cancel")?.state, "canceled");
 
-    service.store.putObject("task", task("task_retry", "ws_a", "bot_a"));
+    service.store.putObject("task", task("task_retry", "ws_a", "bot_a", "blocked"));
     const execution = service.executionQueue.enqueueTask(
       "task_retry",
       "bot_a",
