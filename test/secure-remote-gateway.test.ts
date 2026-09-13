@@ -47,9 +47,9 @@ if (args[0] === "serve") {
   const timer = setInterval(() => {}, 1000);
   process.on("SIGTERM", () => { clearInterval(timer); process.exit(0); });
   process.on("SIGINT", () => { clearInterval(timer); process.exit(0); });
-  return;
+} else {
+  process.exit(2);
 }
-process.exit(2);
 `, { encoding: "utf8", mode: 0o755 });
   return path;
 }
