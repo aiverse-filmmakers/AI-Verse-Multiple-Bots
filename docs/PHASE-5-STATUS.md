@@ -141,9 +141,9 @@ Implemented:
 
 ### 5.3 acceptance proof
 
-The implementation head `4911febde60fcb750c5e5a1d589b42dad4afbd11` passed GitHub Actions **CI run 502 (`34767116729`)**:
+The hardened implementation head `cabd7216c783b9bae61bcfa29cc22275a2a30dd3` passed GitHub Actions **CI run 506 (`34767263301`)**:
 
-- full repository suite: **432/432 tests passed**
+- full repository suite: **434/434 tests passed**
 - Phase 4 compatibility suite: **5/5 tests passed**
 - package install smoke: **passed**
 - standalone install smoke: **passed**
