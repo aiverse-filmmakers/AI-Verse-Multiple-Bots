@@ -24,9 +24,9 @@ The target experience is inspired most strongly by xAI's Grok Bot persistent-tea
 
 **Phase 4: Runtime and Agent Interoperability: COMPLETE**
 
-**Phase 5: Product, Installer, Omnichannel and Dashboard: IN PROGRESS (~30%)**
+**Phase 5: Product, Installer, Omnichannel and Dashboard: IN PROGRESS (~35%)**
 
-Phase 5.1 provides the installable package surface, Phase 5.2 standalone mode, Phase 5.3 AI-Verse OS installation, Phase 5.4 setup/onboarding, Phase 5.5 reusable Bot/team templates, and Phase 5.6 truthful production health/doctor. The current verified implementation gate passes **459/459 repository tests**, **5/5 Phase 4 compatibility evaluations**, all install/setup/runtime/template smokes, and the installed-package production-doctor smoke. Phase 5.7 upgrade/migration strategy is next.
+Phase 5.1 provides the installable package surface, Phase 5.2 standalone mode, Phase 5.3 AI-Verse OS installation, Phase 5.4 setup/onboarding, Phase 5.5 reusable Bot/team templates, Phase 5.6 truthful production health/doctor, and Phase 5.7 safe update/migration strategy. The current verified implementation gate passes **467/467 repository tests**, **5/5 Phase 4 compatibility evaluations**, all install/setup/runtime/template/doctor smokes, and the installed-package update/migration smoke. Phase 5.8 secure remote Gateway is next.
 
 ## Install
 
@@ -159,16 +159,42 @@ See [`docs/BOT-TEAM-TEMPLATES.md`](docs/BOT-TEAM-TEMPLATES.md).
 
 ## Update / disable / uninstall
 
-The existing expert AI-Verse OS lifecycle commands remain available:
+Preview and apply an owner-controlled update:
+
+```bash
+ai-verse-multiple-bots update-plan
+ai-verse-multiple-bots update
+```
+
+Or select a mode explicitly:
+
+```bash
+ai-verse-multiple-bots standalone update-plan --root /path/to/project
+ai-verse-multiple-bots standalone update --root /path/to/project
+
+ai-verse-multiple-bots os update-plan --root /path/to/AI-Verse-OS
+ai-verse-multiple-bots os update --root /path/to/AI-Verse-OS
+```
+
+Existing OS aliases remain valid:
 
 ```bash
 ai-verse-multiple-bots os upgrade-plan --root /path/to/AI-Verse-OS
 ai-verse-multiple-bots os upgrade --root /path/to/AI-Verse-OS
+```
+
+Software update is separate from canonical coordination-state migration. The current coordination schema is `1`, so current-schema updates preserve the coordination database. Unknown schema transitions report `migration-required` and fail closed instead of being silently rewritten. Downgrade/rollback of a compatible multi-component release set remains owned by AI-Verse Distribution.
+
+AI-Verse OS uninstall remains available and preserves coordination/canonical host state by default:
+
+```bash
 ai-verse-multiple-bots os uninstall-plan --root /path/to/AI-Verse-OS
 ai-verse-multiple-bots os uninstall --root /path/to/AI-Verse-OS
 ```
 
-The standardized public update/enable/disable/uninstall lifecycle and migration UX is still a later Phase 5 slice. Setup never silently re-enables a disabled registration.
+A disabled OS registration remains disabled through update. A standardized public enable/disable wrapper is still later Phase 5 work.
+
+See [`docs/UPDATE-MIGRATION-STRATEGY.md`](docs/UPDATE-MIGRATION-STRATEGY.md).
 
 ## What setup does and does not grant
 
@@ -195,6 +221,7 @@ Standalone state lives only under:
 ```text
 .ai-verse-bots/
 ├── config.json
+├── install.json
 └── runtime/
     └── coordination.db
 ```
@@ -738,6 +765,7 @@ Therefore the system selects the **smallest sufficient topology** and keeps mult
 - [`docs/SETUP-ONBOARDING.md`](docs/SETUP-ONBOARDING.md) - Phase 5.4 setup/onboarding contract
 - [`docs/BOT-TEAM-TEMPLATES.md`](docs/BOT-TEAM-TEMPLATES.md) - Phase 5.5 reusable starter Bot/team template contract
 - [`docs/PRODUCTION-HEALTH-DOCTOR.md`](docs/PRODUCTION-HEALTH-DOCTOR.md) - Phase 5.6 truthful production readiness contract
+- [`docs/UPDATE-MIGRATION-STRATEGY.md`](docs/UPDATE-MIGRATION-STRATEGY.md) - Phase 5.7 update, migration and preservation contract
 - [`docs/AI-VERSE-OS-REGISTRATION-CONTRACT.md`](docs/AI-VERSE-OS-REGISTRATION-CONTRACT.md) - Phase 3.1 host contract
 - [`docs/AI-VERSE-BRAIN-OBJECTIVE-INGRESS.md`](docs/AI-VERSE-BRAIN-OBJECTIVE-INGRESS.md) - Phase 3.3 Brain ingress contract
 - [`docs/AI-VERSE-MEMORY-RECALL.md`](docs/AI-VERSE-MEMORY-RECALL.md) - Phase 3.4 Memory recall contract
@@ -759,7 +787,7 @@ Contracts are tightened through implementation/evaluation rather than treated as
 
 Phases 0 through 4 are complete. Phase 5 is in progress.
 
-Phase 5.1 package installation, Phase 5.2 standalone mode, Phase 5.3 AI-Verse OS install mode, Phase 5.4 setup/onboarding, Phase 5.5 Bot/team templates, and Phase 5.6 production health/doctor are complete. Remaining productization work starts with upgrade/migration strategy, followed by secure remote access, Dashboard/channel surfaces, observability, release documentation and the final release acceptance suite.
+Phase 5.1 package installation, Phase 5.2 standalone mode, Phase 5.3 AI-Verse OS install mode, Phase 5.4 setup/onboarding, Phase 5.5 Bot/team templates, Phase 5.6 production health/doctor, and Phase 5.7 update/migration strategy are complete. Remaining productization work starts with secure remote Gateway access, followed by Dashboard/channel surfaces, observability, release documentation and the final release acceptance suite.
 
 The visual Bot roster belongs in AI-Verse Dashboard. Multiple Bots remains the backend coordination authority for Bot identity, routing, Tasks, Handoffs, Rooms, Team Runs and runtime orchestration.
 
