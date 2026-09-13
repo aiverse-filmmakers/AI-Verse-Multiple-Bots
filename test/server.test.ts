@@ -5,6 +5,7 @@ import test from "node:test";
 import { request } from "node:http";
 import { createGatewayServer } from "../src/server.js";
 import { initializeStandalone } from "../src/standalone-install.js";
+import type { BotManifest } from "../src/types.js";
 
 function httpJson(port: number, method: string, path: string, body?: unknown): Promise<{ status: number; body: any }> {
   return new Promise((resolve, reject) => {
@@ -19,7 +20,7 @@ function httpJson(port: number, method: string, path: string, body?: unknown): P
   });
 }
 
-function manifest(id: string, name: string) {
+function manifest(id: string, name: string): BotManifest {
   return {
     schema_version: "1.0",
     id,
