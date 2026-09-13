@@ -18,7 +18,9 @@ import {
   AI_VERSE_MULTIPLE_BOTS_EXTENSION_SOURCE,
   AI_VERSE_MULTIPLE_BOTS_EXTENSION_VERSION,
   AI_VERSE_MULTIPLE_BOTS_INSTRUCTIONS_PATH,
-  AI_VERSE_OS_EXTENSION_REGISTRY_PATH
+  AI_VERSE_OS_EXTENSION_REGISTRY_LOCK_PATH,
+  AI_VERSE_OS_EXTENSION_REGISTRY_PATH,
+  AiVerseOsRegistrationError
 } from "../src/ai-verse-os-registration.js";
 import {
   AI_VERSE_MULTIPLE_BOTS_COORDINATION_DB_PATH,
@@ -146,6 +148,51 @@ test("Phase 5.3 OS install is idempotent and does not rewrite current payload or
     assert.equal(readFileSync(second.instructions_path, "utf8"), instructionsBefore);
     assert.equal(readFileSync(second.engine_path, "utf8"), engineBefore);
     assert.equal(readFileSync(registryPath, "utf8"), registryBefore);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("Phase 5.3 reinstall preserves an owned disabled state and registered adapter list", () => {
+  const root = fixture();
+  try {
+    installAiVerseOsExtension(root);
+    const adapter = ".aiverse/extensions/ai-verse-multiple-bots/custom-adapter.md";
+    write(root, adapter, "# locally registered adapter\n");
+
+    const doc = registry(root);
+    doc.extensions[AI_VERSE_MULTIPLE_BOTS_EXTENSION_ID].enabled = false;
+    doc.extensions[AI_VERSE_MULTIPLE_BOTS_EXTENSION_ID].adapters = [adapter];
+    write(root, AI_VERSE_OS_EXTENSION_REGISTRY_PATH, JSON.stringify(doc, null, 2) + "\n");
+
+    const result = installAiVerseOsExtension(root);
+    assert.equal(result.status, "unchanged");
+    assert.equal(result.registration_status, "unchanged");
+    assert.deepEqual(result.materialized_files, []);
+
+    const entry = registry(root).extensions[AI_VERSE_MULTIPLE_BOTS_EXTENSION_ID];
+    assert.equal(entry.enabled, false);
+    assert.deepEqual(entry.adapters, [adapter]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("Phase 5.3 registry-lock failure rolls back only files created by that install attempt", () => {
+  const root = fixture();
+  try {
+    write(root, AI_VERSE_OS_EXTENSION_REGISTRY_LOCK_PATH, '{"extension_id":"other-installer"}\n');
+
+    assert.throws(
+      () => installAiVerseOsExtension(root),
+      (error: unknown) => error instanceof AiVerseOsRegistrationError && error.code === "EXTENSION_REGISTRY_BUSY"
+    );
+
+    assert.equal(existsSync(resolve(root, ...AI_VERSE_MULTIPLE_BOTS_INSTRUCTIONS_PATH.split("/"))), false);
+    assert.equal(existsSync(resolve(root, ...AI_VERSE_MULTIPLE_BOTS_ENGINE_PATH.split("/"))), false);
+    assert.equal(existsSync(resolve(root, ...AI_VERSE_OS_EXTENSION_REGISTRY_PATH.split("/"))), false);
+    assert.equal(existsSync(resolve(root, ...AI_VERSE_MULTIPLE_BOTS_COORDINATION_DB_PATH.split("/"))), true);
+    assert.equal(readFileSync(resolve(root, ...AI_VERSE_OS_EXTENSION_REGISTRY_LOCK_PATH.split("/")), "utf8"), '{"extension_id":"other-installer"}\n');
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
