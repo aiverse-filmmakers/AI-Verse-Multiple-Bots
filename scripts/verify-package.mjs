@@ -113,7 +113,7 @@ try {
   const templateDbPath = join(installDir, "runtime", "template-smoke.db");
   const templatePlan = JSON.parse(run(
     binPath,
-    ["template", "plan", "--id", "research-team", "--workspace", "ws_package", "--db", templateDbPath],
+    ["template", "plan", "--id", "research-team", "--workspace", "ws_package", "--runtime", "deterministic", "--db", templateDbPath],
     { cwd: installDir }
   ));
   assert.equal(templatePlan.ok, true);
@@ -123,7 +123,7 @@ try {
 
   const templateApply = JSON.parse(run(
     binPath,
-    ["template", "apply", "--id", "research-team", "--workspace", "ws_package", "--db", templateDbPath],
+    ["template", "apply", "--id", "research-team", "--workspace", "ws_package", "--runtime", "deterministic", "--db", templateDbPath],
     { cwd: installDir }
   ));
   assert.equal(templateApply.ok, true);
@@ -132,7 +132,7 @@ try {
 
   const templateApplyAgain = JSON.parse(run(
     binPath,
-    ["template", "apply", "--id", "research-team", "--workspace", "ws_package", "--db", templateDbPath],
+    ["template", "apply", "--id", "research-team", "--workspace", "ws_package", "--runtime", "deterministic", "--db", templateDbPath],
     { cwd: installDir }
   ));
   assert.equal(templateApplyAgain.ok, true);
