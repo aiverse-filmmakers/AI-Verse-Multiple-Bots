@@ -1,0 +1,163 @@
+{
+  "suite_version": "1.0",
+  "phase": "4.9",
+  "title": "Phase 4 runtime compatibility and evaluation matrix",
+  "goal": "Prove that every Gateway runtime participates through the same Multiple Bots coordination contract without widening identity, authority, cancellation, provenance, or recovery boundaries.",
+  "required_invariants": [
+    "registered",
+    "durable_bot_identity",
+    "temporary_worker_identity_or_explicit_rejection",
+    "authority_fail_closed",
+    "failure_not_success",
+    "local_cancellation_authoritative",
+    "bounded_provenance",
+    "recovery_mode_explicit"
+  ],
+  "adapters": [
+    {
+      "id": "deterministic",
+      "class": "DeterministicRuntimeAdapter",
+      "kind": "local_reference",
+      "durable_bot": true,
+      "temporary_worker": true,
+      "authority_mode": "local_task_lease",
+      "remote_recovery": "none",
+      "evidence": [
+        "test/runtime-compatibility-evaluation.test.ts"
+      ]
+    },
+    {
+      "id": "openai-compatible",
+      "class": "OpenAICompatibleRuntimeAdapter",
+      "kind": "model_http",
+      "durable_bot": true,
+      "temporary_worker": true,
+      "authority_mode": "host_model_runtime",
+      "remote_recovery": "none",
+      "evidence": [
+        "test/model-runtime.test.ts"
+      ],
+      "markers": [
+        "real HTTP model calls",
+        "raw model credentials",
+        "cross-workspace input Artifacts"
+      ]
+    },
+    {
+      "id": "a2a",
+      "class": "A2AJsonRpcRuntimeAdapter",
+      "kind": "remote_agent_protocol",
+      "durable_bot": true,
+      "temporary_worker": true,
+      "authority_mode": "pinned_remote_machine_plus_equal_or_narrower_remote_lease",
+      "remote_recovery": "negotiated_exact_logical_operation",
+      "evidence": [
+        "test/a2a-runtime.test.ts",
+        "test/a2a-remote-auth.test.ts",
+        "test/a2a-remote-leases.test.ts",
+        "test/a2a-recovery.test.ts"
+      ],
+      "markers": [
+        "preserves local identity",
+        "preserves temporary Worker identity",
+        "fails closed",
+        "local cancellation attempts A2A CancelTask",
+        "restart recovery resumes"
+      ]
+    },
+    {
+      "id": "hermes",
+      "class": "HermesStdioRuntimeAdapter",
+      "kind": "local_stdio_agent",
+      "durable_bot": true,
+      "temporary_worker": true,
+      "authority_mode": "live_tool_surface_subset_of_local_lease",
+      "remote_recovery": "none",
+      "evidence": [
+        "test/hermes-runtime.test.ts"
+      ],
+      "markers": [
+        "preserving durable Bot identity",
+        "preserves temporary Worker identity",
+        "exact subset of the local capability lease",
+        "local cancellation interrupts",
+        "bounded provenance"
+      ]
+    },
+    {
+      "id": "openclaw",
+      "class": "OpenClawAgentExecRuntimeAdapter",
+      "kind": "local_cli_agent",
+      "durable_bot": true,
+      "temporary_worker": true,
+      "authority_mode": "temporary_exact_tool_allow_cap",
+      "remote_recovery": "none",
+      "evidence": [
+        "test/openclaw-runtime.test.ts"
+      ],
+      "markers": [
+        "preserves Bot identity",
+        "preserves temporary Worker identity",
+        "reject groups, globs, and wildcards",
+        "local cancellation aborts",
+        "read-only exact tool overlay"
+      ]
+    },
+    {
+      "id": "codex",
+      "class": "CodexExecRuntimeAdapter",
+      "kind": "local_cli_harness",
+      "durable_bot": true,
+      "temporary_worker": true,
+      "authority_mode": "provider_scoped_process_capabilities",
+      "remote_recovery": "none",
+      "evidence": [
+        "test/process-runtime-adapters.test.ts"
+      ],
+      "markers": [
+        "Codex adapter uses an isolated harness",
+        "rejects broad or unknown grants",
+        "preserves temporary Worker identity",
+        "Codex cancellation aborts"
+      ]
+    },
+    {
+      "id": "claude-code",
+      "class": "ClaudeCodePrintRuntimeAdapter",
+      "kind": "local_cli_harness",
+      "durable_bot": true,
+      "temporary_worker": true,
+      "authority_mode": "provider_scoped_builtin_tool_cap",
+      "remote_recovery": "none",
+      "evidence": [
+        "test/process-runtime-adapters.test.ts"
+      ],
+      "markers": [
+        "Claude Code adapter uses safe + restricted print mode",
+        "rejects broad, unscoped, unknown",
+        "preserves temporary Worker identity",
+        "Claude Code cancellation aborts"
+      ]
+    },
+    {
+      "id": "external-managed",
+      "class": "ExternalManagedBotRuntimeAdapter",
+      "kind": "host_injected_persistent_profile",
+      "durable_bot": true,
+      "temporary_worker": false,
+      "authority_mode": "exact_task_lease_plus_provider_audit",
+      "remote_recovery": "optional_exact_task_key",
+      "evidence": [
+        "test/external-managed-runtime.test.ts"
+      ],
+      "markers": [
+        "verifies persistent identity",
+        "durable-Bot only",
+        "cannot report tools or connections outside",
+        "cancellation targets the pinned profile",
+        "restart fails closed",
+        "exact Task-key provider retries"
+      ]
+    }
+  ]
+}
