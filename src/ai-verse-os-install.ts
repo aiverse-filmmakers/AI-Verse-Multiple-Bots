@@ -230,8 +230,12 @@ function assertCompatibleHost(rootInput: string): string {
 
 export function planAiVerseOsInstall(rootInput: string): AiVerseOsInstallPlan {
   const root = assertCompatibleHost(rootInput);
-  const registration = planAiVerseOsRegistration(root);
-  assertOwnedOrAbsentRegistration(registration.current_entry);
+  const initialRegistration = planAiVerseOsRegistration(root);
+  assertOwnedOrAbsentRegistration(initialRegistration.current_entry);
+  const existingAdapters = initialRegistration.current_entry
+    ? (initialRegistration.current_entry.adapters as string[])
+    : [];
+  const registration = planAiVerseOsRegistration(root, { adapters: existingAdapters });
 
   const instructions = expectedInstructions();
   const engine = expectedEngine();
@@ -328,7 +332,10 @@ export function installAiVerseOsExtension(rootInput: string): AiVerseOsInstallRe
     }
 
     const database = initializeCoordinationDatabase(plan.root);
-    const registration = registerAiVerseOsExtension(plan.root);
+    const existingAdapters = plan.current_registration
+      ? (plan.current_registration.adapters as string[])
+      : [];
+    const registration = registerAiVerseOsExtension(plan.root, { adapters: existingAdapters });
 
     const finalPlan = planAiVerseOsInstall(plan.root);
     const status = (
