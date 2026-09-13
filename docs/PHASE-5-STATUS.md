@@ -6,7 +6,7 @@
 
 **Overall status:** IN PROGRESS
 
-**Directional phase progress:** approximately 30%
+**Directional phase progress:** approximately 35%
 
 This file is the implementation ledger for Phase 5. The canonical product roadmap remains `BUILD-MAP.md`.
 
@@ -22,8 +22,8 @@ Turn the completed coordination, AI-Verse integration and runtime-interoperabili
 4. setup/onboarding flow - **COMPLETE**
 5. Bot/team templates - **COMPLETE**
 6. production health/doctor - **COMPLETE**
-7. upgrade/migration strategy - **NEXT**
-8. secure remote Gateway option - **NOT STARTED**
+7. upgrade/migration strategy - **COMPLETE**
+8. secure remote Gateway option - **NEXT**
 9. Dashboard projections/control endpoints - **NOT STARTED**
 10. Telegram/Discord/other channel bridge contracts - **NOT STARTED**
 11. operator approvals/attention UX - **NOT STARTED**
@@ -289,6 +289,55 @@ The hardened implementation head `c3b5a25f0657e190c224b991f06ba66d827de54f` pass
 
 See `docs/PRODUCTION-HEALTH-DOCTOR.md`.
 
+## Slice 5.7 - upgrade/migration strategy
+
+**Implementation status:** COMPLETE
+
+Phase 5.7 separates software/runtime update from canonical coordination-state migration and makes both installation modes fail closed around version/schema drift.
+
+Implemented:
+
+- public `update-plan` and `update`
+- mode-aware automatic selection with ambiguity/no-installation failure
+- `standalone update-plan` / `standalone update`
+- `os update-plan` / `os update`
+- existing `os upgrade-plan` / `os upgrade` retained as full-product update aliases
+- deterministic semantic version ordering including prereleases
+- canonical exported coordination schema version
+- read-only coordination migration assessment before update
+- explicit `migration-required` for unsupported schema transitions
+- explicit downgrade refusal in favor of Distribution-owned rollback
+- versioned standalone `.ai-verse-bots/install.json` receipt for new installs
+- explicit legacy-unversioned standalone adoption
+- standalone update changes receipt metadata only and preserves config/coordination state
+- full AI-Verse OS update refreshes only package-owned `INSTRUCTIONS.md` + `engine.mjs` and the owned registry version
+- disabled OS state preserved
+- unknown registry metadata and unrelated registrations preserved
+- registered adapter paths verified rather than discarded
+- coordination DB and canonical host state preserved
+- bounded package-owned file rollback when registry commit fails
+- `status` / `doctor` distinguish `update-required` from `migration-required`
+- installed tarball update/migration smoke
+
+### 5.7 acceptance proof
+
+The hardened implementation head `34ff85fa4e9546237a00ef81b1e37ced71eef1b1` passed GitHub Actions **CI run 538 (`34778976513`)**:
+
+- full repository suite: **467/467 tests passed**
+- Phase 4 compatibility suite: **5/5 tests passed**
+- package install smoke: **passed**
+- standalone install smoke: **passed**
+- AI-Verse OS install smoke: **passed**
+- materialized AI-Verse OS engine startup/health smoke: **passed**
+- setup/onboarding smoke: **passed**
+- starter-template smoke: **passed**
+- production-doctor smoke: **passed**
+- installed-package update/migration smoke: **passed**
+- packed artifact: **206 files**
+- **0 failures, 0 canceled and 0 skipped**
+
+See `docs/UPDATE-MIGRATION-STRATEGY.md`.
+
 ## Ownership boundary
 
 Phase 5.1 intentionally does not choose or configure an operating mode during npm installation.
@@ -300,6 +349,6 @@ Phase 5.1 intentionally does not choose or configure an operating mode during np
 
 ## Next gate
 
-**Phase 5.7 - upgrade/migration strategy.**
+**Phase 5.8 - secure remote Gateway option.**
 
-Phase 5.6 is complete. The next task is safe upgrade/migration behavior that preserves user-owned coordination state and current installation-order guarantees.
+Phase 5.7 is complete. The next task is safe authenticated remote Gateway exposure without weakening the existing loopback-first or authority boundaries.
