@@ -18,7 +18,7 @@ Phase 1  Runnable Coordination Core     [COMPLETE]    100%
 Phase 2  Dynamic Multi-Agent Squads     [COMPLETE]    100%
 Phase 3  AI-Verse Native Integration    [COMPLETE]    100%
 Phase 4  Runtime / A2A Interoperability [COMPLETE]    100%
-Phase 5  Product + Install + Dashboard  [IN PROGRESS] ~10%
+Phase 5  Product + Install + Dashboard  [IN PROGRESS] ~15%
 ```
 
 **Directional overall first-release progress:** roughly 95% complete.
@@ -779,7 +779,7 @@ See `docs/PHASE-4-COMPATIBILITY-EVALUATION.md`, `evals/phase-4-runtime-compatibi
 
 **Status:** IN PROGRESS
 
-**Directional phase progress:** approximately 10%
+**Directional phase progress:** approximately 15%
 
 Goal: turn the completed coordination/integration/interoperability layers into a member-installable product with health, onboarding, remote/channel access and observability.
 
@@ -787,8 +787,8 @@ Remaining major slices:
 
 1. simple install command/package - **COMPLETE**
 2. standalone install mode - **COMPLETE**
-3. AI-Verse OS install mode - **NEXT**
-4. setup/onboarding flow - **NOT STARTED**
+3. AI-Verse OS install mode - **COMPLETE**
+4. setup/onboarding flow - **NEXT**
 5. Bot/team templates - **NOT STARTED**
 6. production health/doctor - **NOT STARTED**
 7. upgrade/migration strategy - **NOT STARTED**
@@ -843,6 +843,25 @@ Implemented:
 
 See `docs/STANDALONE-INSTALL.md` and `docs/PHASE-5-STATUS.md`.
 
+### Phase 5.3 - AI-Verse OS install mode
+
+Implemented:
+
+- `os install-plan` and `os install`
+- package-owned materialization of `INSTRUCTIONS.md` and executable `engine.mjs`
+- runtime coordination DB initialization and health verification
+- existing locked/atomic extension registration reused rather than replaced
+- foreign registration, version mismatch, conflicting file and symlink/path rejection
+- canonical OS/operator/workspace/Skills state preservation
+- materialized engine resolves its host root and starts the normal native OS-attached Gateway
+- idempotent reinstall
+- installed-package OS materialization and engine-startup smoke tests
+- no onboarding, templates, production service management, remote exposure or Dashboard scope pulled forward
+
+**Verified implementation gate:** GitHub Actions CI run 506 (`34767263301`) passed the full **434/434 tests**, Phase 4 compatibility **5/5**, package/standalone install smokes, AI-Verse OS install smoke and generated-engine startup/health smoke on hardened implementation head `cabd7216c783b9bae61bcfa29cc22275a2a30dd3`.
+
+See `docs/AI-VERSE-OS-INSTALL.md` and `docs/PHASE-5-STATUS.md`.
+
 ## Release acceptance
 
 The first finished release must prove at minimum:
@@ -863,9 +882,9 @@ The first finished release must prove at minimum:
 
 ## Next gate
 
-**Phase 5.3 - AI-Verse OS install mode.**
+**Phase 5.4 - setup/onboarding flow.**
 
-Phase 5.2 is complete. The next canonical slice is AI-Verse OS package materialization and attachment through the existing safe registration boundary.
+Phase 5.3 is complete. The next canonical slice is member-facing setup/onboarding across the completed standalone and AI-Verse OS install modes.
 
 ## How to report progress
 

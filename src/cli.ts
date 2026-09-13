@@ -12,6 +12,11 @@ import {
   uninstallAiVerseOsExtension,
   upgradeAiVerseOsExtension
 } from "./ai-verse-os-registration.js";
+import {
+  AiVerseOsInstallError,
+  installAiVerseOsExtension,
+  planAiVerseOsInstall
+} from "./ai-verse-os-install.js";
 import { CoordinationGateway } from "./gateway.js";
 import { CoordinationStore } from "./store.js";
 import { createGatewayServer } from "./server.js";
@@ -30,7 +35,7 @@ function flag(name: string): string | undefined {
 }
 
 function usage(): never {
-  console.error(`AI-Verse Multiple Bots CLI\n\nCommands:\n  standalone init [--root PATH] [--host HOST] [--port N]\n  standalone doctor [--root PATH]\n  standalone serve [--root PATH]\n  init [--db PATH]\n  doctor [--db PATH]\n  bot create --id ID --name NAME --workspace ID --role TITLE --mission TEXT [--db PATH]\n  bot list [--workspace ID] [--db PATH]\n  events [--after N] [--limit N] [--db PATH]\n  serve [--host HOST] [--port N] [--db PATH] [--os-root PATH]\n  os detect [--root PATH]\n  os plan [--root PATH]\n  os register [--root PATH]\n  os upgrade-plan [--root PATH]\n  os upgrade [--root PATH]\n  os uninstall-plan [--root PATH]\n  os uninstall [--root PATH]\n`);
+  console.error(`AI-Verse Multiple Bots CLI\n\nCommands:\n  standalone init [--root PATH] [--host HOST] [--port N]\n  standalone doctor [--root PATH]\n  standalone serve [--root PATH]\n  init [--db PATH]\n  doctor [--db PATH]\n  bot create --id ID --name NAME --workspace ID --role TITLE --mission TEXT [--db PATH]\n  bot list [--workspace ID] [--db PATH]\n  events [--after N] [--limit N] [--db PATH]\n  serve [--host HOST] [--port N] [--db PATH] [--os-root PATH]\n  os detect [--root PATH]\n  os install-plan [--root PATH]\n  os install [--root PATH]\n  os plan [--root PATH]\n  os register [--root PATH]\n  os upgrade-plan [--root PATH]\n  os upgrade [--root PATH]\n  os uninstall-plan [--root PATH]\n  os uninstall [--root PATH]\n`);
   process.exit(2);
   throw new Error("unreachable");
 }
@@ -43,9 +48,10 @@ function requestedOsRoot(): string {
 
 function reportOsError(error: unknown): void {
   const registrationError = error instanceof AiVerseOsRegistrationError ? error : null;
+  const installError = error instanceof AiVerseOsInstallError ? error : null;
   console.error(JSON.stringify({
     ok: false,
-    code: registrationError?.code ?? "AI_VERSE_OS_REGISTRATION_ERROR",
+    code: installError?.code ?? registrationError?.code ?? "AI_VERSE_OS_REGISTRATION_ERROR",
     error: error instanceof Error ? error.message : String(error)
   }, null, 2));
   process.exitCode = 1;
@@ -144,6 +150,12 @@ if (args[0] === "standalone") {
       const compatibility = detectAiVerseOsCompatibility(root);
       console.log(JSON.stringify({ ok: compatibility.status === "compatible", compatibility }, null, 2));
       if (compatibility.status !== "compatible") process.exitCode = 1;
+    } else if (args[1] === "install-plan") {
+      const plan = planAiVerseOsInstall(root);
+      console.log(JSON.stringify({ ok: plan.can_install, install: plan }, null, 2));
+      if (!plan.can_install) process.exitCode = 1;
+    } else if (args[1] === "install") {
+      console.log(JSON.stringify({ ok: true, install: installAiVerseOsExtension(root) }, null, 2));
     } else if (args[1] === "plan") {
       console.log(JSON.stringify({ ok: true, plan: planAiVerseOsRegistration(root) }, null, 2));
     } else if (args[1] === "register") {

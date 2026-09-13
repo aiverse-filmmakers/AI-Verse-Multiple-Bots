@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { spawnSync } from "node:child_process";
 
 const root = resolve(process.cwd());
@@ -54,6 +55,7 @@ try {
     "dist/src/cli.js",
     "dist/src/server.js",
     "dist/src/standalone-install.js",
+    "dist/src/ai-verse-os-install.js",
     "schemas/coordination-v1.schema.json",
     "templates/bot.yaml",
     "templates/room.yaml",
@@ -128,6 +130,73 @@ try {
   assert.equal(standaloneDoctor.mode, "standalone");
   assert.equal(standaloneDoctor.schemaVersion, "1");
 
+  const osRoot = join(installDir, "ai-verse-os");
+  mkdirSync(join(osRoot, "operator"), { recursive: true });
+  mkdirSync(join(osRoot, "workspaces"), { recursive: true });
+  mkdirSync(join(osRoot, "system", "extensions"), { recursive: true });
+  writeFileSync(join(osRoot, "AI-VERSE.yaml"), 'schema_version: "2.0"\narchitecture: unified-workspace\n', "utf8");
+  writeFileSync(join(osRoot, "AGENTS.md"), "# Runtime contract\nLoad .aiverse/extensions/registry.json when present.\n", "utf8");
+  writeFileSync(join(osRoot, "system", "extensions", "README.md"), "# Local extensions\nRegistry: .aiverse/extensions/registry.json\n", "utf8");
+  writeFileSync(join(osRoot, "operator", "sentinel.md"), "operator canonical state\n", "utf8");
+  writeFileSync(join(osRoot, "workspaces", "sentinel.md"), "workspace canonical state\n", "utf8");
+  const canonicalBefore = {
+    manifest: readFileSync(join(osRoot, "AI-VERSE.yaml"), "utf8"),
+    agents: readFileSync(join(osRoot, "AGENTS.md"), "utf8"),
+    extensionContract: readFileSync(join(osRoot, "system", "extensions", "README.md"), "utf8"),
+    operator: readFileSync(join(osRoot, "operator", "sentinel.md"), "utf8"),
+    workspace: readFileSync(join(osRoot, "workspaces", "sentinel.md"), "utf8")
+  };
+
+  const osPlanOutput = run(binPath, ["os", "install-plan", "--root", osRoot], { cwd: installDir });
+  const osPlan = JSON.parse(osPlanOutput);
+  assert.equal(osPlan.ok, true);
+  assert.equal(osPlan.install.can_install, true);
+
+  const osInstallOutput = run(binPath, ["os", "install", "--root", osRoot], { cwd: installDir });
+  const osInstall = JSON.parse(osInstallOutput);
+  assert.equal(osInstall.ok, true);
+  assert.equal(osInstall.install.status, "installed");
+  assert.equal(osInstall.install.database_initialized, true);
+  assert.equal(osInstall.install.registration_status, "registered");
+
+  const enginePath = join(osRoot, ".aiverse", "extensions", "ai-verse-multiple-bots", "engine.mjs");
+  const instructionsPath = join(osRoot, ".aiverse", "extensions", "ai-verse-multiple-bots", "INSTRUCTIONS.md");
+  const registryPath = join(osRoot, ".aiverse", "extensions", "registry.json");
+  const osDbPath = join(osRoot, "runtime", "ai-verse-bots", "coordination.db");
+  assert.equal(existsSync(enginePath), true);
+  assert.equal(existsSync(instructionsPath), true);
+  assert.equal(existsSync(registryPath), true);
+  assert.equal(existsSync(osDbPath), true);
+
+  const registered = JSON.parse(readFileSync(registryPath, "utf8")).extensions["ai-verse-multiple-bots"];
+  assert.equal(registered.source, "AI-Verse-Multiple-Bots");
+  assert.equal(registered.version, "0.1.0-alpha.1");
+  assert.equal(registered.engine, ".aiverse/extensions/ai-verse-multiple-bots/engine.mjs");
+
+  assert.deepEqual({
+    manifest: readFileSync(join(osRoot, "AI-VERSE.yaml"), "utf8"),
+    agents: readFileSync(join(osRoot, "AGENTS.md"), "utf8"),
+    extensionContract: readFileSync(join(osRoot, "system", "extensions", "README.md"), "utf8"),
+    operator: readFileSync(join(osRoot, "operator", "sentinel.md"), "utf8"),
+    workspace: readFileSync(join(osRoot, "workspaces", "sentinel.md"), "utf8")
+  }, canonicalBefore);
+
+  const engineUrl = pathToFileURL(enginePath).href;
+  const engineSmoke = run(process.execPath, [
+    "--input-type=module",
+    "--eval",
+    `const m=await import(${JSON.stringify(engineUrl)}); const s=await m.startGateway({port:0}); try { const r=await fetch('http://'+s.address.host+':'+s.address.port+'/health'); const b=await r.json(); if(!b.ok||b.schemaVersion!=='1') throw new Error('health failed'); console.log(JSON.stringify({ok:true,root:m.aiVerseOsRoot,db:s.db})); } finally { await s.service.close(); }`
+  ], { cwd: installDir });
+  const engineResult = JSON.parse(engineSmoke);
+  assert.equal(engineResult.ok, true);
+  assert.equal(resolve(engineResult.root), resolve(osRoot));
+  assert.equal(resolve(engineResult.db), resolve(osDbPath));
+
+  const osInstallAgain = JSON.parse(run(binPath, ["os", "install", "--root", osRoot], { cwd: installDir }));
+  assert.equal(osInstallAgain.install.status, "unchanged");
+  assert.equal(osInstallAgain.install.database_initialized, false);
+  assert.equal(osInstallAgain.install.registration_status, "unchanged");
+
   console.log(JSON.stringify({
     ok: true,
     package: `${record.name}@${record.version}`,
@@ -135,7 +204,9 @@ try {
     packed_files: files.size,
     command: "ai-verse-multiple-bots",
     install_smoke: "passed",
-    standalone_install_smoke: "passed"
+    standalone_install_smoke: "passed",
+    ai_verse_os_install_smoke: "passed",
+    ai_verse_os_engine_smoke: "passed"
   }, null, 2));
 } finally {
   rmSync(tempRoot, { recursive: true, force: true });
