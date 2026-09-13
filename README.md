@@ -42,8 +42,8 @@ A built package tarball can be installed globally and used immediately:
 
 ```bash
 npm install -g ./ai-verse-multiple-bots-0.1.0-alpha.1.tgz
-ai-verse-multiple-bots init
-ai-verse-multiple-bots doctor
+ai-verse-multiple-bots standalone init
+ai-verse-multiple-bots standalone doctor
 ```
 
 The package is configured for public scoped npm publication as `@ai-verse/multiple-bots`, but this repository does not claim that version `0.1.0-alpha.1` has already been published to the public npm registry.
