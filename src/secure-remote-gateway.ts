@@ -44,6 +44,7 @@ export interface SecureRemoteGatewayPlan {
   };
   transport: {
     provider_available: boolean;
+    tailnet_connected: boolean;
     executable: string;
     tls_terminated_by: "tailscale-serve";
     exposure: "tailnet-only";
@@ -131,13 +132,30 @@ function validPort(value: number, label: string, allowZero: boolean): number {
   return value;
 }
 
-function tailscaleAvailable(bin: string, env: Record<string, string | undefined>): boolean {
-  const result = spawnSync(bin, ["version"], {
+function tailscaleProbe(bin: string, env: Record<string, string | undefined>): {
+  available: boolean;
+  connected: boolean;
+} {
+  const effectiveEnv = { ...process.env, ...env };
+  const version = spawnSync(bin, ["version"], {
     encoding: "utf8",
-    env: { ...process.env, ...env },
+    env: effectiveEnv,
     shell: false
   });
-  return result.status === 0;
+  if (version.status !== 0) return { available: false, connected: false };
+
+  const status = spawnSync(bin, ["status", "--json"], {
+    encoding: "utf8",
+    env: effectiveEnv,
+    shell: false
+  });
+  if (status.status !== 0) return { available: true, connected: false };
+  try {
+    const parsed = JSON.parse(String(status.stdout ?? "{}")) as Record<string, unknown>;
+    return { available: true, connected: parsed.BackendState === "Running" };
+  } catch {
+    return { available: true, connected: false };
+  }
 }
 
 function tokenConfigured(envName: string, env: Record<string, string | undefined>): boolean {
@@ -174,7 +192,7 @@ export function planSecureRemoteGateway(options: SecureRemoteGatewayOptions = {}
     env
   });
   const configured = tokenConfigured(authEnv, env);
-  const providerAvailable = tailscaleAvailable(tailscaleBin, env);
+  const provider = tailscaleProbe(tailscaleBin, env);
   const blocked: string[] = [];
 
   if (!health.ready) blocked.push(`component health state is '${health.state}', not ready`);
@@ -183,7 +201,8 @@ export function planSecureRemoteGateway(options: SecureRemoteGatewayOptions = {}
       `bearer token is missing/invalid in ${authEnv}; configure at least 32 characters without storing it in project config`
     );
   }
-  if (!providerAvailable) blocked.push(`Tailscale CLI is unavailable or unhealthy at '${tailscaleBin}'`);
+  if (!provider.available) blocked.push(`Tailscale CLI is unavailable at '${tailscaleBin}'`);
+  else if (!provider.connected) blocked.push("Tailscale is installed but the local daemon is not connected to a tailnet");
 
   return {
     provider: REMOTE_GATEWAY_PROVIDER,
@@ -200,7 +219,8 @@ export function planSecureRemoteGateway(options: SecureRemoteGatewayOptions = {}
       configured
     },
     transport: {
-      provider_available: providerAvailable,
+      provider_available: provider.available,
+      tailnet_connected: provider.connected,
       executable: tailscaleBin,
       tls_terminated_by: "tailscale-serve",
       exposure: "tailnet-only",
