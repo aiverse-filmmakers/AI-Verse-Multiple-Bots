@@ -55,10 +55,10 @@ export function resolveGatewayBearerAuth(
 ): GatewayInboundAuth {
   const envName = safeEnvName(envNameInput);
   const token = env[envName];
-  if (typeof token !== "string" || token.length < MIN_GATEWAY_TOKEN_LENGTH || token.length > 4096 || /[\0\r\n]/.test(token)) {
+  if (typeof token !== "string" || token.length < MIN_GATEWAY_TOKEN_LENGTH || token.length > 4096 || /\s/.test(token) || /[\0\r\n]/.test(token)) {
     throw new GatewaySecurityError(
       "GATEWAY_AUTH_TOKEN_REQUIRED",
-      `Remote Gateway requires ${envName} to contain a non-empty bearer token of at least ${MIN_GATEWAY_TOKEN_LENGTH} characters`
+      `Remote Gateway requires ${envName} to contain a whitespace-free bearer token of at least ${MIN_GATEWAY_TOKEN_LENGTH} characters`
     );
   }
   return {
