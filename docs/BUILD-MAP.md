@@ -858,7 +858,7 @@ Implemented:
 - installed-package OS materialization and engine-startup smoke tests
 - no onboarding, templates, production service management, remote exposure or Dashboard scope pulled forward
 
-**Verified implementation gate:** GitHub Actions CI run 502 (`34767116729`) passed the full **432/432 tests**, Phase 4 compatibility **5/5**, package/standalone install smokes, AI-Verse OS install smoke and generated-engine startup/health smoke on implementation head `4911febde60fcb750c5e5a1d589b42dad4afbd11`.
+**Verified implementation gate:** GitHub Actions CI run 506 (`34767263301`) passed the full **434/434 tests**, Phase 4 compatibility **5/5**, package/standalone install smokes, AI-Verse OS install smoke and generated-engine startup/health smoke on hardened implementation head `cabd7216c783b9bae61bcfa29cc22275a2a30dd3`.
 
 See `docs/AI-VERSE-OS-INSTALL.md` and `docs/PHASE-5-STATUS.md`.
 
