@@ -181,10 +181,18 @@ export class OperatorAttentionProjector {
         "operator.attention",
         "operator.approvals"
       ],
-      controls: [
-        "operator.approval.approve",
-        "operator.approval.deny"
-      ],
+      controls: {
+        approval_decision_endpoint: "/v1/operator/approvals/:id/decision",
+        approval_actions: [
+          "operator.approval.approve",
+          "operator.approval.deny"
+        ],
+        existing_coordination_control_endpoint: "/v1/dashboard/control",
+        attention_item_actions: [
+          "task.cancel",
+          "task.retry"
+        ]
+      },
       realtime: {
         canonical_event_cursor: true,
         existing_workspace_event_stream: "/v1/dashboard/events/stream"
