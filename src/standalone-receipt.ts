@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import {
   existsSync,
   lstatSync,
@@ -109,7 +110,7 @@ export function currentStandaloneReceipt(existing: StandaloneInstallReceipt | nu
 export function writeStandaloneReceipt(home: string, receipt: StandaloneInstallReceipt): string {
   const path = standaloneReceiptPath(home);
   assertRegularReceipt(path);
-  const temporary = `${path}.tmp`;
+  const temporary = `${path}.${randomUUID()}.tmp`;
   rmSync(temporary, { force: true });
   try {
     writeFileSync(temporary, `${JSON.stringify(receipt, null, 2)}\n`, {
