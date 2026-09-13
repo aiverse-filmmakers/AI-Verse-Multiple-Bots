@@ -82,9 +82,18 @@ A same-key registry entry is installable only when it is already provably owned 
 
 A foreign same-key entry fails closed with an ownership error.
 
-A same-package entry from a different version is not silently converted by install. It is routed to the upgrade lifecycle instead.
+A same-package entry from a different version is not silently converted by install. It is routed to the Phase 5.7 update lifecycle instead.
 
-This keeps installation separate from future upgrade/migration policy.
+The full product update commands are:
+
+```bash
+ai-verse-multiple-bots os update-plan --root /path/to/AI-Verse-OS
+ai-verse-multiple-bots os update --root /path/to/AI-Verse-OS
+```
+
+The older `os upgrade-plan` / `os upgrade` commands remain aliases. Update refreshes only known package-owned extension payload plus owned registration metadata, preserves disabled state and coordination DB state, and fails closed when canonical state migration is required.
+
+See `UPDATE-MIGRATION-STRATEGY.md`.
 
 ## Existing-file law
 
@@ -136,7 +145,7 @@ package installed
   != action-approved
 ```
 
-Production health UX remains Phase 5.6.
+Production health is implemented by Phase 5.6 and now reports Phase 5.7 `update-required` / `migration-required` lifecycle states.
 
 ## Idempotence
 
@@ -155,7 +164,8 @@ Phase 5.3 does not implement:
 - starter Bot/team creation;
 - production service-manager installation;
 - public/remote Gateway exposure;
-- release-wide upgrade/migration UX;
+- cross-component release rollback;
+- secure remote/public Gateway exposure;
 - Dashboard or channel clients.
 
-Those remain later Phase 5 slices.
+Component update/migration strategy is implemented by Phase 5.7; release-set rollback remains owned by AI-Verse Distribution.
