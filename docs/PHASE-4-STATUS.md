@@ -4,9 +4,9 @@
 
 **Phase:** 4
 
-**Overall status:** IN PROGRESS
+**Overall status:** COMPLETE
 
-**Directional phase progress:** approximately 80%
+**Directional phase progress:** 100%
 
 This file is the implementation ledger for Phase 4. The canonical product roadmap remains `BUILD-MAP.md`.
 
@@ -24,7 +24,7 @@ Make durable Bots and temporary Workers portable across supported local and remo
 6. remote-machine identity/authentication - **COMPLETE**
 7. remote capability/environment leases - **COMPLETE**
 8. retry/disconnect/reconnect semantics - **COMPLETE**
-9. compatibility/evaluation suite - **NEXT**
+9. compatibility/evaluation suite - **COMPLETE**
 
 ## Slice 4.1 - A2A adapter
 
@@ -484,8 +484,62 @@ Phase 4.8 acceptance coverage proves:
 19. dead-letter recovery attempts remote cleanup without weakening local authority
 20. the complete pre-existing Phase 0-4.7 suite remains green
 
+## Slice 4.9 - compatibility/evaluation suite
+
+**Implementation status:** COMPLETE
+
+Phase 4.9 closes the interoperability phase with a deterministic compatibility/evaluation layer over every Gateway runtime. It adds no new execution runtime and does not widen product scope.
+
+Implemented:
+
+- canonical machine-readable runtime compatibility matrix
+- exact coverage of every Gateway runtime registration
+- explicit durable-Bot and temporary-Worker support declarations
+- explicit runtime authority-mode declarations
+- explicit remote-recovery-mode declarations
+- traceability from each runtime to its executable adapter evidence
+- fail-closed evidence-marker verification
+- deterministic shared-result-contract evaluation for durable Bots and temporary Workers
+- dedicated `npm run eval:phase4` command
+- explicit CI gate for the Phase 4 evaluation suite
+- compatibility contract documentation
+- no Phase 5 installer, Dashboard, omnichannel or product behavior
+
+See `PHASE-4-COMPATIBILITY-EVALUATION.md` and `../evals/phase-4-runtime-compatibility.json`.
+
+### 4.9 acceptance proof
+
+The hardened implementation head `27fac357b9560d0c33d96bfe27effaabea259dcf` passed GitHub Actions **CI run 485 (`34764046142`)**.
+
+That run proved both gates independently:
+
+- full repository suite: **417/417 tests passed**
+- dedicated Phase 4 evaluation: **5/5 tests passed**
+- **0 failures, 0 canceled and 0 skipped**
+
+Phase 4.9 acceptance coverage proves:
+
+1. every Gateway runtime appears exactly once in the compatibility matrix
+2. matrix adapter classes exactly match the real Gateway registrations
+3. every runtime has executable evidence in the repository
+4. required runtime evidence markers remain traceable across the declared evidence set
+5. every runtime explicitly declares durable-Bot support
+6. temporary-Worker support is explicit, including the intentional `external-managed` rejection
+7. every runtime explicitly declares its authority mode
+8. only A2A and external-managed claim durable remote-recovery semantics
+9. the deterministic reference runtime preserves the shared local result contract for Bots and Workers
+10. all 4.1 through 4.8 implementation evidence remains green in the full suite
+11. the dedicated compatibility evaluator is a separate CI gate rather than an undocumented convention
+12. Phase 4 closes without importing Phase 5 product scope
+
+## Phase 4 completion
+
+All nine Phase 4 slices are complete.
+
+The runtime/interoperability layer now has executable coverage for local model execution, A2A, Hermes, OpenClaw, Codex, Claude Code, external managed Bots, remote identity/authentication, remote authority/environment leases, disconnect/reconnect recovery and cross-runtime compatibility.
+
 ## Next gate
 
-**Phase 4.9 - compatibility/evaluation suite.**
+**Phase 5.1 - simple install command/package.**
 
-Phase 4.8 is complete. Phase 4.9 is the final Phase 4 slice and has not started.
+Phase 4 is complete. The next canonical work belongs to Phase 5, which turns the completed coordination, integration and interoperability layers into an installable product. Phase 5 has not started.

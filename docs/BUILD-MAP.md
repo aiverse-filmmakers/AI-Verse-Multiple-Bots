@@ -17,7 +17,7 @@ Phase 0  Research + Architecture        [COMPLETE]    100%
 Phase 1  Runnable Coordination Core     [COMPLETE]    100%
 Phase 2  Dynamic Multi-Agent Squads     [COMPLETE]    100%
 Phase 3  AI-Verse Native Integration    [COMPLETE]    100%
-Phase 4  Runtime / A2A Interoperability [IN PROGRESS] ~80%
+Phase 4  Runtime / A2A Interoperability [COMPLETE]    100%
 Phase 5  Product + Install + Dashboard  [NOT STARTED]
 ```
 
@@ -499,9 +499,9 @@ AI-Verse native integration now covers safe registration, exact workspace projec
 
 ## Phase 4 - Runtime and Agent Interoperability
 
-**Status:** IN PROGRESS
+**Status:** COMPLETE
 
-**Directional phase progress:** approximately 70%.
+**Directional phase progress:** 100%.
 
 Goal: make durable Bots/temporary Workers portable across supported local and remote runtimes while preserving protocol identity, authority, cancellation, provenance and recovery.
 
@@ -514,8 +514,8 @@ Goal: make durable Bots/temporary Workers portable across supported local and re
 5. external managed Bot runtime - **COMPLETE**
 6. remote-machine identity/authentication - **COMPLETE**
 7. remote capability/environment leases - **COMPLETE**
-8. retry/disconnect/reconnect semantics - **NEXT**
-9. compatibility/evaluation suite - **NOT STARTED**
+8. retry/disconnect/reconnect semantics - **COMPLETE**
+9. compatibility/evaluation suite - **COMPLETE**
 
 ### Phase 4.1 - A2A adapter
 
@@ -753,6 +753,28 @@ Implemented:
 
 See `docs/REMOTE-EXECUTION-RECOVERY.md` and `docs/PHASE-4-STATUS.md`.
 
+### Phase 4.9 - compatibility/evaluation suite
+
+Implemented:
+
+- canonical machine-readable compatibility matrix for every Gateway runtime
+- exact class/id coverage against the real Gateway runtime registry
+- durable-Bot and temporary-Worker compatibility declarations
+- explicit runtime authority-mode and remote-recovery-mode declarations
+- executable evidence mapping back to the 4.1 through 4.8 adapter suites
+- fail-closed evidence traceability checks
+- deterministic reference-runtime result-contract evaluation
+- dedicated `npm run eval:phase4` command
+- dedicated Phase 4 evaluation step in CI
+- compatibility/evaluation contract documentation
+- no Phase 5 product/installer/Dashboard/omnichannel behavior introduced
+
+**Verified implementation gate:** GitHub Actions CI run 485 (`34764046142`) passed the full **417/417 tests** and the dedicated Phase 4 compatibility evaluation **5/5 tests**, with 0 failures, 0 canceled and 0 skipped on hardened implementation head `27fac357b9560d0c33d96bfe27effaabea259dcf`.
+
+See `docs/PHASE-4-COMPATIBILITY-EVALUATION.md`, `evals/phase-4-runtime-compatibility.json` and `docs/PHASE-4-STATUS.md`.
+
+**Phase 4 completion gate:** all nine interoperability slices are complete and their executable evidence is green.
+
 ## Phase 5 - Product, Installer, Omnichannel and Dashboard
 
 **Status:** NOT STARTED
@@ -796,9 +818,9 @@ The first finished release must prove at minimum:
 
 ## Next gate
 
-**Phase 4.9 - compatibility/evaluation suite.**
+**Phase 5.1 - simple install command/package.**
 
-Phase 4.8 is complete. The next canonical slice is the Phase 4 compatibility/evaluation suite. Phase 4.9 has not started.
+Phase 4 is complete. The next canonical work is Phase 5 productization, beginning with the simple install command/package. Phase 5 has not started.
 
 ## How to report progress
 
