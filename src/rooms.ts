@@ -40,6 +40,11 @@ export interface SendRoomMessageInput {
   replyToMessageId?: string;
   correlationId?: string;
   activateSpeakers?: boolean;
+  messageId?: string;
+  timestamp?: string;
+  content?: JsonObject[];
+  provenance?: JsonObject;
+  idempotencyKey?: string;
 }
 
 export interface RoomSendResult {
@@ -216,7 +221,12 @@ export class RoomCoordinator {
       replyToMessageId: input.replyToMessageId,
       correlationId,
       text: input.text,
-      mentions: resolvedMentions
+      mentions: resolvedMentions,
+      messageId: input.messageId,
+      timestamp: input.timestamp,
+      content: input.content,
+      provenance: input.provenance,
+      idempotencyKey: input.idempotencyKey
     });
 
     const scheduledTaskIds: string[] = [];

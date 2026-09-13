@@ -5,6 +5,7 @@ import test from "node:test";
 import { request } from "node:http";
 import { createGatewayServer } from "../src/server.js";
 import { initializeStandalone } from "../src/standalone-install.js";
+import type { BotManifest } from "../src/types.js";
 
 function httpJson(port: number, method: string, path: string, body?: unknown): Promise<{ status: number; body: any }> {
   return new Promise((resolve, reject) => {
@@ -19,7 +20,7 @@ function httpJson(port: number, method: string, path: string, body?: unknown): P
   });
 }
 
-function manifest(id: string, name: string) {
+function manifest(id: string, name: string): BotManifest {
   return {
     schema_version: "1.0",
     id,
@@ -129,5 +130,89 @@ test("Phase 5.6 live Gateway exposes production readiness without replacing lega
   } finally {
     await service.close();
     rmSync(root, { recursive: true, force: true });
+  }
+});
+
+
+test("Phase 5.10 Gateway exposes bounded channel ingress, egress formatting and receipts", async () => {
+  const service = createGatewayServer({
+    dbPath: ":memory:",
+    port: 0,
+    channelBindings: [{
+      id: "telegram_http",
+      provider: "telegram",
+      accountId: "http_bot",
+      conversationId: "8801",
+      workspaceId: "ws_http",
+      targetKind: "bot",
+      targetId: "bot_http_channel",
+      allowedSenderExternalIds: ["4401"]
+    }]
+  });
+  service.gateway.createBot(manifest("bot_http_channel", "HTTP Channel Bot"));
+  const address = await service.listen();
+  try {
+    const capabilities = await httpJson(address.port, "GET", "/v1/channels/capabilities");
+    assert.equal(capabilities.status, 200);
+    assert.equal(capabilities.body.provider, "ai-verse-multiple-bots/channel-bridge-v1");
+    assert.equal(capabilities.body.channel_owns_truth, false);
+    assert.equal(capabilities.body.bindings[0].id, "telegram_http");
+
+    const rawUpdate = {
+      update_id: 991,
+      message: {
+        message_id: 551,
+        date: 1_800_000_000,
+        chat: { id: 8801 },
+        from: { id: 4401 },
+        text: "Hello over Telegram"
+      }
+    };
+
+    const unverified = await httpJson(address.port, "POST", "/v1/channels/telegram/ingress", {
+      accountId: "http_bot",
+      adapterVerified: false,
+      update: rawUpdate
+    });
+    assert.equal(unverified.status, 403);
+    assert.equal(unverified.body.error, "CHANNEL_ADAPTER_UNVERIFIED");
+
+    const ingress = await httpJson(address.port, "POST", "/v1/channels/telegram/ingress", {
+      accountId: "http_bot",
+      adapterVerified: true,
+      update: rawUpdate
+    });
+    assert.equal(ingress.status, 202);
+    assert.equal(ingress.body.binding_id, "telegram_http");
+    assert.equal(ingress.body.target.id, "bot_http_channel");
+
+    const reply = service.gateway.sendMessage({
+      senderId: "bot_http_channel",
+      targetKind: "operator",
+      targetId: ingress.body.actor_id,
+      workspaceId: "ws_http",
+      text: "Reply from the canonical Bot",
+      replyToMessageId: ingress.body.canonical_message_id
+    });
+
+    const egress = await httpJson(address.port, "POST", "/v1/channels/egress", {
+      bindingId: "telegram_http",
+      messageId: reply.message.id
+    });
+    assert.equal(egress.status, 200);
+    assert.equal(egress.body.external_recipient_id, "4401");
+    assert.equal(egress.body.reply_to_external_message_id, "551");
+    assert.equal(egress.body.transport_command.method, "sendMessage");
+
+    const receipt = await httpJson(address.port, "POST", "/v1/channels/egress/receipt", {
+      bindingId: "telegram_http",
+      messageId: reply.message.id,
+      status: "delivered",
+      externalDeliveryId: "tg-http-delivery"
+    });
+    assert.equal(receipt.status, 200);
+    assert.equal(receipt.body.status, "delivered");
+  } finally {
+    await service.close();
   }
 });

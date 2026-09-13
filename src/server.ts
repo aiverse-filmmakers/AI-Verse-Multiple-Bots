@@ -13,6 +13,11 @@ import { AiVerseOsWorkspaceProjector } from "./ai-verse-os-workspace-projection.
 import { delegateWithArtifacts } from "./artifact-delegation.js";
 import type { BudgetEnvelope } from "./budget.js";
 import { CandidateWritebackRouter } from "./candidate-writeback.js";
+import {
+  ChannelBridgeBoundary,
+  ChannelBridgeError,
+  type ChannelBinding
+} from "./channel-bridge.js";
 import { ClaudeCodePrintRuntimeAdapter } from "./claude-code-runtime.js";
 import { CodexExecRuntimeAdapter } from "./codex-runtime.js";
 import type { BotManifest, JsonObject } from "./types.js";
@@ -82,6 +87,7 @@ export interface GatewayServerOptions {
   remoteLeaseProviders?: RemoteLeaseProvider[];
   inboundAuth?: GatewayInboundAuth;
   maxBodyBytes?: number;
+  channelBindings?: ChannelBinding[];
 }
 
 async function readJson(req: any, maxBytes = DEFAULT_GATEWAY_MAX_BODY_BYTES): Promise<JsonObject> {
@@ -118,10 +124,12 @@ function errorResponse(res: any, error: unknown): void {
   const dashboardError = error instanceof DashboardProjectionError || error instanceof DashboardControlError
     ? error
     : null;
+  const channelError = error instanceof ChannelBridgeError ? error : null;
   const status = securityError?.status
+    ?? channelError?.status
     ?? (dashboardError?.code === "DASHBOARD_TARGET_NOT_FOUND" ? 404 : 400);
   json(res, status, {
-    error: securityError?.code ?? dashboardError?.code ?? "BAD_REQUEST",
+    error: securityError?.code ?? channelError?.code ?? dashboardError?.code ?? "BAD_REQUEST",
     message
   });
 }
@@ -253,6 +261,12 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
     runner,
     supervisor,
     teamRunControl
+  );
+  const channelBridge = new ChannelBridgeBoundary(
+    gateway,
+    rooms,
+    store,
+    options.channelBindings ?? []
   );
   supervisor.start();
 
@@ -414,6 +428,71 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
           ...(typeof body.reason === "string" ? { reason: body.reason } : {})
         });
         json(res, 200, result);
+        return;
+      }
+
+      if (method === "GET" && url.pathname === "/v1/channels/capabilities") {
+        json(res, 200, channelBridge.capabilities());
+        return;
+      }
+
+      if (method === "POST" && url.pathname === "/v1/channels/ingress") {
+        const body = await readJson(req, maxBodyBytes);
+        const result = channelBridge.ingestGeneric(body);
+        json(res, 202, result);
+        return;
+      }
+
+      if (method === "POST" && url.pathname === "/v1/channels/telegram/ingress") {
+        const body = await readJson(req, maxBodyBytes);
+        const update = typeof body.update === "object" && body.update !== null && !Array.isArray(body.update)
+          ? body.update as JsonObject
+          : (() => { throw new ChannelBridgeError("INVALID_CHANNEL_PAYLOAD", "update must be an object"); })();
+        const result = channelBridge.ingestTelegram(
+          requiredString(body, "accountId"),
+          update,
+          body.adapterVerified === true
+        );
+        json(res, 202, result);
+        return;
+      }
+
+      if (method === "POST" && url.pathname === "/v1/channels/discord/ingress") {
+        const body = await readJson(req, maxBodyBytes);
+        const message = typeof body.message === "object" && body.message !== null && !Array.isArray(body.message)
+          ? body.message as JsonObject
+          : (() => { throw new ChannelBridgeError("INVALID_CHANNEL_PAYLOAD", "message must be an object"); })();
+        const result = channelBridge.ingestDiscord(
+          requiredString(body, "accountId"),
+          message,
+          body.adapterVerified === true
+        );
+        json(res, 202, result);
+        return;
+      }
+
+      if (method === "POST" && url.pathname === "/v1/channels/egress") {
+        const body = await readJson(req, maxBodyBytes);
+        json(res, 200, channelBridge.formatEgress(
+          requiredString(body, "bindingId"),
+          requiredString(body, "messageId")
+        ));
+        return;
+      }
+
+      if (method === "POST" && url.pathname === "/v1/channels/egress/receipt") {
+        const body = await readJson(req, maxBodyBytes);
+        const status = requiredString(body, "status");
+        if (status !== "sent" && status !== "delivered" && status !== "failed") {
+          throw new ChannelBridgeError("INVALID_CHANNEL_RECEIPT", "status must be sent, delivered or failed");
+        }
+        json(res, 200, channelBridge.acknowledgeEgress({
+          bindingId: requiredString(body, "bindingId"),
+          messageId: requiredString(body, "messageId"),
+          status,
+          externalDeliveryId: requiredString(body, "externalDeliveryId"),
+          ...(typeof body.reason === "string" ? { reason: body.reason } : {})
+        }));
         return;
       }
 
@@ -939,6 +1018,7 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
     teamRunControl,
     dashboardProjection,
     dashboardControl,
+    channelBridge,
     memoryRecallSource,
     skillsCapabilitySource,
     supervisor,

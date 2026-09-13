@@ -74,6 +74,7 @@ try {
     "dist/src/secure-remote-gateway.js",
     "dist/src/dashboard-projection.js",
     "dist/src/dashboard-control.js",
+    "dist/src/channel-bridge.js",
     "schemas/coordination-v1.schema.json",
     "templates/bot.yaml",
     "templates/room.yaml",
@@ -262,6 +263,19 @@ if (args[0] === "serve") {
   assert.equal(dashboardSmoke.control_status, "disabled");
   assert.equal(dashboardSmoke.bot_status_after, "disabled");
   assert.equal(dashboardSmoke.dashboard_owns_truth, false);
+
+  const channelSmoke = JSON.parse(run(process.execPath, [
+    "--input-type=module",
+    "--eval",
+    `const s=await import(${JSON.stringify(installedServerUrl)}); const service=s.createGatewayServer({dbPath:':memory:',port:0,channelBindings:[{id:'package_telegram',provider:'telegram',accountId:'package_bot',conversationId:'7301',workspaceId:'ws_channel_package',targetKind:'bot',targetId:'bot_channel_package'}]}); service.gateway.createBot({schema_version:'1.0',id:'bot_channel_package',name:'Package Channel Bot',kind:'durable',status:'active',role:{title:'Channel Bot',mission:'Verify channel package surface'},runtime:{adapter:'deterministic'},execution:{environment_policy:'shared_workspace'},scope:{type:'workspace',workspace_id:'ws_channel_package'},permissions:{policy_ref:'default-bot',allowed_peers:['*']},coordination:{default_mode:'direct'}}); const a=await service.listen(); try { const base='http://127.0.0.1:'+a.port; const ingress=await (await fetch(base+'/v1/channels/telegram/ingress',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({accountId:'package_bot',adapterVerified:true,update:{update_id:1,message:{message_id:9,date:1800000000,chat:{id:7301},from:{id:3301},text:'package channel'}}})})).json(); const reply=service.gateway.sendMessage({senderId:'bot_channel_package',targetKind:'operator',targetId:ingress.actor_id,workspaceId:'ws_channel_package',text:'package reply',replyToMessageId:ingress.canonical_message_id}); const egress=await (await fetch(base+'/v1/channels/egress',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({bindingId:'package_telegram',messageId:reply.message.id})})).json(); console.log(JSON.stringify({provider:ingress.provider,binding:ingress.binding_id,target:ingress.target.id,recipient:egress.external_recipient_id,replyTo:egress.reply_to_external_message_id,method:egress.transport_command.method,channelOwnsTruth:egress.channel_owns_truth})); } finally { await service.close(); }`
+  ], { cwd: installDir }));
+  assert.equal(channelSmoke.provider, "ai-verse-multiple-bots/channel-bridge-v1");
+  assert.equal(channelSmoke.binding, "package_telegram");
+  assert.equal(channelSmoke.target, "bot_channel_package");
+  assert.equal(channelSmoke.recipient, "3301");
+  assert.equal(channelSmoke.replyTo, "9");
+  assert.equal(channelSmoke.method, "sendMessage");
+  assert.equal(channelSmoke.channelOwnsTruth, false);
 
   const standaloneConfigPath = join(setupStandaloneRoot, ".ai-verse-bots", "config.json");
   const standaloneReceiptPath = join(setupStandaloneRoot, ".ai-verse-bots", "install.json");
@@ -496,7 +510,8 @@ if (args[0] === "serve") {
     production_doctor_smoke: "passed",
     update_migration_smoke: "passed",
     secure_remote_gateway_smoke: "passed",
-    dashboard_projection_control_smoke: "passed"
+    dashboard_projection_control_smoke: "passed",
+    channel_bridge_smoke: "passed"
   }, null, 2));
 } finally {
   rmSync(tempRoot, { recursive: true, force: true });
