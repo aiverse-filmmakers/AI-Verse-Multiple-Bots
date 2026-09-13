@@ -28,7 +28,7 @@ export interface MultipleBotsSetupOptions {
 }
 
 export interface SetupNextStep {
-  id: "verify" | "start" | "create-bot";
+  id: "verify" | "start" | "starter-template";
   description: string;
   command: string;
 }
@@ -151,9 +151,9 @@ function standaloneNextSteps(root: string, dbPath: string): SetupNextStep[] {
       command: `ai-verse-multiple-bots standalone serve --root ${shellQuote(root)}`
     },
     {
-      id: "create-bot",
-      description: "Create a durable Bot when you are ready to define its real role. Phase 5.5 adds reusable starter templates.",
-      command: `ai-verse-multiple-bots bot create --id <bot-id> --name <name> --workspace <workspace-id> --role <role> --mission <mission> --db ${shellQuote(dbPath)}`
+      id: "starter-template",
+      description: "Browse reusable starter Bots/teams, then plan and explicitly apply one to the real workspace if it fits.",
+      command: `ai-verse-multiple-bots template list`
     }
   ];
 }
@@ -171,9 +171,9 @@ function osNextSteps(root: string, dbPath: string): SetupNextStep[] {
       command: `ai-verse-multiple-bots serve --os-root ${shellQuote(root)} --db ${shellQuote(dbPath)}`
     },
     {
-      id: "create-bot",
-      description: "Create a durable Bot only after choosing its real AI-Verse workspace and role. Phase 5.5 adds reusable starter templates.",
-      command: `ai-verse-multiple-bots bot create --id <bot-id> --name <name> --workspace <workspace-id> --role <role> --mission <mission> --db ${shellQuote(dbPath)}`
+      id: "starter-template",
+      description: "Browse reusable starter Bots/teams, then plan and explicitly apply one to the real AI-Verse workspace if it fits.",
+      command: `ai-verse-multiple-bots template list`
     }
   ];
 }
