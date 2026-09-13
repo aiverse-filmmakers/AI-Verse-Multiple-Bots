@@ -94,7 +94,7 @@ try {
   const init = JSON.parse(initOutput);
   assert.equal(init.ok, true);
   assert.equal(resolve(init.db), resolve(dbPath));
-  assert.equal(typeof init.schemaVersion, "number");
+  assert.equal(init.schemaVersion, "1");
 
   const doctorOutput = run(binPath, ["doctor", "--db", dbPath], { cwd: installDir });
   const doctor = JSON.parse(doctorOutput);
