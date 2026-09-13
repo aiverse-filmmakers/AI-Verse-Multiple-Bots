@@ -53,6 +53,7 @@ try {
     "README.md",
     "dist/src/cli.js",
     "dist/src/server.js",
+    "dist/src/standalone-install.js",
     "schemas/coordination-v1.schema.json",
     "templates/bot.yaml",
     "templates/room.yaml",
@@ -100,13 +101,41 @@ try {
   const doctor = JSON.parse(doctorOutput);
   assert.equal(doctor.ok, true);
 
+  const standaloneRoot = join(installDir, "standalone-project");
+  mkdirSync(standaloneRoot, { recursive: true });
+  const standaloneInitOutput = run(
+    binPath,
+    ["standalone", "init", "--root", standaloneRoot, "--port", "0"],
+    { cwd: installDir }
+  );
+  const standaloneInit = JSON.parse(standaloneInitOutput);
+  assert.equal(standaloneInit.ok, true);
+  assert.equal(standaloneInit.mode, "standalone");
+  assert.equal(standaloneInit.installation.status, "initialized");
+  assert.equal(existsSync(join(standaloneRoot, ".ai-verse-bots", "config.json")), true);
+  assert.equal(existsSync(join(standaloneRoot, ".ai-verse-bots", "runtime", "coordination.db")), true);
+  assert.equal(existsSync(join(standaloneRoot, "AI-VERSE.yaml")), false);
+  assert.equal(existsSync(join(standaloneRoot, "operator")), false);
+  assert.equal(existsSync(join(standaloneRoot, "workspaces")), false);
+
+  const standaloneDoctorOutput = run(
+    binPath,
+    ["standalone", "doctor", "--root", standaloneRoot],
+    { cwd: installDir }
+  );
+  const standaloneDoctor = JSON.parse(standaloneDoctorOutput);
+  assert.equal(standaloneDoctor.ok, true);
+  assert.equal(standaloneDoctor.mode, "standalone");
+  assert.equal(standaloneDoctor.schemaVersion, "1");
+
   console.log(JSON.stringify({
     ok: true,
     package: `${record.name}@${record.version}`,
     tarball: record.filename,
     packed_files: files.size,
     command: "ai-verse-multiple-bots",
-    install_smoke: "passed"
+    install_smoke: "passed",
+    standalone_install_smoke: "passed"
   }, null, 2));
 } finally {
   rmSync(tempRoot, { recursive: true, force: true });

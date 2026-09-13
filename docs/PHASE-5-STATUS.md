@@ -6,7 +6,7 @@
 
 **Overall status:** IN PROGRESS
 
-**Directional phase progress:** approximately 5%
+**Directional phase progress:** approximately 10%
 
 This file is the implementation ledger for Phase 5. The canonical product roadmap remains `BUILD-MAP.md`.
 
@@ -17,8 +17,8 @@ Turn the completed coordination, AI-Verse integration and runtime-interoperabili
 ## Slice status
 
 1. simple install command/package - **COMPLETE**
-2. standalone install mode - **NEXT**
-3. AI-Verse OS install mode - **NOT STARTED**
+2. standalone install mode - **COMPLETE**
+3. AI-Verse OS install mode - **NEXT**
 4. setup/onboarding flow - **NOT STARTED**
 5. Bot/team templates - **NOT STARTED**
 6. production health/doctor - **NOT STARTED**
@@ -72,17 +72,57 @@ The hardened implementation head `9a71934528d90d9813dc527c6c2499b4d5abdeea` pass
 
 This proves the package artifact itself is installable. It does **not** claim that version `0.1.0-alpha.1` has already been published to the public npm registry. Registry publication is a release operation, not an implementation fact.
 
+## Slice 5.2 - standalone install mode
+
+**Implementation status:** COMPLETE
+
+Phase 5.2 turns the package surface into a real host-neutral standalone installation without inventing AI-Verse OS state.
+
+Implemented:
+
+- canonical standalone home at `.ai-verse-bots/`
+- standalone config schema `1.0`
+- fixed internal coordination database at `.ai-verse-bots/runtime/coordination.db`
+- loopback Gateway defaults at `127.0.0.1:8787`
+- `standalone init`
+- `standalone doctor`
+- `standalone serve`
+- explicit `--root`, initial `--host` and initial `--port` support
+- ancestor discovery for existing standalone installations
+- idempotent, byte-stable re-initialization
+- explicit mismatch failure instead of silent config rewrite
+- malformed/unsupported config rejection
+- symlink/path traversal rejection for standalone-owned config/runtime state
+- doctor behavior that reports missing installs without creating them
+- standalone Gateway startup with no AI-Verse OS root
+- verification that AI-Verse-native Brain, Memory, Skills, Automations, workspace projection and OS write-command sources remain detached
+- installed-package standalone init/doctor smoke verification
+- no AI-Verse OS manifests, operator/workspace folders or extension registry created
+
+### 5.2 acceptance proof
+
+The implementation head `d1baf0daee3bb03f5d4ead0d484c7145831e00fd` passed GitHub Actions **CI run 495 (`34766373647`)**:
+
+- full repository suite: **426/426 tests passed**
+- Phase 4 compatibility suite: **5/5 tests passed**
+- package build/pack/install smoke: **passed**
+- installed-package standalone smoke: **passed**
+- packed artifact: **175 files**
+- **0 failures, 0 canceled and 0 skipped**
+
+See `docs/STANDALONE-INSTALL.md`.
+
 ## Ownership boundary
 
 Phase 5.1 intentionally does not choose or configure an operating mode during npm installation.
 
-- standalone configuration belongs to Phase 5.2
+- standalone configuration is implemented by Phase 5.2
 - AI-Verse OS installation/attachment belongs to Phase 5.3
 - onboarding belongs to Phase 5.4
 - npm installation itself has no hidden host mutations
 
 ## Next gate
 
-**Phase 5.2 - standalone install mode.**
+**Phase 5.3 - AI-Verse OS install mode.**
 
-Phase 5.1 is complete. The next task is to define and implement a clean standalone installation/configuration lifecycle using the package surface established here.
+Phase 5.2 is complete. The next task is to materialize and attach the installed package to a compatible AI-Verse OS host through the existing safe registration contract, without duplicating canonical OS state.
