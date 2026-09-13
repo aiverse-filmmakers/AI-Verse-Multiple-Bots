@@ -61,7 +61,7 @@ The current standalone config schema is:
 
 The coordination database path is intentionally fixed inside `.ai-verse-bots/` so a standalone config cannot redirect canonical coordination state outside its own home.
 
-The default bind address is loopback-only. Secure remote exposure belongs to Phase 5.8 and is not implied by standalone installation.
+The default bind address is loopback-only. Phase 5.8 preserves that law and adds remote access through a separate authenticated Tailscale Serve HTTPS transport. Standalone configuration itself never stores a remote bind or remote credential.
 
 ## Commands
 
@@ -122,6 +122,8 @@ Re-running initialization against an already compatible installation is byte-sta
 
 If an explicit host or port conflicts with an existing config, initialization fails instead of silently rewriting the installation.
 
+A non-loopback host is rejected with `DIRECT_REMOTE_BIND_FORBIDDEN`. Use `ai-verse-multiple-bots remote plan|serve` for remote access.
+
 ## Safety law
 
 Standalone config and state fail closed when:
@@ -167,8 +169,7 @@ Phase 5.2 does not implement:
 - onboarding/wizard UX;
 - Bot/team starter templates;
 - production service manager installation;
-- remote authentication or public-network binding;
-- Dashboard/channel integration;
-- secure remote/public Gateway exposure.
+- public-internet Funnel exposure;
+- Dashboard/channel integration.
 
-Phase 5.7 now owns update/adoption and migration-required detection. See `UPDATE-MIGRATION-STRATEGY.md`.
+Phase 5.7 owns update/adoption and migration-required detection. Phase 5.8 owns authenticated tailnet-only remote Gateway exposure while keeping standalone configuration loopback-only. See `UPDATE-MIGRATION-STRATEGY.md` and `SECURE-REMOTE-GATEWAY.md`.

@@ -25,6 +25,14 @@ import {
 import { FourCsHealthProjector } from "./four-cs-health.js";
 import { HermesStdioRuntimeAdapter } from "./hermes-runtime.js";
 import { CoordinationGateway, type ApprovalRequirement } from "./gateway.js";
+import {
+  DEFAULT_GATEWAY_MAX_BODY_BYTES,
+  GatewaySecurityError,
+  assertLoopbackGatewayHost,
+  authorizeGatewayRequest,
+  gatewaySecurityHeaders,
+  type GatewayInboundAuth
+} from "./gateway-security.js";
 import { MemoryRecallRuntimeRegistry } from "./memory-recall-runtime.js";
 import { OpenAICompatibleRuntimeAdapter } from "./openai-compatible-runtime.js";
 import { OpenClawAgentExecRuntimeAdapter } from "./openclaw-runtime.js";
@@ -61,26 +69,45 @@ export interface GatewayServerOptions {
   remoteMachines?: RemoteMachineIdentity[];
   remoteAuthenticators?: RemoteHttpAuthenticator[];
   remoteLeaseProviders?: RemoteLeaseProvider[];
+  inboundAuth?: GatewayInboundAuth;
+  maxBodyBytes?: number;
 }
 
-async function readJson(req: any): Promise<JsonObject> {
+async function readJson(req: any, maxBytes = DEFAULT_GATEWAY_MAX_BODY_BYTES): Promise<JsonObject> {
   const chunks: string[] = [];
-  for await (const chunk of req) chunks.push(String(chunk));
+  let size = 0;
+  for await (const chunk of req) {
+    const text = String(chunk);
+    size += typeof chunk?.length === "number" ? Number(chunk.length) : text.length;
+    if (size > maxBytes) {
+      throw new GatewaySecurityError(
+        "REQUEST_BODY_TOO_LARGE",
+        `JSON request body exceeds the ${maxBytes}-byte Gateway limit`,
+        413
+      );
+    }
+    chunks.push(text);
+  }
   if (chunks.length === 0) return {};
   return JSON.parse(chunks.join("")) as JsonObject;
 }
 
-function json(res: any, status: number, body: unknown): void {
+function json(res: any, status: number, body: unknown, headers: Record<string, string> = {}): void {
   res.writeHead(status, {
     "content-type": "application/json; charset=utf-8",
-    "cache-control": "no-store"
+    ...gatewaySecurityHeaders(),
+    ...headers
   });
   res.end(JSON.stringify(body));
 }
 
 function errorResponse(res: any, error: unknown): void {
   const message = error instanceof Error ? error.message : String(error);
-  json(res, 400, { error: "BAD_REQUEST", message });
+  const securityError = error instanceof GatewaySecurityError ? error : null;
+  json(res, securityError?.status ?? 400, {
+    error: securityError?.code ?? "BAD_REQUEST",
+    message
+  });
 }
 
 function requiredString(body: JsonObject, key: string): string {
@@ -128,6 +155,14 @@ function optionalStringArray(value: unknown, key: string): string[] | undefined 
 }
 
 export function createGatewayServer(options: GatewayServerOptions = {}) {
+  const configuredHost = assertLoopbackGatewayHost(options.host ?? "127.0.0.1");
+  const maxBodyBytes = options.maxBodyBytes ?? DEFAULT_GATEWAY_MAX_BODY_BYTES;
+  if (!Number.isInteger(maxBodyBytes) || maxBodyBytes < 1024 || maxBodyBytes > 16 * 1024 * 1024) {
+    throw new GatewaySecurityError(
+      "INVALID_GATEWAY_BODY_LIMIT",
+      "Gateway maxBodyBytes must be an integer between 1024 and 16777216"
+    );
+  }
   const workspaceProjector = options.aiVerseOsRoot ? new AiVerseOsWorkspaceProjector(options.aiVerseOsRoot) : undefined;
   const brainObjectiveSource = options.aiVerseOsRoot ? new AiVerseBrainObjectiveSource(options.aiVerseOsRoot) : undefined;
   const memoryRecallSource = options.aiVerseOsRoot ? new AiVerseMemoryRecallSource(options.aiVerseOsRoot) : undefined;
@@ -209,8 +244,18 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
   const remoteRecoveryTimer = setInterval(reconcileRemoteRevocations, 5_000);
 
   const server = createServer(async (req: any, res: any) => {
-    const url = new URL(req.url ?? "/", `http://${req.headers?.host ?? "127.0.0.1"}`);
+    const url = new URL(req.url ?? "/", "http://gateway.local");
     const method = String(req.method ?? "GET").toUpperCase();
+
+    if (!authorizeGatewayRequest(req.headers?.authorization, options.inboundAuth)) {
+      json(
+        res,
+        401,
+        { error: "UNAUTHORIZED", message: "A valid Gateway bearer token is required" },
+        { "www-authenticate": 'Bearer realm="ai-verse-multiple-bots"' }
+      );
+      return;
+    }
 
     try {
       if (method === "GET" && url.pathname === "/health") {
@@ -244,7 +289,7 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
       }
 
       if (method === "POST" && url.pathname === "/v1/bots") {
-        const body = await readJson(req);
+        const body = await readJson(req, maxBodyBytes);
         json(res, 201, gateway.createBot(body as BotManifest));
         return;
       }
@@ -269,7 +314,7 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
 
       const botExternalRebindMatch = url.pathname.match(/^\/v1\/bots\/([^/]+)\/external-managed\/rebind$/);
       if (method === "POST" && botExternalRebindMatch) {
-        const body = await readJson(req);
+        const body = await readJson(req, maxBodyBytes);
         json(res, 200, gateway.rebindExternalManagedBot(
           decodeURIComponent(botExternalRebindMatch[1] as string),
           {
@@ -284,7 +329,7 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
 
       const botLifecycleMatch = url.pathname.match(/^\/v1\/bots\/([^/]+)\/(activate|disable|archive)$/);
       if (method === "POST" && botLifecycleMatch) {
-        const body = await readJson(req);
+        const body = await readJson(req, maxBodyBytes);
         const botId = decodeURIComponent(botLifecycleMatch[1] as string);
         const action = botLifecycleMatch[2] as "activate" | "disable" | "archive";
         const targetStatus = action === "activate" ? "active" : action === "disable" ? "disabled" : "archived";
@@ -324,7 +369,7 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
 
       if (method === "POST" && url.pathname === "/v1/brain/objectives/ingest") {
         if (!brainIngress) throw new Error("Brain objective ingress requires native AI-Verse OS mode via serve --os-root PATH");
-        const body = await readJson(req);
+        const body = await readJson(req, maxBodyBytes);
         const result = brainIngress.ingest({
           leaderId: requiredString(body, "leaderId"),
           workspaceId: requiredString(body, "workspaceId"),
@@ -347,7 +392,7 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
 
       if (method === "POST" && url.pathname === "/v1/automations/invoke") {
         if (!automationIngress) throw new Error("Automation invocation ingress requires native AI-Verse OS mode via serve --os-root PATH");
-        const body = await readJson(req);
+        const body = await readJson(req, maxBodyBytes);
         const source = typeof body.source === "object" && body.source !== null && !Array.isArray(body.source)
           ? body.source as JsonObject
           : {};
@@ -400,7 +445,7 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
 
       if (method === "POST" && url.pathname === "/v1/candidates/write-back") {
         if (!candidateWritebacks) throw new Error("Candidate write-back requires native AI-Verse OS mode via serve --os-root PATH");
-        const body = await readJson(req);
+        const body = await readJson(req, maxBodyBytes);
         if (typeof body.content !== "object" || body.content === null || Array.isArray(body.content)) {
           throw new Error("content must be an object");
         }
@@ -426,7 +471,7 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
 
       if (method === "POST" && url.pathname === "/v1/os/write-commands") {
         if (!osWriteCommands) throw new Error("OS write-command boundary requires native AI-Verse OS mode via serve --os-root PATH");
-        const body = await readJson(req);
+        const body = await readJson(req, maxBodyBytes);
         const provenance = typeof body.provenance === "object" && body.provenance !== null && !Array.isArray(body.provenance)
           ? body.provenance as JsonObject
           : undefined;
@@ -456,7 +501,7 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
       }
 
       if (method === "POST" && url.pathname === "/v1/rooms") {
-        const body = await readJson(req);
+        const body = await readJson(req, maxBodyBytes);
         const name = requiredString(body, "name");
         const workspaceId = requiredString(body, "workspaceId");
         if (!Array.isArray(body.memberIds) || body.memberIds.length === 0) throw new Error("memberIds must be a non-empty array");
@@ -488,7 +533,7 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
 
       const roomMessageMatch = url.pathname.match(/^\/v1\/rooms\/([^/]+)\/messages$/);
       if (method === "POST" && roomMessageMatch) {
-        const body = await readJson(req);
+        const body = await readJson(req, maxBodyBytes);
         const result = rooms.sendMessage({
           roomId: decodeURIComponent(roomMessageMatch[1] as string),
           senderId: requiredString(body, "senderId"),
@@ -504,7 +549,7 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
 
       const roomThreadMatch = url.pathname.match(/^\/v1\/rooms\/([^/]+)\/threads$/);
       if (method === "POST" && roomThreadMatch) {
-        const body = await readJson(req);
+        const body = await readJson(req, maxBodyBytes);
         const thread = rooms.createThread(
           decodeURIComponent(roomThreadMatch[1] as string),
           requiredString(body, "parentMessageId"),
@@ -516,7 +561,7 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
 
       const roomPassMatch = url.pathname.match(/^\/v1\/rooms\/([^/]+)\/pass$/);
       if (method === "POST" && roomPassMatch) {
-        const body = await readJson(req);
+        const body = await readJson(req, maxBodyBytes);
         const event = rooms.pass(
           decodeURIComponent(roomPassMatch[1] as string),
           requiredString(body, "botId"),
@@ -529,7 +574,7 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
 
       const roomOwnerMatch = url.pathname.match(/^\/v1\/rooms\/([^/]+)\/work-owner$/);
       if (method === "POST" && roomOwnerMatch) {
-        const body = await readJson(req);
+        const body = await readJson(req, maxBodyBytes);
         const room = rooms.setWorkOwner({
           roomId: decodeURIComponent(roomOwnerMatch[1] as string),
           actorId: requiredString(body, "actorId"),
@@ -564,7 +609,7 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
 
       const approvalApproveMatch = url.pathname.match(/^\/v1\/approvals\/([^/]+)\/approve$/);
       if (method === "POST" && approvalApproveMatch) {
-        const body = await readJson(req);
+        const body = await readJson(req, maxBodyBytes);
         json(res, 200, gateway.approve(
           decodeURIComponent(approvalApproveMatch[1] as string),
           requiredString(body, "actorId")
@@ -574,7 +619,7 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
 
       const approvalDenyMatch = url.pathname.match(/^\/v1\/approvals\/([^/]+)\/deny$/);
       if (method === "POST" && approvalDenyMatch) {
-        const body = await readJson(req);
+        const body = await readJson(req, maxBodyBytes);
         json(res, 200, gateway.rejectApproval(
           decodeURIComponent(approvalDenyMatch[1] as string),
           requiredString(body, "actorId"),
@@ -585,7 +630,7 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
 
       const taskCancelMatch = url.pathname.match(/^\/v1\/tasks\/([^/]+)\/cancel$/);
       if (method === "POST" && taskCancelMatch) {
-        const body = await readJson(req);
+        const body = await readJson(req, maxBodyBytes);
         const result = await runner.cancelTask(
           decodeURIComponent(taskCancelMatch[1] as string),
           requiredString(body, "actorId"),
@@ -597,7 +642,7 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
 
       const taskRetryMatch = url.pathname.match(/^\/v1\/tasks\/([^/]+)\/retry$/);
       if (method === "POST" && taskRetryMatch) {
-        const body = await readJson(req);
+        const body = await readJson(req, maxBodyBytes);
         const result = supervisor.retryDeadLetter(
           decodeURIComponent(taskRetryMatch[1] as string),
           requiredString(body, "actorId"),
@@ -608,7 +653,7 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
       }
 
       if (method === "POST" && url.pathname === "/v1/delegations") {
-        const body = await readJson(req);
+        const body = await readJson(req, maxBodyBytes);
         const result = delegateWithArtifacts(gateway, {
           createdBy: requiredString(body, "createdBy"),
           assigneeId: requiredString(body, "assigneeId"),
@@ -643,7 +688,7 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
       }
 
       if (method === "POST" && url.pathname === "/v1/handoffs") {
-        const body = await readJson(req);
+        const body = await readJson(req, maxBodyBytes);
         json(res, 201, gateway.requestHandoff({
           sourceOwnerId: requiredString(body, "sourceOwnerId"),
           targetOwnerId: requiredString(body, "targetOwnerId"),
@@ -660,7 +705,7 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
 
       const handoffAcceptMatch = url.pathname.match(/^\/v1\/handoffs\/([^/]+)\/accept$/);
       if (method === "POST" && handoffAcceptMatch) {
-        const body = await readJson(req);
+        const body = await readJson(req, maxBodyBytes);
         json(res, 200, gateway.acceptHandoff(
           decodeURIComponent(handoffAcceptMatch[1] as string),
           requiredString(body, "actorId")
@@ -670,7 +715,7 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
 
       const handoffRejectMatch = url.pathname.match(/^\/v1\/handoffs\/([^/]+)\/reject$/);
       if (method === "POST" && handoffRejectMatch) {
-        const body = await readJson(req);
+        const body = await readJson(req, maxBodyBytes);
         json(res, 200, gateway.rejectHandoff(
           decodeURIComponent(handoffRejectMatch[1] as string),
           requiredString(body, "actorId"),
@@ -680,7 +725,7 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
       }
 
       if (method === "POST" && url.pathname === "/v1/messages") {
-        const body = await readJson(req);
+        const body = await readJson(req, maxBodyBytes);
         const result = gateway.sendMessage({
           senderId: requiredString(body, "senderId"),
           targetKind: requiredString(body, "targetKind") as any,
@@ -713,6 +758,7 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
         const after = Number(url.searchParams.get("after") ?? "0");
         res.writeHead(200, {
           "content-type": "text/event-stream",
+          ...gatewaySecurityHeaders(),
           "cache-control": "no-cache",
           "connection": "keep-alive"
         });
@@ -761,7 +807,7 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
     recovery: supervisor.recovery,
     server,
     listen(): Promise<{ host: string; port: number }> {
-      const host = options.host ?? "127.0.0.1";
+      const host = configuredHost;
       const port = options.port ?? 0;
       return new Promise((resolve, reject) => {
         server.once("error", reject);

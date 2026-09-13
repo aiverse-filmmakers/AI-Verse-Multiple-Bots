@@ -21,6 +21,7 @@ import {
   updateAiVerseOsProduct
 } from "./ai-verse-os-update.js";
 import { CoordinationGateway } from "./gateway.js";
+import { GatewaySecurityError } from "./gateway-security.js";
 import { CoordinationStore } from "./store.js";
 import {
   doctorProduction,
@@ -31,6 +32,11 @@ import {
   setupModeHelp,
   setupMultipleBots
 } from "./setup.js";
+import {
+  SecureRemoteGatewayError,
+  planSecureRemoteGateway,
+  startSecureRemoteGateway
+} from "./secure-remote-gateway.js";
 import { createGatewayServer } from "./server.js";
 import {
   StandaloneInstallError,
@@ -133,6 +139,17 @@ function reportTemplateError(error: unknown): void {
   console.error(JSON.stringify({
     ok: false,
     code: templateError?.code ?? "TEMPLATE_ERROR",
+    error: error instanceof Error ? error.message : String(error)
+  }, null, 2));
+  process.exitCode = 1;
+}
+
+function reportRemoteError(error: unknown): void {
+  const remoteError = error instanceof SecureRemoteGatewayError ? error : null;
+  const securityError = error instanceof GatewaySecurityError ? error : null;
+  console.error(JSON.stringify({
+    ok: false,
+    code: remoteError?.code ?? securityError?.code ?? "REMOTE_GATEWAY_ERROR",
     error: error instanceof Error ? error.message : String(error)
   }, null, 2));
   process.exitCode = 1;
@@ -247,6 +264,47 @@ if (args[0] === "status" || args[0] === "doctor") {
   } catch (error) {
     reportSetupError(error);
   }
+} else if (args[0] === "remote") {
+  try {
+    const httpsPort = flag("https-port");
+    const localPort = flag("local-port");
+    const remoteOptions = {
+      ...(flag("mode") !== undefined ? { mode: flag("mode") } : {}),
+      ...(flag("root") !== undefined ? { root: flag("root") } : {}),
+      ...(flag("auth-env") !== undefined ? { authEnv: flag("auth-env") } : {}),
+      ...(httpsPort !== undefined ? { httpsPort: Number(httpsPort) } : {}),
+      ...(localPort !== undefined ? { localPort: Number(localPort) } : {}),
+      ...(flag("tailscale-bin") !== undefined ? { tailscaleBin: flag("tailscale-bin") } : {}),
+      cwd: process.cwd(),
+      env: process.env as Record<string, string | undefined>
+    };
+    if (args[1] === "plan") {
+      const plan = planSecureRemoteGateway(remoteOptions);
+      console.log(JSON.stringify({ ok: plan.can_start, remote: plan }, null, 2));
+      if (!plan.can_start) process.exitCode = 1;
+    } else if (args[1] === "serve") {
+      const runtime = await startSecureRemoteGateway(remoteOptions);
+      console.log(JSON.stringify({
+        ok: true,
+        mode: runtime.plan.mode,
+        root: runtime.plan.root,
+        database: runtime.plan.database,
+        local_gateway: runtime.local.url,
+        remote_gateway: runtime.remote.url,
+        transport: runtime.remote.provider,
+        auth: {
+          mode: "bearer",
+          env_name: runtime.remote.auth_env
+        }
+      }, null, 2));
+      process.on("SIGINT", async () => { await runtime.close(); process.exit(0); });
+      process.on("SIGTERM", async () => { await runtime.close(); process.exit(0); });
+    } else {
+      usage();
+    }
+  } catch (error) {
+    reportRemoteError(error);
+  }
 } else if (args[0] === "update-plan" || args[0] === "update") {
   try {
     const options = {
@@ -320,24 +378,29 @@ if (args[0] === "status" || args[0] === "doctor") {
     reportStandaloneError(error);
   }
 } else if (args[0] === "serve") {
-  const host = flag("host") ?? "127.0.0.1";
-  const port = Number(flag("port") ?? "8787");
-  const osRoot = flag("os-root");
-  const service = createGatewayServer({
-    host,
-    port,
-    dbPath: resolve(dbPath),
-    ...(osRoot ? { aiVerseOsRoot: resolve(osRoot) } : {})
-  });
-  const address = await service.listen();
-  console.log(JSON.stringify({
-    ok: true,
-    gateway: `http://${address.host}:${address.port}`,
-    db: service.store.dbPath,
-    ai_verse_os_root: osRoot ? resolve(osRoot) : null
-  }, null, 2));
-  process.on("SIGINT", async () => { await service.close(); process.exit(0); });
-  process.on("SIGTERM", async () => { await service.close(); process.exit(0); });
+  try {
+    const host = flag("host") ?? "127.0.0.1";
+    const port = Number(flag("port") ?? "8787");
+    const osRoot = flag("os-root");
+    const service = createGatewayServer({
+      host,
+      port,
+      dbPath: resolve(dbPath),
+      ...(osRoot ? { aiVerseOsRoot: resolve(osRoot) } : {})
+    });
+    const address = await service.listen();
+    console.log(JSON.stringify({
+      ok: true,
+      gateway: `http://${address.host}:${address.port}`,
+      db: service.store.dbPath,
+      ai_verse_os_root: osRoot ? resolve(osRoot) : null,
+      exposure: "loopback-only"
+    }, null, 2));
+    process.on("SIGINT", async () => { await service.close(); process.exit(0); });
+    process.on("SIGTERM", async () => { await service.close(); process.exit(0); });
+  } catch (error) {
+    reportRemoteError(error);
+  }
 } else if (args[0] === "os") {
   const root = requestedOsRoot();
   try {

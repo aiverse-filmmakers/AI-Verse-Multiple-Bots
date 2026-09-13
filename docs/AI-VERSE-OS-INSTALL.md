@@ -156,6 +156,19 @@ Re-running `os install` against a current healthy installation:
 - does not recreate the coordination database;
 - returns `status: "unchanged"`.
 
+## Secure remote Gateway
+
+Phase 5.8 can expose the installed OS-attached Gateway through the same secure remote boundary:
+
+```bash
+ai-verse-multiple-bots remote plan --mode os --root /path/to/AI-Verse-OS
+ai-verse-multiple-bots remote serve --mode os --root /path/to/AI-Verse-OS
+```
+
+The local Gateway remains on loopback and uses the existing `runtime/ai-verse-bots/coordination.db`. Remote transport does not rewrite the extension registry or canonical operator/workspace state. Tailscale Serve provides tailnet-only HTTPS and the Gateway still requires environment-sourced bearer authentication.
+
+See `SECURE-REMOTE-GATEWAY.md`.
+
 ## Phase boundary
 
 Phase 5.3 does not implement:
@@ -165,7 +178,6 @@ Phase 5.3 does not implement:
 - production service-manager installation;
 - public/remote Gateway exposure;
 - cross-component release rollback;
-- secure remote/public Gateway exposure;
 - Dashboard or channel clients.
 
 Component update/migration strategy is implemented by Phase 5.7; release-set rollback remains owned by AI-Verse Distribution.

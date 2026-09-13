@@ -24,9 +24,9 @@ The target experience is inspired most strongly by xAI's Grok Bot persistent-tea
 
 **Phase 4: Runtime and Agent Interoperability: COMPLETE**
 
-**Phase 5: Product, Installer, Omnichannel and Dashboard: IN PROGRESS (~35%)**
+**Phase 5: Product, Installer, Omnichannel and Dashboard: IN PROGRESS (~40%)**
 
-Phase 5.1 provides the installable package surface, Phase 5.2 standalone mode, Phase 5.3 AI-Verse OS installation, Phase 5.4 setup/onboarding, Phase 5.5 reusable Bot/team templates, Phase 5.6 truthful production health/doctor, and Phase 5.7 safe update/migration strategy. The current verified implementation gate passes **467/467 repository tests**, **5/5 Phase 4 compatibility evaluations**, all install/setup/runtime/template/doctor smokes, and the installed-package update/migration smoke. Phase 5.8 secure remote Gateway is next.
+Phase 5.1 provides the installable package surface, Phase 5.2 standalone mode, Phase 5.3 AI-Verse OS installation, Phase 5.4 setup/onboarding, Phase 5.5 reusable Bot/team templates, Phase 5.6 truthful production health/doctor, Phase 5.7 safe update/migration strategy, and Phase 5.8 secure remote Gateway access. The current verified implementation gate passes **471/471 repository tests**, **5/5 Phase 4 compatibility evaluations**, all prior package smokes, and the installed-package secure-remote Gateway smoke. Phase 5.9 Dashboard projections/control endpoints is next.
 
 ## Install
 
@@ -120,6 +120,40 @@ ai-verse-multiple-bots serve \
 ```
 
 Setup also returns the exact resolved commands/paths for the selected installation. Durable Bot/team creation remains explicit.
+
+## Secure remote Gateway
+
+Normal Gateway listeners remain loopback-only. Direct non-loopback HTTP binds such as `--host 0.0.0.0` are rejected.
+
+For secure remote access, first configure a bearer secret in the process environment:
+
+```bash
+export AI_VERSE_GATEWAY_TOKEN="$(openssl rand -hex 32)"
+```
+
+Read-only preflight:
+
+```bash
+ai-verse-multiple-bots remote plan --mode standalone --root /path/to/project
+```
+
+Managed tailnet-only HTTPS access:
+
+```bash
+ai-verse-multiple-bots remote serve --mode standalone --root /path/to/project
+```
+
+AI-Verse OS uses the same boundary:
+
+```bash
+ai-verse-multiple-bots remote serve --mode os --root /path/to/AI-Verse-OS
+```
+
+The managed provider is Tailscale Serve. It requires an active connected tailnet, keeps the actual Gateway on `127.0.0.1`, terminates HTTPS through Tailscale, and still requires the bearer token on every Gateway route. The token is referenced by environment-variable name only and is never written to project/OS configuration or printed by the remote plan.
+
+Phase 5.8 intentionally does not enable public Tailscale Funnel exposure.
+
+See [`docs/SECURE-REMOTE-GATEWAY.md`](docs/SECURE-REMOTE-GATEWAY.md).
 
 ## Starter Bot and team templates
 
@@ -766,6 +800,7 @@ Therefore the system selects the **smallest sufficient topology** and keeps mult
 - [`docs/BOT-TEAM-TEMPLATES.md`](docs/BOT-TEAM-TEMPLATES.md) - Phase 5.5 reusable starter Bot/team template contract
 - [`docs/PRODUCTION-HEALTH-DOCTOR.md`](docs/PRODUCTION-HEALTH-DOCTOR.md) - Phase 5.6 truthful production readiness contract
 - [`docs/UPDATE-MIGRATION-STRATEGY.md`](docs/UPDATE-MIGRATION-STRATEGY.md) - Phase 5.7 update, migration and preservation contract
+- [`docs/SECURE-REMOTE-GATEWAY.md`](docs/SECURE-REMOTE-GATEWAY.md) - Phase 5.8 authenticated tailnet-only remote Gateway contract
 - [`docs/AI-VERSE-OS-REGISTRATION-CONTRACT.md`](docs/AI-VERSE-OS-REGISTRATION-CONTRACT.md) - Phase 3.1 host contract
 - [`docs/AI-VERSE-BRAIN-OBJECTIVE-INGRESS.md`](docs/AI-VERSE-BRAIN-OBJECTIVE-INGRESS.md) - Phase 3.3 Brain ingress contract
 - [`docs/AI-VERSE-MEMORY-RECALL.md`](docs/AI-VERSE-MEMORY-RECALL.md) - Phase 3.4 Memory recall contract
@@ -787,7 +822,7 @@ Contracts are tightened through implementation/evaluation rather than treated as
 
 Phases 0 through 4 are complete. Phase 5 is in progress.
 
-Phase 5.1 package installation, Phase 5.2 standalone mode, Phase 5.3 AI-Verse OS install mode, Phase 5.4 setup/onboarding, Phase 5.5 Bot/team templates, Phase 5.6 production health/doctor, and Phase 5.7 update/migration strategy are complete. Remaining productization work starts with secure remote Gateway access, followed by Dashboard/channel surfaces, observability, release documentation and the final release acceptance suite.
+Phase 5.1 package installation, Phase 5.2 standalone mode, Phase 5.3 AI-Verse OS install mode, Phase 5.4 setup/onboarding, Phase 5.5 Bot/team templates, Phase 5.6 production health/doctor, Phase 5.7 update/migration strategy, and Phase 5.8 secure remote Gateway are complete. Remaining productization work starts with Dashboard projections/control endpoints, followed by channel surfaces, operator attention UX, observability, release documentation and the final release acceptance suite.
 
 The visual Bot roster belongs in AI-Verse Dashboard. Multiple Bots remains the backend coordination authority for Bot identity, routing, Tasks, Handoffs, Rooms, Team Runs and runtime orchestration.
 
