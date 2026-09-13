@@ -13,6 +13,7 @@ import {
   standaloneReceiptPath,
   writeStandaloneReceipt
 } from "./standalone-receipt.js";
+import { isLoopbackHost } from "./gateway-security.js";
 import { CoordinationStore } from "./store.js";
 
 export const STANDALONE_HOME_DIRECTORY = ".ai-verse-bots";
@@ -99,10 +100,17 @@ function assertPort(port: number): number {
 }
 
 function assertHost(host: string): string {
-  if (!host.trim()) {
+  const value = host.trim();
+  if (!value) {
     throw new StandaloneInstallError("INVALID_STANDALONE_HOST", "Standalone gateway host must be a non-empty string");
   }
-  return host;
+  if (!isLoopbackHost(value)) {
+    throw new StandaloneInstallError(
+      "DIRECT_REMOTE_BIND_FORBIDDEN",
+      "Standalone Gateway must stay on loopback. Use 'remote serve' for authenticated HTTPS remote access."
+    );
+  }
+  return value;
 }
 
 function assertRootDirectory(root: string, create: boolean): void {
