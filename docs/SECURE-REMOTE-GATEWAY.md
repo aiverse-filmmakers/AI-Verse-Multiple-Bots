@@ -213,7 +213,7 @@ Request routing uses a fixed internal URL base.
 
 Phase 5.8 does not enable browser CORS.
 
-Dashboard browser-origin policy belongs with the Dashboard/control surface in Phase 5.9 rather than being silently opened here.
+Phase 5.9 adds Dashboard projection/control routes, but does not silently open browser CORS. Those routes inherit the same loopback or managed bearer-authenticated remote Gateway boundary.
 
 ## Standalone mode
 
@@ -326,11 +326,10 @@ The hardened implementation head `96eef0e3ad65aa9b456dab18f679566d0c6eea69` also
 
 Phase 5.8 does not implement:
 
-- Dashboard projections/control endpoints;
 - browser CORS policy for Dashboard;
 - Telegram/Discord/webhook channel ingress;
 - public Funnel exposure;
 - operator attention UI;
 - observability/usage views.
 
-Dashboard projections/control endpoints are Phase 5.9.
+Dashboard projections/control endpoints are implemented by Phase 5.9 and inherit this transport/authentication boundary.

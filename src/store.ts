@@ -264,6 +264,22 @@ export class CoordinationStore {
     return rows.map((row) => this.rowToEvent(row));
   }
 
+  latestEventSequence(): number {
+    const row = this.db.prepare("SELECT COALESCE(MAX(sequence), 0) AS sequence FROM events").get() as { sequence: number | bigint } | undefined;
+    return Number(row?.sequence ?? 0);
+  }
+
+  listWorkspaceEventsAfter(workspaceId: string, sequence = 0, limit = 100): AppendedEvent[] {
+    const bounded = Math.max(1, Math.min(Math.floor(limit), 1000));
+    const rows = this.db.prepare(`
+      SELECT sequence, room_sequence, payload FROM events
+      WHERE workspace_id = ? AND sequence > ?
+      ORDER BY sequence
+      LIMIT ?
+    `).all(workspaceId, sequence, bounded) as any[];
+    return rows.map((row) => this.rowToEvent(row));
+  }
+
   listRoomEvents(roomId: string, afterRoomSequence = 0, limit = 100, threadId?: string): AppendedEvent[] {
     let sql = `
       SELECT sequence, room_sequence, payload FROM events

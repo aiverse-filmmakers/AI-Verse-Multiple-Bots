@@ -18,7 +18,7 @@ Phase 1  Runnable Coordination Core     [COMPLETE]    100%
 Phase 2  Dynamic Multi-Agent Squads     [COMPLETE]    100%
 Phase 3  AI-Verse Native Integration    [COMPLETE]    100%
 Phase 4  Runtime / A2A Interoperability [COMPLETE]    100%
-Phase 5  Product + Install + Dashboard  [IN PROGRESS] ~40%
+Phase 5  Product + Install + Dashboard  [IN PROGRESS] ~45%
 ```
 
 **Directional overall first-release progress:** roughly 95% complete.
@@ -793,8 +793,8 @@ Remaining major slices:
 6. production health/doctor - **COMPLETE**
 7. upgrade/migration strategy - **COMPLETE**
 8. secure remote Gateway option - **COMPLETE**
-9. Dashboard projections/control endpoints - **NEXT**
-10. Telegram/Discord/other channel bridge contracts - **NOT STARTED**
+9. Dashboard projections/control endpoints - **COMPLETE**
+10. Telegram/Discord/other channel bridge contracts - **NEXT**
 11. operator approvals/attention UX - **NOT STARTED**
 12. observability/usage views - **NOT STARTED**
 13. release docs/examples - **NOT STARTED**
@@ -962,6 +962,27 @@ Implemented:
 
 See `docs/SECURE-REMOTE-GATEWAY.md` and `docs/PHASE-5-STATUS.md`.
 
+### Phase 5.9 - Dashboard projections/control endpoints
+
+Implemented:
+
+- versioned workspace-scoped Dashboard snapshot
+- workspace-scoped event replay and SSE stream
+- Dashboard capability discovery
+- compact Bot/Task/Run/Room/Approval/Artifact/attention projections
+- operator-only bounded control endpoint
+- exact cross-workspace rejection
+- canonical Bot lifecycle routing
+- canonical Approval decision routing
+- canonical Task cancel/retry routing
+- canonical Team Run cancellation routing
+- no Dashboard-owned truth or mutation store
+- installed-package Dashboard projection/control acceptance smoke
+
+**Verified implementation gate:** GitHub Actions CI run 570 (`34782101256`) passed **476/476 repository tests**, **5/5 Phase 4 evaluations**, all existing package/install/setup/template/runtime/doctor/update/remote smokes and the installed-package Dashboard projection/control smoke at head `122616d2b9aff059a24d16c5f30944b441d3c897`.
+
+See `docs/DASHBOARD-PROJECTION-CONTROL.md` and `docs/PHASE-5-STATUS.md`.
+
 ## Release acceptance
 
 The first finished release must prove at minimum:
@@ -982,9 +1003,9 @@ The first finished release must prove at minimum:
 
 ## Next gate
 
-**Phase 5.9 - Dashboard projections/control endpoints.**
+**Phase 5.10 - Telegram/Discord/other channel bridge contracts.**
 
-Phase 5.8 is complete. The next canonical slice is a Dashboard projection/control API that preserves Multiple Bots as the coordination source of truth.
+Phase 5.9 is complete. The next canonical slice is bounded channel ingress/egress that preserves Gateway identity, authority and scheduling ownership.
 
 ## How to report progress
 

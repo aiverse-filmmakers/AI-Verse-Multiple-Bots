@@ -6,7 +6,7 @@
 
 **Overall status:** IN PROGRESS
 
-**Directional phase progress:** approximately 40%
+**Directional phase progress:** approximately 45%
 
 This file is the implementation ledger for Phase 5. The canonical product roadmap remains `BUILD-MAP.md`.
 
@@ -24,8 +24,8 @@ Turn the completed coordination, AI-Verse integration and runtime-interoperabili
 6. production health/doctor - **COMPLETE**
 7. upgrade/migration strategy - **COMPLETE**
 8. secure remote Gateway option - **COMPLETE**
-9. Dashboard projections/control endpoints - **NEXT**
-10. Telegram/Discord/other channel bridge contracts - **NOT STARTED**
+9. Dashboard projections/control endpoints - **COMPLETE**
+10. Telegram/Discord/other channel bridge contracts - **NEXT**
 11. operator approvals/attention UX - **NOT STARTED**
 12. observability/usage views - **NOT STARTED**
 13. release docs/examples - **NOT STARTED**
@@ -387,6 +387,56 @@ The hardened implementation head `96eef0e3ad65aa9b456dab18f679566d0c6eea69` pass
 
 See `docs/SECURE-REMOTE-GATEWAY.md`.
 
+## Slice 5.9 - Dashboard projections/control endpoints
+
+**Implementation status:** COMPLETE
+
+Phase 5.9 adds a versioned workspace-scoped Dashboard backend contract without moving coordination truth into the Dashboard.
+
+Implemented:
+
+- `GET /v1/dashboard/capabilities?workspace=...`
+- `GET /v1/dashboard/snapshot?workspace=...`
+- `GET /v1/dashboard/events?workspace=...&after=...&limit=...`
+- `GET /v1/dashboard/events/stream?workspace=...&after=...`
+- `POST /v1/dashboard/control`
+- compact Bot, Task, Team Run, Room, Approval, Artifact and attention projections
+- exact workspace filtering for snapshots, replay and live SSE events
+- monotonic canonical event cursor reuse
+- explicit `projection_only: true`
+- explicit `dashboard_owns_truth: false`
+- operator-only Dashboard controls
+- cross-workspace control rejection before canonical mutation
+- Bot activate/disable/archive routed through `CoordinationGateway`
+- Approval approve/deny routed through existing Approval ownership
+- Task cancellation routed through `BotRunner.cancelTask`
+- retry routed through `ExecutionSupervisor -> RecoveryCoordinator`
+- retry advertised only when the canonical blocked/dead-letter/retry-safe contract is satisfiable
+- Team Run cancellation routed through the runner's existing `TeamRunControl`
+- no Dashboard-specific mutation store or control plane
+- installed-package Dashboard snapshot/control smoke
+
+### 5.9 acceptance proof
+
+The implementation head `122616d2b9aff059a24d16c5f30944b441d3c897` passed GitHub Actions **CI run 570 (`34782101256`)**:
+
+- full repository suite: **476/476 tests passed**
+- Phase 4 compatibility suite: **5/5 tests passed**
+- package install smoke: **passed**
+- standalone install smoke: **passed**
+- AI-Verse OS install smoke: **passed**
+- materialized AI-Verse OS engine startup/health smoke: **passed**
+- setup/onboarding smoke: **passed**
+- starter-template smoke: **passed**
+- production-doctor smoke: **passed**
+- update/migration smoke: **passed**
+- secure-remote Gateway smoke: **passed**
+- installed-package Dashboard projection/control smoke: **passed**
+- packed artifact: **218 files**
+- **0 failures, 0 canceled and 0 skipped**
+
+See `docs/DASHBOARD-PROJECTION-CONTROL.md`.
+
 ## Ownership boundary
 
 Phase 5.1 intentionally does not choose or configure an operating mode during npm installation.
@@ -398,6 +448,6 @@ Phase 5.1 intentionally does not choose or configure an operating mode during np
 
 ## Next gate
 
-**Phase 5.9 - Dashboard projections/control endpoints.**
+**Phase 5.10 - Telegram/Discord/other channel bridge contracts.**
 
-Phase 5.8 is complete. The next task is the Dashboard-facing projection/control contract without moving coordination truth into the Dashboard.
+Phase 5.9 is complete. The next task is channel ingress/egress contracts that reuse the Gateway without creating a second scheduler, identity store or coordination authority.
