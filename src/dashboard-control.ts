@@ -149,12 +149,12 @@ export class DashboardControlBoundary {
         }
         case "task.retry": {
           this.projection.requireWorkspaceObject(workspaceId, id, ["task"]);
-          const execution = this.supervisor.retryDeadLetter(
+          const decision = this.supervisor.retryDeadLetter(
             id,
             actorId,
             reasonText(input.reason, "Operator authorized retry through Dashboard")
           );
-          resultingStatus = String(execution.state ?? "queued");
+          resultingStatus = String(decision.execution.state ?? "queued");
           break;
         }
         case "team_run.cancel": {
