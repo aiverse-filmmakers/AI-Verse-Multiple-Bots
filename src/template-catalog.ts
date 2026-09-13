@@ -289,8 +289,13 @@ function normalizedPrefix(workspaceId: string, templateId: string, explicit?: st
 }
 
 function runtimeAdapter(input?: string): string {
-  const adapter = input?.trim() || "native";
-  if (!adapter) throw new StarterTemplateError("INVALID_RUNTIME_ADAPTER", "Runtime adapter cannot be empty");
+  const adapter = input?.trim() ?? "";
+  if (!adapter) {
+    throw new StarterTemplateError(
+      "RUNTIME_ADAPTER_REQUIRED",
+      "Starter template planning/application requires an explicit runtime adapter; the stock Gateway has no implicit native execution adapter"
+    );
+  }
   if (adapter === "external-managed") {
     throw new StarterTemplateError(
       "EXTERNAL_MANAGED_TEMPLATE_UNSUPPORTED",

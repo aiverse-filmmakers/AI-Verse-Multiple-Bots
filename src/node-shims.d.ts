@@ -1,6 +1,6 @@
 declare module "node:sqlite" {
   export class DatabaseSync {
-    constructor(location: string);
+    constructor(location: string, options?: any);
     exec(sql: string): void;
     prepare(sql: string): any;
     close(): void;
@@ -64,6 +64,7 @@ declare module "node:url" {
   export class URL {
     constructor(input: string, base?: string);
     pathname: string;
+    protocol: string;
     searchParams: { get(name: string): string | null };
   }
   export function fileURLToPath(url: string | URL): string;

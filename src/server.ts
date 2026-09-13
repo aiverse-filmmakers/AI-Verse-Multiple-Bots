@@ -1,3 +1,4 @@
+import process from "node:process";
 import { existsSync } from "node:fs";
 import { createServer } from "node:http";
 import { resolve } from "node:path";
@@ -29,6 +30,7 @@ import { OpenAICompatibleRuntimeAdapter } from "./openai-compatible-runtime.js";
 import { OpenClawAgentExecRuntimeAdapter } from "./openclaw-runtime.js";
 import { AiVerseOsWriteCommandSink, OsWriteCommandBoundary } from "./os-write-command.js";
 import { CoordinationPolicy } from "./policy.js";
+import { doctorProduction } from "./production-health.js";
 import { RoomCoordinator } from "./rooms.js";
 import {
   RemoteHttpAccessBroker,
@@ -54,6 +56,7 @@ export interface GatewayServerOptions {
   port?: number;
   dbPath?: string;
   aiVerseOsRoot?: string;
+  standaloneRoot?: string;
   externalManagedProviders?: ExternalManagedBotProvider[];
   remoteMachines?: RemoteMachineIdentity[];
   remoteAuthenticators?: RemoteHttpAuthenticator[];
@@ -212,6 +215,20 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
     try {
       if (method === "GET" && url.pathname === "/health") {
         json(res, 200, store.doctor());
+        return;
+      }
+
+      if (method === "GET" && url.pathname === "/v1/health/readiness") {
+        const report = doctorProduction({
+          ...(options.aiVerseOsRoot
+            ? { mode: "os", root: options.aiVerseOsRoot }
+            : options.standaloneRoot
+              ? { mode: "standalone", root: options.standaloneRoot }
+              : {}),
+          dbPath: store.dbPath,
+          cwd: options.aiVerseOsRoot ?? options.standaloneRoot ?? process.cwd()
+        });
+        json(res, report.ready ? 200 : 503, report);
         return;
       }
 

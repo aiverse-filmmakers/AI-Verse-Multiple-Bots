@@ -20,6 +20,10 @@ import {
 import { CoordinationGateway } from "./gateway.js";
 import { CoordinationStore } from "./store.js";
 import {
+  doctorProduction,
+  statusProduction
+} from "./production-health.js";
+import {
   MultipleBotsSetupError,
   setupModeHelp,
   setupMultipleBots
@@ -27,7 +31,6 @@ import {
 import { createGatewayServer } from "./server.js";
 import {
   StandaloneInstallError,
-  doctorStandalone,
   findStandaloneRoot,
   initializeStandalone,
   standaloneGatewayOptions
@@ -47,7 +50,7 @@ function flag(name: string): string | undefined {
 }
 
 function usage(): never {
-  console.error(`AI-Verse Multiple Bots CLI\n\nCommands:\n  setup [--mode standalone|os] [--root PATH] [--host HOST] [--port N]\n  setup modes\n  template list\n  template show --id ID\n  template plan --id ID --workspace ID [--prefix PREFIX] [--runtime ADAPTER] [--db PATH]\n  template apply --id ID --workspace ID [--prefix PREFIX] [--runtime ADAPTER] [--db PATH]\n  standalone init [--root PATH] [--host HOST] [--port N]\n  standalone doctor [--root PATH]\n  standalone serve [--root PATH]\n  init [--db PATH]\n  doctor [--db PATH]\n  bot create --id ID --name NAME --workspace ID --role TITLE --mission TEXT [--db PATH]\n  bot list [--workspace ID] [--db PATH]\n  events [--after N] [--limit N] [--db PATH]\n  serve [--host HOST] [--port N] [--db PATH] [--os-root PATH]\n  os detect [--root PATH]\n  os install-plan [--root PATH]\n  os install [--root PATH]\n  os plan [--root PATH]\n  os register [--root PATH]\n  os upgrade-plan [--root PATH]\n  os upgrade [--root PATH]\n  os uninstall-plan [--root PATH]\n  os uninstall [--root PATH]\n`);
+  console.error(`AI-Verse Multiple Bots CLI\n\nCommands:\n  status [--mode standalone|os] [--root PATH] [--db PATH]\n  doctor [--mode standalone|os] [--root PATH] [--db PATH]\n  setup [--mode standalone|os] [--root PATH] [--host HOST] [--port N]\n  setup modes\n  template list\n  template show --id ID\n  template plan --id ID --workspace ID --runtime ADAPTER [--prefix PREFIX] [--db PATH]\n  template apply --id ID --workspace ID --runtime ADAPTER [--prefix PREFIX] [--db PATH]\n  standalone init [--root PATH] [--host HOST] [--port N]\n  standalone doctor [--root PATH]\n  standalone serve [--root PATH]\n  init [--db PATH]\n  doctor [--db PATH]\n  bot create --id ID --name NAME --workspace ID --role TITLE --mission TEXT --runtime ADAPTER [--db PATH]\n  bot list [--workspace ID] [--db PATH]\n  events [--after N] [--limit N] [--db PATH]\n  serve [--host HOST] [--port N] [--db PATH] [--os-root PATH]\n  os doctor [--root PATH]\n  os detect [--root PATH]\n  os install-plan [--root PATH]\n  os install [--root PATH]\n  os plan [--root PATH]\n  os register [--root PATH]\n  os upgrade-plan [--root PATH]\n  os upgrade [--root PATH]\n  os uninstall-plan [--root PATH]\n  os uninstall [--root PATH]\n`);
   process.exit(2);
   throw new Error("unreachable");
 }
@@ -122,7 +125,46 @@ function reportTemplateError(error: unknown): void {
 
 const args = process.argv.slice(2);
 const dbPath = flag("db") ?? "runtime/ai-verse-bots/coordination.db";
-if (args[0] === "template") {
+if (args[0] === "status" || args[0] === "doctor") {
+  try {
+    const explicitMode = flag("mode");
+    const explicitRoot = flag("root");
+    const explicitDb = flag("db");
+    if (args[0] === "doctor" && explicitDb !== undefined && explicitMode === undefined && explicitRoot === undefined) {
+      // Backward-compatible expert raw-database doctor. The public product doctor
+      // is selected by omitting --db or by supplying an installation mode/root.
+      const legacyStore = new CoordinationStore(resolve(explicitDb));
+      try {
+        console.log(JSON.stringify(legacyStore.doctor(), null, 2));
+      } finally {
+        legacyStore.close();
+      }
+    } else {
+      const options = {
+        ...(explicitMode !== undefined ? { mode: explicitMode } : {}),
+        ...(explicitRoot !== undefined ? { root: explicitRoot } : {}),
+        ...(explicitDb !== undefined ? { dbPath: explicitDb } : {}),
+        cwd: process.cwd()
+      };
+      if (args[0] === "status") {
+        const result = statusProduction(options);
+        console.log(JSON.stringify(result, null, 2));
+        if (!result.ready) process.exitCode = 1;
+      } else {
+        const result = doctorProduction(options);
+        console.log(JSON.stringify(result, null, 2));
+        if (!result.ready) process.exitCode = 1;
+      }
+    }
+  } catch (error) {
+    console.error(JSON.stringify({
+      ok: false,
+      code: "HEALTH_CHECK_ERROR",
+      error: error instanceof Error ? error.message : String(error)
+    }, null, 2));
+    process.exitCode = 1;
+  }
+} else if (args[0] === "template") {
   try {
     if (args[1] === "list") {
       console.log(JSON.stringify({ ok: true, templates: listStarterTemplates() }, null, 2));
@@ -191,16 +233,21 @@ if (args[0] === "template") {
       console.log(JSON.stringify({ ok: true, mode: "standalone", installation: result }, null, 2));
     } else if (args[1] === "doctor") {
       const root = requestedStandaloneRoot(true);
-      const result = doctorStandalone(root);
+      const result = doctorProduction({
+        mode: "standalone",
+        root,
+        cwd: process.cwd()
+      });
       console.log(JSON.stringify(result, null, 2));
-      if (!result.ok) process.exitCode = 1;
+      if (!result.ready) process.exitCode = 1;
     } else if (args[1] === "serve") {
       const root = requestedStandaloneRoot(true);
       const options = standaloneGatewayOptions(root);
       const service = createGatewayServer({
         host: options.host,
         port: options.port,
-        dbPath: options.dbPath
+        dbPath: options.dbPath,
+        standaloneRoot: options.root
       });
       const address = await service.listen();
       console.log(JSON.stringify({
@@ -242,7 +289,15 @@ if (args[0] === "template") {
 } else if (args[0] === "os") {
   const root = requestedOsRoot();
   try {
-    if (args[1] === "detect") {
+    if (args[1] === "doctor") {
+      const result = doctorProduction({
+        mode: "os",
+        root,
+        cwd: process.cwd()
+      });
+      console.log(JSON.stringify(result, null, 2));
+      if (!result.ready) process.exitCode = 1;
+    } else if (args[1] === "detect") {
       const compatibility = detectAiVerseOsCompatibility(root);
       console.log(JSON.stringify({ ok: compatibility.status === "compatible", compatibility }, null, 2));
       if (compatibility.status !== "compatible") process.exitCode = 1;
@@ -286,7 +341,8 @@ if (args[0] === "template") {
       const workspace = flag("workspace");
       const role = flag("role");
       const mission = flag("mission");
-      if (!id || !name || !workspace || !role || !mission) usage();
+      const runtimeAdapter = flag("runtime");
+      if (!id || !name || !workspace || !role || !mission || !runtimeAdapter) usage();
       const manifest: BotManifest = {
         schema_version: "1.0",
         id,
@@ -294,7 +350,7 @@ if (args[0] === "template") {
         kind: "durable",
         status: "active",
         role: { title: role, mission },
-        runtime: { adapter: "native" },
+        runtime: { adapter: runtimeAdapter },
         execution: { environment_policy: "shared_workspace", environment_ref: "host-default" },
         scope: { type: "workspace", workspace_id: workspace },
         capabilities: { role_refs: [], skill_refs: [], operator_refs: [], tool_refs: [] },

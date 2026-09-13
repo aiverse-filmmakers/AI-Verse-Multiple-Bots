@@ -58,6 +58,7 @@ try {
     "dist/src/ai-verse-os-install.js",
     "dist/src/setup.js",
     "dist/src/template-catalog.js",
+    "dist/src/production-health.js",
     "schemas/coordination-v1.schema.json",
     "templates/bot.yaml",
     "templates/room.yaml",
@@ -112,7 +113,7 @@ try {
   const templateDbPath = join(installDir, "runtime", "template-smoke.db");
   const templatePlan = JSON.parse(run(
     binPath,
-    ["template", "plan", "--id", "research-team", "--workspace", "ws_package", "--db", templateDbPath],
+    ["template", "plan", "--id", "research-team", "--workspace", "ws_package", "--runtime", "deterministic", "--db", templateDbPath],
     { cwd: installDir }
   ));
   assert.equal(templatePlan.ok, true);
@@ -122,7 +123,7 @@ try {
 
   const templateApply = JSON.parse(run(
     binPath,
-    ["template", "apply", "--id", "research-team", "--workspace", "ws_package", "--db", templateDbPath],
+    ["template", "apply", "--id", "research-team", "--workspace", "ws_package", "--runtime", "deterministic", "--db", templateDbPath],
     { cwd: installDir }
   ));
   assert.equal(templateApply.ok, true);
@@ -131,7 +132,7 @@ try {
 
   const templateApplyAgain = JSON.parse(run(
     binPath,
-    ["template", "apply", "--id", "research-team", "--workspace", "ws_package", "--db", templateDbPath],
+    ["template", "apply", "--id", "research-team", "--workspace", "ws_package", "--runtime", "deterministic", "--db", templateDbPath],
     { cwd: installDir }
   ));
   assert.equal(templateApplyAgain.ok, true);
@@ -151,6 +152,28 @@ try {
   assert.equal(setupStandalone.setup.selected_by, "explicit");
   assert.equal(existsSync(join(setupStandaloneRoot, ".ai-verse-bots", "config.json")), true);
   assert.equal(existsSync(join(setupStandaloneRoot, ".ai-verse-bots", "runtime", "coordination.db")), true);
+
+  const standaloneStatus = JSON.parse(run(
+    binPath,
+    ["status", "--mode", "standalone", "--root", setupStandaloneRoot],
+    { cwd: installDir }
+  ));
+  assert.equal(standaloneStatus.state, "ready");
+  assert.equal(standaloneStatus.ready, true);
+
+  const productionStandaloneDoctor = JSON.parse(run(
+    binPath,
+    ["doctor", "--mode", "standalone", "--root", setupStandaloneRoot],
+    { cwd: installDir }
+  ));
+  assert.equal(productionStandaloneDoctor.provider, "ai-verse-multiple-bots/production-health-v1");
+  assert.equal(productionStandaloneDoctor.state, "ready");
+  assert.equal(productionStandaloneDoctor.ready, true);
+  assert.equal(productionStandaloneDoctor.read_only, true);
+  assert.deepEqual(
+    productionStandaloneDoctor.checked_depths,
+    ["structural", "attachment", "runtime", "dependency", "operational"]
+  );
 
   const dbPath = join(installDir, "runtime", "install-smoke.db");
   const initOutput = run(binPath, ["init", "--db", dbPath], { cwd: installDir });
@@ -186,9 +209,11 @@ try {
     { cwd: installDir }
   );
   const standaloneDoctor = JSON.parse(standaloneDoctorOutput);
-  assert.equal(standaloneDoctor.ok, true);
+  assert.equal(standaloneDoctor.provider, "ai-verse-multiple-bots/production-health-v1");
+  assert.equal(standaloneDoctor.state, "ready");
+  assert.equal(standaloneDoctor.ready, true);
   assert.equal(standaloneDoctor.mode, "standalone");
-  assert.equal(standaloneDoctor.schemaVersion, "1");
+  assert.equal(standaloneDoctor.read_only, true);
 
   const osRoot = join(installDir, "ai-verse-os");
   mkdirSync(join(osRoot, "operator"), { recursive: true });
@@ -265,6 +290,16 @@ try {
   assert.equal(setupOs.setup.changed, false);
   assert.equal(setupOs.setup.verification.ok, true);
 
+  const osDoctor = JSON.parse(run(
+    binPath,
+    ["doctor", "--mode", "os", "--root", osRoot],
+    { cwd: installDir }
+  ));
+  assert.equal(osDoctor.mode, "ai-verse-os");
+  assert.equal(osDoctor.state, "ready");
+  assert.equal(osDoctor.ready, true);
+  assert.deepEqual(osDoctor.delegated_depths, ["system/composed"]);
+
   console.log(JSON.stringify({
     ok: true,
     package: `${record.name}@${record.version}`,
@@ -276,7 +311,8 @@ try {
     ai_verse_os_install_smoke: "passed",
     ai_verse_os_engine_smoke: "passed",
     setup_onboarding_smoke: "passed",
-    starter_template_smoke: "passed"
+    starter_template_smoke: "passed",
+    production_doctor_smoke: "passed"
   }, null, 2));
 } finally {
   rmSync(tempRoot, { recursive: true, force: true });

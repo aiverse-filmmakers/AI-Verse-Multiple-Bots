@@ -24,9 +24,9 @@ The target experience is inspired most strongly by xAI's Grok Bot persistent-tea
 
 **Phase 4: Runtime and Agent Interoperability: COMPLETE**
 
-**Phase 5: Product, Installer, Omnichannel and Dashboard: IN PROGRESS (~25%)**
+**Phase 5: Product, Installer, Omnichannel and Dashboard: IN PROGRESS (~30%)**
 
-Phase 5.1 provides the installable package surface, Phase 5.2 standalone mode, Phase 5.3 AI-Verse OS installation, Phase 5.4 setup/onboarding, and Phase 5.5 reusable Bot/team templates. The current verified implementation gate passes **449/449 repository tests**, **5/5 Phase 4 compatibility evaluations**, all install/setup/runtime smokes, and the installed-package starter-template smoke. Phase 5.6 production health/doctor is next.
+Phase 5.1 provides the installable package surface, Phase 5.2 standalone mode, Phase 5.3 AI-Verse OS installation, Phase 5.4 setup/onboarding, Phase 5.5 reusable Bot/team templates, and Phase 5.6 truthful production health/doctor. The current verified implementation gate passes **459/459 repository tests**, **5/5 Phase 4 compatibility evaluations**, all install/setup/runtime/template smokes, and the installed-package production-doctor smoke. Phase 5.7 upgrade/migration strategy is next.
 
 ## Install
 
@@ -78,19 +78,30 @@ Setup returns structured verification plus tailored next steps. It does not sile
 
 ## Verify
 
-Standalone:
+Concise component status:
+
+```bash
+ai-verse-multiple-bots status
+```
+
+Deep read-only production verification:
+
+```bash
+ai-verse-multiple-bots doctor
+```
+
+Mode-specific forms:
 
 ```bash
 ai-verse-multiple-bots standalone doctor --root /path/to/project
+ai-verse-multiple-bots os doctor --root /path/to/AI-Verse-OS
 ```
 
-AI-Verse OS materialization/attachment:
+Doctor reports the exact structural, attachment, runtime, dependency and operational depths it checked. In AI-Verse OS mode, whole-system/composed readiness remains explicitly delegated to OS/distribution rather than being claimed by this component.
 
-```bash
-ai-verse-multiple-bots os install-plan --root /path/to/AI-Verse-OS
-```
+A running mode-aware Gateway exposes `GET /v1/health/readiness`. Legacy `GET /health` remains the narrow storage health endpoint.
 
-Phase 5.4 verification is structural + attachment depth. Production runtime/dependency/operational/composed doctor depth remains Phase 5.6.
+See [`docs/PRODUCTION-HEALTH-DOCTOR.md`](docs/PRODUCTION-HEALTH-DOCTOR.md).
 
 ## Use
 
@@ -126,6 +137,7 @@ ai-verse-multiple-bots template show --id research-team
 ai-verse-multiple-bots template plan \
   --id research-team \
   --workspace my-workspace \
+  --runtime deterministic \
   --db /path/to/coordination.db
 ```
 
@@ -135,12 +147,13 @@ Apply explicitly:
 ai-verse-multiple-bots template apply \
   --id research-team \
   --workspace my-workspace \
+  --runtime deterministic \
   --db /path/to/coordination.db
 ```
 
 Current starters include `research-lead`, `reviewer`, `coordinator`, `research-team`, and `delivery-team`.
 
-Team templates create durable Bots plus a bounded Room. They do **not** create a Team Run or temporary Workers automatically. The normal collaboration gate still decides when one task justifies temporary multi-agent execution.
+Team templates create durable Bots plus a bounded Room. They do **not** create a Team Run or temporary Workers automatically. Runtime selection is explicit because the stock Gateway does not provide an implicit `native` execution adapter. The normal collaboration gate still decides when one task justifies temporary multi-agent execution.
 
 See [`docs/BOT-TEAM-TEMPLATES.md`](docs/BOT-TEAM-TEMPLATES.md).
 
@@ -724,6 +737,7 @@ Therefore the system selects the **smallest sufficient topology** and keeps mult
 - [`docs/AI-VERSE-OS-INSTALL.md`](docs/AI-VERSE-OS-INSTALL.md) - Phase 5.3 AI-Verse OS installation contract
 - [`docs/SETUP-ONBOARDING.md`](docs/SETUP-ONBOARDING.md) - Phase 5.4 setup/onboarding contract
 - [`docs/BOT-TEAM-TEMPLATES.md`](docs/BOT-TEAM-TEMPLATES.md) - Phase 5.5 reusable starter Bot/team template contract
+- [`docs/PRODUCTION-HEALTH-DOCTOR.md`](docs/PRODUCTION-HEALTH-DOCTOR.md) - Phase 5.6 truthful production readiness contract
 - [`docs/AI-VERSE-OS-REGISTRATION-CONTRACT.md`](docs/AI-VERSE-OS-REGISTRATION-CONTRACT.md) - Phase 3.1 host contract
 - [`docs/AI-VERSE-BRAIN-OBJECTIVE-INGRESS.md`](docs/AI-VERSE-BRAIN-OBJECTIVE-INGRESS.md) - Phase 3.3 Brain ingress contract
 - [`docs/AI-VERSE-MEMORY-RECALL.md`](docs/AI-VERSE-MEMORY-RECALL.md) - Phase 3.4 Memory recall contract
@@ -745,7 +759,7 @@ Contracts are tightened through implementation/evaluation rather than treated as
 
 Phases 0 through 4 are complete. Phase 5 is in progress.
 
-Phase 5.1 package installation, Phase 5.2 standalone mode, Phase 5.3 AI-Verse OS install mode, Phase 5.4 setup/onboarding, and Phase 5.5 Bot/team templates are complete. Remaining productization work starts with production health/doctor, followed by lifecycle, secure remote access, Dashboard/channel surfaces, observability, release documentation and the final release acceptance suite.
+Phase 5.1 package installation, Phase 5.2 standalone mode, Phase 5.3 AI-Verse OS install mode, Phase 5.4 setup/onboarding, Phase 5.5 Bot/team templates, and Phase 5.6 production health/doctor are complete. Remaining productization work starts with upgrade/migration strategy, followed by secure remote access, Dashboard/channel surfaces, observability, release documentation and the final release acceptance suite.
 
 The visual Bot roster belongs in AI-Verse Dashboard. Multiple Bots remains the backend coordination authority for Bot identity, routing, Tasks, Handoffs, Rooms, Team Runs and runtime orchestration.
 

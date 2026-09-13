@@ -18,7 +18,7 @@ Phase 1  Runnable Coordination Core     [COMPLETE]    100%
 Phase 2  Dynamic Multi-Agent Squads     [COMPLETE]    100%
 Phase 3  AI-Verse Native Integration    [COMPLETE]    100%
 Phase 4  Runtime / A2A Interoperability [COMPLETE]    100%
-Phase 5  Product + Install + Dashboard  [IN PROGRESS] ~25%
+Phase 5  Product + Install + Dashboard  [IN PROGRESS] ~30%
 ```
 
 **Directional overall first-release progress:** roughly 95% complete.
@@ -779,7 +779,7 @@ See `docs/PHASE-4-COMPATIBILITY-EVALUATION.md`, `evals/phase-4-runtime-compatibi
 
 **Status:** IN PROGRESS
 
-**Directional phase progress:** approximately 25%
+**Directional phase progress:** approximately 30%
 
 Goal: turn the completed coordination/integration/interoperability layers into a member-installable product with health, onboarding, remote/channel access and observability.
 
@@ -790,8 +790,8 @@ Remaining major slices:
 3. AI-Verse OS install mode - **COMPLETE**
 4. setup/onboarding flow - **COMPLETE**
 5. Bot/team templates - **COMPLETE**
-6. production health/doctor - **NEXT**
-7. upgrade/migration strategy - **NOT STARTED**
+6. production health/doctor - **COMPLETE**
+7. upgrade/migration strategy - **NEXT**
 8. secure remote Gateway option - **NOT STARTED**
 9. Dashboard projections/control endpoints - **NOT STARTED**
 10. Telegram/Discord/other channel bridge contracts - **NOT STARTED**
@@ -901,6 +901,26 @@ Implemented:
 
 See `docs/BOT-TEAM-TEMPLATES.md` and `docs/PHASE-5-STATUS.md`.
 
+### Phase 5.6 - production health/doctor
+
+Implemented:
+
+- public status + deep doctor lifecycle surfaces
+- mode-specific standalone/AI-Verse OS doctor aliases
+- live production readiness endpoint without removing legacy narrow health
+- read-only structural/attachment/runtime/dependency/operational verification
+- explicit setup-required/disabled/unhealthy/ready states
+- operational dead-letter/stale-execution/queue-consistency checks
+- runtime registry and adapter dependency checks for active durable Bots only
+- warning vs failure semantics that do not overclaim live remote/model reachability
+- system/composed readiness delegated to AI-Verse OS/distribution
+- unsupported implicit `native` execution default removed from public Bot/template creation
+- installed-package production doctor acceptance smoke
+
+**Verified implementation gate:** GitHub Actions CI run 531 (`34777986116`) passed the full **459/459 tests**, Phase 4 compatibility **5/5**, all package/install/setup/template/runtime smokes and the production doctor smoke on hardened implementation head `c3b5a25f0657e190c224b991f06ba66d827de54f`.
+
+See `docs/PRODUCTION-HEALTH-DOCTOR.md` and `docs/PHASE-5-STATUS.md`.
+
 ## Release acceptance
 
 The first finished release must prove at minimum:
@@ -921,9 +941,9 @@ The first finished release must prove at minimum:
 
 ## Next gate
 
-**Phase 5.6 - production health/doctor.**
+**Phase 5.7 - upgrade/migration strategy.**
 
-Phase 5.5 is complete. The next canonical slice is truthful production health/readiness.
+Phase 5.6 is complete. The next canonical slice is safe upgrade/migration behavior.
 
 ## How to report progress
 

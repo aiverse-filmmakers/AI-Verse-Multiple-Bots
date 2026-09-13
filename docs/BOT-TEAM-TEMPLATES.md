@@ -41,6 +41,7 @@ Preview exact IDs and mutations before creation:
 ai-verse-multiple-bots template plan \
   --id research-team \
   --workspace my-workspace \
+  --runtime deterministic \
   --db /path/to/coordination.db
 ```
 
@@ -50,14 +51,20 @@ Apply explicitly:
 ai-verse-multiple-bots template apply \
   --id research-team \
   --workspace my-workspace \
+  --runtime deterministic \
   --db /path/to/coordination.db
 ```
 
-Optional controls:
+Required runtime selection:
+
+```bash
+--runtime ADAPTER
+```
+
+Optional identity control:
 
 ```bash
 --prefix PREFIX
---runtime ADAPTER
 ```
 
 ## Built-in starter catalog
@@ -147,19 +154,21 @@ Template application does not grant connections, tools, external accounts, appro
 
 ## Runtime selection
 
-The default runtime adapter is:
+Phase 5.6 readiness hardening requires an explicit runtime adapter for template planning/application.
 
-```text
-native
-```
+There is no silent runtime default.
 
-A caller may explicitly choose another adapter:
+This matters because older examples used `native`, while the current stock Gateway does not register a `native` execution adapter. Automatically creating an active durable Bot with that value would create a teammate that cannot execute.
+
+Example:
 
 ```bash
---runtime openai-compatible
+--runtime codex
 ```
 
-Template application records the requested adapter but does not claim the adapter is operationally healthy. Production runtime/dependency readiness belongs to Phase 5.6.
+The `deterministic` adapter is useful for deterministic evaluation/smoke workflows, not as a claim of a production model runtime.
+
+Template application records the requested adapter but does not claim the adapter's external dependencies are healthy. Phase 5.6 `doctor` verifies active runtime/dependency readiness separately.
 
 `external-managed` is intentionally rejected by the starter template path.
 
@@ -250,13 +259,13 @@ Its third onboarding step now points to:
 ai-verse-multiple-bots template list
 ```
 
-The operator remains responsible for choosing whether a starter actually fits the real workspace before running `template apply`.
+The operator remains responsible for choosing whether a starter actually fits the real workspace before running `template apply`, including choosing an explicit runtime adapter.
 
 ## Phase boundary
 
 Phase 5.5 does not implement:
 
-- deep production runtime/dependency/operational health;
+- automated health repair (Phase 5.6 adds read-only production health/doctor);
 - public enable/disable/update lifecycle;
 - migration strategy;
 - secure remote Gateway exposure;

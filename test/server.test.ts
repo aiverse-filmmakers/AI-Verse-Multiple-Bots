@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
+import { mkdirSync, rmSync } from "node:fs";
 import test from "node:test";
 import { request } from "node:http";
 import { createGatewayServer } from "../src/server.js";
+import { initializeStandalone } from "../src/standalone-install.js";
 
 function httpJson(port: number, method: string, path: string, body?: unknown): Promise<{ status: number; body: any }> {
   return new Promise((resolve, reject) => {
@@ -90,5 +93,41 @@ test("HTTP gateway exposes strict Bot messaging, Room replay and global event re
     assert.ok(events.body.events.length >= 5);
   } finally {
     await service.close();
+  }
+});
+
+
+test("Phase 5.6 live Gateway exposes production readiness without replacing legacy health", async () => {
+  const root = `/tmp/multiple-bots-readiness-server-${randomUUID()}`;
+  mkdirSync(root, { recursive: true });
+  const installation = initializeStandalone(root, { port: 0 });
+  const service = createGatewayServer({
+    dbPath: installation.dbPath,
+    port: 0,
+    standaloneRoot: root
+  });
+  const address = await service.listen();
+  try {
+    const legacy = await httpJson(address.port, "GET", "/health");
+    assert.equal(legacy.status, 200);
+    assert.equal(legacy.body.ok, true);
+
+    const readiness = await httpJson(address.port, "GET", "/v1/health/readiness");
+    assert.equal(readiness.status, 200);
+    assert.equal(readiness.body.provider, "ai-verse-multiple-bots/production-health-v1");
+    assert.equal(readiness.body.mode, "standalone");
+    assert.equal(readiness.body.state, "ready");
+    assert.equal(readiness.body.ready, true);
+    assert.equal(readiness.body.read_only, true);
+    assert.deepEqual(readiness.body.checked_depths, [
+      "structural",
+      "attachment",
+      "runtime",
+      "dependency",
+      "operational"
+    ]);
+  } finally {
+    await service.close();
+    rmSync(root, { recursive: true, force: true });
   }
 });

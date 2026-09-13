@@ -6,7 +6,7 @@
 
 **Overall status:** IN PROGRESS
 
-**Directional phase progress:** approximately 25%
+**Directional phase progress:** approximately 30%
 
 This file is the implementation ledger for Phase 5. The canonical product roadmap remains `BUILD-MAP.md`.
 
@@ -21,8 +21,8 @@ Turn the completed coordination, AI-Verse integration and runtime-interoperabili
 3. AI-Verse OS install mode - **COMPLETE**
 4. setup/onboarding flow - **COMPLETE**
 5. Bot/team templates - **COMPLETE**
-6. production health/doctor - **NEXT**
-7. upgrade/migration strategy - **NOT STARTED**
+6. production health/doctor - **COMPLETE**
+7. upgrade/migration strategy - **NEXT**
 8. secure remote Gateway option - **NOT STARTED**
 9. Dashboard projections/control endpoints - **NOT STARTED**
 10. Telegram/Discord/other channel bridge contracts - **NOT STARTED**
@@ -212,7 +212,7 @@ Implemented:
 - three single-Bot starters: Research Lead, Independent Reviewer, Work Coordinator
 - two durable team starters: Research Team and Delivery Team
 - deterministic workspace-scoped Bot/Room IDs
-- optional explicit prefix and runtime adapter
+- optional explicit prefix; runtime adapter is now required explicitly by the Phase 5.6 readiness hardening
 - default explicit peer allow-lists instead of wildcard peer authority
 - no starter Bot can create durable Bots
 - temporary Worker creation enabled only for coordinator/leader roles that need it
@@ -243,6 +243,52 @@ The integrated implementation head `52a2efa569a2fd6f668199d04a15309a20262709` pa
 
 See `docs/BOT-TEAM-TEMPLATES.md`.
 
+## Slice 5.6 - production health/doctor
+
+**Implementation status:** COMPLETE
+
+Phase 5.6 replaces shallow storage health with one truthful, read-only component readiness model.
+
+Implemented:
+
+- public `status`
+- public deep `doctor`
+- `standalone doctor` upgraded to production depth
+- `os doctor`
+- live `GET /v1/health/readiness` while preserving legacy `GET /health`
+- explicit readiness states: `setup-required`, `disabled`, `unhealthy`, `ready`
+- explicit checked depths: structural, attachment, runtime, dependency, operational
+- AI-Verse OS `system/composed` readiness explicitly delegated to OS/distribution
+- SQLite opened read-only for production inspection
+- `PRAGMA quick_check`, schema and required-table verification
+- no runtime-table materialization during doctor
+- dead-letter, stale-execution and queue/object consistency checks
+- active-Bot runtime registry verification
+- adapter-specific dependency checks for local process, OpenAI-compatible, A2A and external-managed runtimes
+- warnings distinguish unprobed remote/model dependencies from proven failures
+- stock Gateway `native` runtime gap is surfaced rather than hidden
+- public starter-template and direct Bot creation no longer silently default to the unsupported `native` adapter; runtime selection is explicit
+- explicit raw `doctor --db PATH` compatibility retained for prior automation
+- installed-package status/doctor acceptance smoke
+
+### 5.6 acceptance proof
+
+The hardened implementation head `c3b5a25f0657e190c224b991f06ba66d827de54f` passed GitHub Actions **CI run 531 (`34777986116`)**:
+
+- full repository suite: **459/459 tests passed**
+- Phase 4 compatibility suite: **5/5 tests passed**
+- package install smoke: **passed**
+- standalone install smoke: **passed**
+- AI-Verse OS install smoke: **passed**
+- materialized AI-Verse OS engine startup/health smoke: **passed**
+- setup/onboarding smoke: **passed**
+- starter-template smoke: **passed**
+- production doctor smoke: **passed**
+- packed artifact: **188 files**
+- **0 failures, 0 canceled and 0 skipped**
+
+See `docs/PRODUCTION-HEALTH-DOCTOR.md`.
+
 ## Ownership boundary
 
 Phase 5.1 intentionally does not choose or configure an operating mode during npm installation.
@@ -254,6 +300,6 @@ Phase 5.1 intentionally does not choose or configure an operating mode during np
 
 ## Next gate
 
-**Phase 5.6 - production health/doctor.**
+**Phase 5.7 - upgrade/migration strategy.**
 
-Phase 5.5 is complete. The next task is truthful production health/readiness across structural, attachment, runtime, dependency and operational depth.
+Phase 5.6 is complete. The next task is safe upgrade/migration behavior that preserves user-owned coordination state and current installation-order guarantees.

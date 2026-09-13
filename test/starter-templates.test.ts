@@ -78,12 +78,29 @@ test("Phase 5.5 starter catalog exposes reusable Bot and durable-team templates"
   );
 });
 
+test("Phase 5.6 starter template creation refuses an implicit unusable runtime", () => {
+  const store = new CoordinationStore(":memory:");
+  try {
+    assert.throws(
+      () => planStarterTemplate(store, {
+        templateId: "research-lead",
+        workspaceId: "ws_runtime_required"
+      }),
+      (error: unknown) => error instanceof StarterTemplateError
+        && error.code === "RUNTIME_ADAPTER_REQUIRED"
+    );
+  } finally {
+    store.close();
+  }
+});
+
 test("Phase 5.5 single-Bot template plan is explicit, least-privilege, and non-mutating", () => {
   const store = new CoordinationStore(":memory:");
   try {
     const plan = planStarterTemplate(store, {
       templateId: "reviewer",
-      workspaceId: "ws_alpha"
+      workspaceId: "ws_alpha",
+      runtimeAdapter: "deterministic"
     });
 
     assert.equal(plan.can_apply, true);
@@ -112,7 +129,8 @@ test("Phase 5.5 team template atomically creates three durable Bots plus one bou
   try {
     const result = applyStarterTemplate(store, {
       templateId: "research-team",
-      workspaceId: "ws_research"
+      workspaceId: "ws_research",
+      runtimeAdapter: "deterministic"
     });
 
     assert.equal(result.status, "applied");
@@ -152,13 +170,15 @@ test("Phase 5.5 template apply is idempotent and exact current state is not rewr
   try {
     const first = applyStarterTemplate(store, {
       templateId: "delivery-team",
-      workspaceId: "ws_delivery"
+      workspaceId: "ws_delivery",
+      runtimeAdapter: "deterministic"
     });
     const eventsAfterFirst = store.listEventsAfter(0, 100).length;
 
     const second = applyStarterTemplate(store, {
       templateId: "delivery-team",
-      workspaceId: "ws_delivery"
+      workspaceId: "ws_delivery",
+      runtimeAdapter: "deterministic"
     });
 
     assert.equal(first.status, "applied");
@@ -180,7 +200,8 @@ test("Phase 5.5 a conflicting durable identity blocks the whole team with no par
 
     const plan = planStarterTemplate(store, {
       templateId: "research-team",
-      workspaceId
+      workspaceId,
+      runtimeAdapter: "deterministic"
     });
     assert.equal(plan.can_apply, false);
     assert.deepEqual(plan.conflicts.map((item) => item.id), [conflictId]);
@@ -189,7 +210,8 @@ test("Phase 5.5 a conflicting durable identity blocks the whole team with no par
     assert.throws(
       () => applyStarterTemplate(store, {
         templateId: "research-team",
-        workspaceId
+        workspaceId,
+        runtimeAdapter: "deterministic"
       }),
       (error: unknown) => error instanceof StarterTemplateError && error.code === "TEMPLATE_CONFLICT"
     );
@@ -206,7 +228,8 @@ test("Phase 5.5 partial exact state can be completed without overwriting the cur
   try {
     const options = {
       templateId: "research-team",
-      workspaceId: "ws_resume"
+      workspaceId: "ws_resume",
+      runtimeAdapter: "deterministic"
     };
     const plan = planStarterTemplate(store, options);
     const lead = plan.objects.find((object) => object.id.endsWith("_lead"));
