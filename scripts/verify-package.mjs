@@ -195,6 +195,10 @@ if (args[0] === "version") {
   console.log("1.99.0-package-smoke");
   process.exit(0);
 }
+if (args[0] === "status" && args[1] === "--json") {
+  console.log(JSON.stringify({ BackendState: "Running" }));
+  process.exit(0);
+}
 if (args[0] === "serve") {
   console.log("Available within your tailnet:");
   console.log("https://package-smoke.example.ts.net");
@@ -226,6 +230,7 @@ if (args[0] === "serve") {
   assert.equal(remotePlan.remote.mode, "standalone");
   assert.equal(remotePlan.remote.local_host, "127.0.0.1");
   assert.equal(remotePlan.remote.transport.exposure, "tailnet-only");
+  assert.equal(remotePlan.remote.transport.tailnet_connected, true);
   assert.equal(remotePlan.remote.transport.tls_terminated_by, "tailscale-serve");
   assert.equal(remotePlan.remote.auth.configured, true);
   assert.equal(JSON.stringify(remotePlan).includes(remoteToken), false);
