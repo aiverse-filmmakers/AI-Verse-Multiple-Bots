@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import {
   existsSync,
   lstatSync,
+  mkdirSync,
   readFileSync,
   renameSync,
   rmSync,
@@ -154,6 +155,8 @@ function snapshotFile(root: string, relativePath: string): PreviousFile {
 function replaceFile(root: string, relativePath: string, content: string): PreviousFile {
   const previous = snapshotFile(root, relativePath);
   const target = resolveInsideRoot(root, relativePath);
+  assertNoSymlinkChain(root, relativePath, false);
+  mkdirSync(dirname(target), { recursive: true });
   assertNoSymlinkChain(root, relativePath, false);
   const temporary = `${target}.${randomUUID()}.tmp`;
   try {
