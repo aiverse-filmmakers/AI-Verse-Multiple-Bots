@@ -50,7 +50,7 @@ function flag(name: string): string | undefined {
 }
 
 function usage(): never {
-  console.error(`AI-Verse Multiple Bots CLI\n\nCommands:\n  status [--mode standalone|os] [--root PATH] [--db PATH]\n  doctor [--mode standalone|os] [--root PATH] [--db PATH]\n  setup [--mode standalone|os] [--root PATH] [--host HOST] [--port N]\n  setup modes\n  template list\n  template show --id ID\n  template plan --id ID --workspace ID [--prefix PREFIX] [--runtime ADAPTER] [--db PATH]\n  template apply --id ID --workspace ID [--prefix PREFIX] [--runtime ADAPTER] [--db PATH]\n  standalone init [--root PATH] [--host HOST] [--port N]\n  standalone doctor [--root PATH]\n  standalone serve [--root PATH]\n  init [--db PATH]\n  doctor [--db PATH]\n  bot create --id ID --name NAME --workspace ID --role TITLE --mission TEXT [--db PATH]\n  bot list [--workspace ID] [--db PATH]\n  events [--after N] [--limit N] [--db PATH]\n  serve [--host HOST] [--port N] [--db PATH] [--os-root PATH]\n  os doctor [--root PATH]\n  os detect [--root PATH]\n  os install-plan [--root PATH]\n  os install [--root PATH]\n  os plan [--root PATH]\n  os register [--root PATH]\n  os upgrade-plan [--root PATH]\n  os upgrade [--root PATH]\n  os uninstall-plan [--root PATH]\n  os uninstall [--root PATH]\n`);
+  console.error(`AI-Verse Multiple Bots CLI\n\nCommands:\n  status [--mode standalone|os] [--root PATH] [--db PATH]\n  doctor [--mode standalone|os] [--root PATH] [--db PATH]\n  setup [--mode standalone|os] [--root PATH] [--host HOST] [--port N]\n  setup modes\n  template list\n  template show --id ID\n  template plan --id ID --workspace ID --runtime ADAPTER [--prefix PREFIX] [--db PATH]\n  template apply --id ID --workspace ID --runtime ADAPTER [--prefix PREFIX] [--db PATH]\n  standalone init [--root PATH] [--host HOST] [--port N]\n  standalone doctor [--root PATH]\n  standalone serve [--root PATH]\n  init [--db PATH]\n  doctor [--db PATH]\n  bot create --id ID --name NAME --workspace ID --role TITLE --mission TEXT --runtime ADAPTER [--db PATH]\n  bot list [--workspace ID] [--db PATH]\n  events [--after N] [--limit N] [--db PATH]\n  serve [--host HOST] [--port N] [--db PATH] [--os-root PATH]\n  os doctor [--root PATH]\n  os detect [--root PATH]\n  os install-plan [--root PATH]\n  os install [--root PATH]\n  os plan [--root PATH]\n  os register [--root PATH]\n  os upgrade-plan [--root PATH]\n  os upgrade [--root PATH]\n  os uninstall-plan [--root PATH]\n  os uninstall [--root PATH]\n`);
   process.exit(2);
   throw new Error("unreachable");
 }
@@ -341,7 +341,8 @@ if (args[0] === "status" || args[0] === "doctor") {
       const workspace = flag("workspace");
       const role = flag("role");
       const mission = flag("mission");
-      if (!id || !name || !workspace || !role || !mission) usage();
+      const runtimeAdapter = flag("runtime");
+      if (!id || !name || !workspace || !role || !mission || !runtimeAdapter) usage();
       const manifest: BotManifest = {
         schema_version: "1.0",
         id,
@@ -349,7 +350,7 @@ if (args[0] === "status" || args[0] === "doctor") {
         kind: "durable",
         status: "active",
         role: { title: role, mission },
-        runtime: { adapter: "native" },
+        runtime: { adapter: runtimeAdapter },
         execution: { environment_policy: "shared_workspace", environment_ref: "host-default" },
         scope: { type: "workspace", workspace_id: workspace },
         capabilities: { role_refs: [], skill_refs: [], operator_refs: [], tool_refs: [] },
