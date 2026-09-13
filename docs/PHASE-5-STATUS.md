@@ -6,7 +6,7 @@
 
 **Overall status:** IN PROGRESS
 
-**Directional phase progress:** approximately 20%
+**Directional phase progress:** approximately 25%
 
 This file is the implementation ledger for Phase 5. The canonical product roadmap remains `BUILD-MAP.md`.
 
@@ -20,8 +20,8 @@ Turn the completed coordination, AI-Verse integration and runtime-interoperabili
 2. standalone install mode - **COMPLETE**
 3. AI-Verse OS install mode - **COMPLETE**
 4. setup/onboarding flow - **COMPLETE**
-5. Bot/team templates - **NEXT**
-6. production health/doctor - **NOT STARTED**
+5. Bot/team templates - **COMPLETE**
+6. production health/doctor - **NEXT**
 7. upgrade/migration strategy - **NOT STARTED**
 8. secure remote Gateway option - **NOT STARTED**
 9. Dashboard projections/control endpoints - **NOT STARTED**
@@ -196,6 +196,53 @@ The implementation head `1472b9d9fe73ec6c95cbc51de24ff374a9485904` passed GitHub
 
 See `docs/SETUP-ONBOARDING.md`.
 
+## Slice 5.5 - Bot/team templates
+
+**Implementation status:** COMPLETE
+
+Phase 5.5 turns the earlier Bot/Room examples into a reusable explicit starter-template product surface without making setup silently create durable identities.
+
+Implemented:
+
+- machine-readable `templates/starter-catalog.json`
+- public `template list`
+- public `template show --id ...`
+- read-only `template plan --id ... --workspace ...`
+- explicit `template apply --id ... --workspace ...`
+- three single-Bot starters: Research Lead, Independent Reviewer, Work Coordinator
+- two durable team starters: Research Team and Delivery Team
+- deterministic workspace-scoped Bot/Room IDs
+- optional explicit prefix and runtime adapter
+- default explicit peer allow-lists instead of wildcard peer authority
+- no starter Bot can create durable Bots
+- temporary Worker creation enabled only for coordinator/leader roles that need it
+- external-managed starter binding rejected because provider/ref/fingerprint ownership must be explicit
+- team templates create durable Bots + one bounded Room, never a Team Run
+- whole-team atomic apply
+- absent-object preconditions preventing same-ID overwrite races
+- exact-current partial-state completion without rewriting current objects
+- collision refusal instead of overwrite
+- idempotent reapply with no duplicate creation events
+- setup onboarding now points to the starter catalog
+- installed-package template list/plan/apply/idempotence smoke coverage
+
+### 5.5 acceptance proof
+
+The integrated implementation head `52a2efa569a2fd6f668199d04a15309a20262709` passed GitHub Actions **CI run 519 (`34770445984`)**:
+
+- full repository suite: **449/449 tests passed**
+- Phase 4 compatibility suite: **5/5 tests passed**
+- package install smoke: **passed**
+- standalone install smoke: **passed**
+- AI-Verse OS install smoke: **passed**
+- materialized AI-Verse OS engine startup/health smoke: **passed**
+- setup/onboarding smoke: **passed**
+- starter template smoke: **passed**
+- packed artifact: **185 files**
+- **0 failures, 0 canceled and 0 skipped**
+
+See `docs/BOT-TEAM-TEMPLATES.md`.
+
 ## Ownership boundary
 
 Phase 5.1 intentionally does not choose or configure an operating mode during npm installation.
@@ -207,6 +254,6 @@ Phase 5.1 intentionally does not choose or configure an operating mode during np
 
 ## Next gate
 
-**Phase 5.5 - Bot/team templates.**
+**Phase 5.6 - production health/doctor.**
 
-Phase 5.4 is complete. The next task is reusable starter Bot/team templates without weakening explicit identity, workspace or authority boundaries.
+Phase 5.5 is complete. The next task is truthful production health/readiness across structural, attachment, runtime, dependency and operational depth.
