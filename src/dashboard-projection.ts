@@ -186,7 +186,14 @@ function taskControls(task: StoredObject, execution: ExecutionRecord | null): st
   const status = String(task.payload.status ?? "");
   const controls: string[] = [];
   if (!["completed", "failed", "canceled"].includes(status)) controls.push("task.cancel");
-  if (execution?.state === "dead_letter") controls.push("task.retry");
+  if (
+    status === "blocked"
+    && execution?.state === "dead_letter"
+    && execution.recoveryPolicy === "retry_safe"
+    && execution.attempts < execution.maxAttempts
+  ) {
+    controls.push("task.retry");
+  }
   return controls;
 }
 
