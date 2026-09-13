@@ -105,7 +105,7 @@ structural
 attachment
 ```
 
-Production runtime/dependency/operational/composed health belongs to Phase 5.6.
+Phase 5.6 now provides production runtime/dependency/operational health after setup. Whole-system/composed readiness remains owned by AI-Verse OS/distribution.
 
 ## Idempotence
 
@@ -135,7 +135,7 @@ Setup returns three next-step categories:
 2. **start** - start the local Coordination Gateway using the selected mode;
 3. **starter-template** - browse the reusable starter catalog before explicitly planning/applying a Bot or durable team.
 
-Setup itself still creates no Bot identity. The operator must choose a real workspace and explicitly run `template apply` after reviewing `template plan`.
+Setup itself still creates no Bot identity. The operator must choose a real workspace, choose an explicit runtime adapter, and explicitly run `template apply` after reviewing `template plan`.
 
 ## What setup does not grant
 
@@ -170,7 +170,6 @@ Phase 5.4 itself does not implement or auto-apply templates. Phase 5.5 provides 
 
 Phase 5.4 still does not implement:
 
-- production doctor/readiness depth;
 - standardized enable/disable/update lifecycle;
 - secure remote Gateway exposure;
 - Dashboard or channel clients.
