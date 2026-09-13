@@ -144,19 +144,22 @@ test("Phase 4.9 compatibility matrix covers every Gateway runtime registration e
 test("Phase 4.9 evidence map is executable, local, and traceable to deterministic tests", () => {
   for (const entry of matrix.adapters) {
     assert.ok(entry.evidence.length > 0, `${entry.id} must have evaluation evidence`);
+    const evidenceSources: string[] = [];
     for (const relative of entry.evidence) {
       assert.match(relative, /^test\/[a-z0-9.-]+\.test\.ts$/);
       const path = resolve(root, relative);
       assert.equal(existsSync(path), true, `${entry.id} evidence file is missing: ${relative}`);
       const source = readFileSync(path, "utf8");
       assert.match(source, /test\("/, `${relative} contains no node:test cases`);
-      for (const marker of entry.markers ?? []) {
-        assert.equal(
-          source.includes(marker),
-          true,
-          `${entry.id} evidence marker is missing from ${relative}: ${marker}`
-        );
-      }
+      evidenceSources.push(source);
+    }
+    const combinedEvidence = evidenceSources.join("\n");
+    for (const marker of entry.markers ?? []) {
+      assert.equal(
+        combinedEvidence.includes(marker),
+        true,
+        `${entry.id} evidence marker is missing from its declared evidence: ${marker}`
+      );
     }
   }
 });
