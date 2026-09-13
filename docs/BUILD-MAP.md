@@ -18,7 +18,7 @@ Phase 1  Runnable Coordination Core     [COMPLETE]    100%
 Phase 2  Dynamic Multi-Agent Squads     [COMPLETE]    100%
 Phase 3  AI-Verse Native Integration    [COMPLETE]    100%
 Phase 4  Runtime / A2A Interoperability [COMPLETE]    100%
-Phase 5  Product + Install + Dashboard  [IN PROGRESS] ~30%
+Phase 5  Product + Install + Dashboard  [IN PROGRESS] ~35%
 ```
 
 **Directional overall first-release progress:** roughly 95% complete.
@@ -791,8 +791,8 @@ Remaining major slices:
 4. setup/onboarding flow - **COMPLETE**
 5. Bot/team templates - **COMPLETE**
 6. production health/doctor - **COMPLETE**
-7. upgrade/migration strategy - **NEXT**
-8. secure remote Gateway option - **NOT STARTED**
+7. upgrade/migration strategy - **COMPLETE**
+8. secure remote Gateway option - **NEXT**
 9. Dashboard projections/control endpoints - **NOT STARTED**
 10. Telegram/Discord/other channel bridge contracts - **NOT STARTED**
 11. operator approvals/attention UX - **NOT STARTED**
@@ -921,6 +921,26 @@ Implemented:
 
 See `docs/PRODUCTION-HEALTH-DOCTOR.md` and `docs/PHASE-5-STATUS.md`.
 
+### Phase 5.7 - upgrade/migration strategy
+
+Implemented:
+
+- public mode-aware update-plan/update lifecycle
+- standalone version receipt + legacy adoption
+- semantic package version ordering and downgrade refusal
+- read-only coordination migration assessment
+- explicit migration-required gate for unsupported schema transitions
+- full AI-Verse OS package payload + registry update
+- disabled-state, adapter and unknown-registry metadata preservation
+- byte-stable coordination-state preservation for current-schema updates
+- bounded rollback of known package-owned OS payload if registry commit fails
+- production status/doctor update-required and migration-required states
+- installed-package update/migration acceptance smoke
+
+**Verified implementation gate:** GitHub Actions CI run 538 (`34778976513`) passed **467/467 repository tests**, **5/5 Phase 4 evaluations**, all existing package/install/setup/template/runtime/doctor smokes and the installed-package update/migration smoke at head `34ff85fa4e9546237a00ef81b1e37ced71eef1b1`.
+
+See `docs/UPDATE-MIGRATION-STRATEGY.md` and `docs/PHASE-5-STATUS.md`.
+
 ## Release acceptance
 
 The first finished release must prove at minimum:
@@ -941,9 +961,9 @@ The first finished release must prove at minimum:
 
 ## Next gate
 
-**Phase 5.7 - upgrade/migration strategy.**
+**Phase 5.8 - secure remote Gateway option.**
 
-Phase 5.6 is complete. The next canonical slice is safe upgrade/migration behavior.
+Phase 5.7 is complete. The next canonical slice is authenticated remote Gateway exposure without weakening loopback-first defaults or local authority.
 
 ## How to report progress
 

@@ -9,7 +9,7 @@ declare module "node:sqlite" {
 declare module "node:crypto" {
   export function randomUUID(): string;
   export function createHash(algorithm: string): {
-    update(data: string): any;
+    update(data: any): any;
     digest(encoding: "hex"): string;
   };
 }
@@ -27,6 +27,7 @@ declare module "node:fs" {
   export function lstatSync(path: string): any;
   export function mkdtempSync(prefix: string, options?: any): string;
   export function mkdirSync(path: string, options?: any): void;
+  export function readFileSync(path: string): any;
   export function readFileSync(path: string, encoding: "utf8"): string;
   export function realpathSync(path: string): string;
   export function renameSync(oldPath: string, newPath: string): void;

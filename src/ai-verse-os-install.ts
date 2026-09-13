@@ -87,13 +87,13 @@ function assertPackagedSource(path: string, label: string): void {
   }
 }
 
-function expectedInstructions(): string {
+export function expectedAiVerseOsInstructions(): string {
   const path = sourceInstructionsPath();
   assertPackagedSource(path, "AI-Verse OS instructions");
   return readFileSync(path, "utf8");
 }
 
-function expectedEngine(): string {
+export function expectedAiVerseOsEngine(): string {
   const serverPath = sourceServerModulePath();
   assertPackagedSource(serverPath, "compiled Gateway server");
   const serverUrl = pathToFileURL(serverPath).href;
@@ -237,8 +237,8 @@ export function planAiVerseOsInstall(rootInput: string): AiVerseOsInstallPlan {
     : [];
   const registration = planAiVerseOsRegistration(root, { adapters: existingAdapters });
 
-  const instructions = expectedInstructions();
-  const engine = expectedEngine();
+  const instructions = expectedAiVerseOsInstructions();
+  const engine = expectedAiVerseOsEngine();
   const files = [
     filePlan(root, AI_VERSE_MULTIPLE_BOTS_INSTRUCTIONS_PATH, instructions),
     filePlan(root, AI_VERSE_MULTIPLE_BOTS_ENGINE_PATH, engine)
@@ -319,8 +319,8 @@ export function installAiVerseOsExtension(rootInput: string): AiVerseOsInstallRe
     );
   }
 
-  const instructions = expectedInstructions();
-  const engine = expectedEngine();
+  const instructions = expectedAiVerseOsInstructions();
+  const engine = expectedAiVerseOsEngine();
   const created: string[] = [];
 
   try {

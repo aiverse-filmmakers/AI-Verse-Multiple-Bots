@@ -8,10 +8,12 @@ import {
   findAiVerseOsRoot
 } from "./ai-verse-os-registration.js";
 import { planAiVerseOsInstall } from "./ai-verse-os-install.js";
+import { planAiVerseOsProductUpdate } from "./ai-verse-os-update.js";
 import {
   findStandaloneRoot,
   readStandaloneInstallation
 } from "./standalone-install.js";
+import { planStandaloneUpdate } from "./standalone-update.js";
 import type { JsonObject } from "./types.js";
 
 export const PRODUCTION_HEALTH_SCHEMA = "1.0";
@@ -26,7 +28,7 @@ export type ProductionHealthDepth =
   | "operational"
   | "system/composed";
 export type ProductionHealthCheckStatus = "pass" | "fail" | "warning" | "not_applicable" | "delegated";
-export type ProductionLifecycleState = "setup-required" | "disabled" | "unhealthy" | "ready";
+export type ProductionLifecycleState = "setup-required" | "migration-required" | "update-required" | "disabled" | "unhealthy" | "ready";
 
 export interface ProductionHealthCheck extends JsonObject {
   id: string;
@@ -518,8 +520,16 @@ function databaseChecks(checks: ProductionHealthCheck[], dbPath: string): ReadOn
   }
 }
 
-function lifecycleState(checks: ProductionHealthCheck[], setupRequired: boolean, disabled: boolean): ProductionLifecycleState {
+function lifecycleState(
+  checks: ProductionHealthCheck[],
+  setupRequired: boolean,
+  migrationRequired: boolean,
+  updateRequired: boolean,
+  disabled: boolean
+): ProductionLifecycleState {
   if (setupRequired) return "setup-required";
+  if (migrationRequired) return "migration-required";
+  if (updateRequired) return "update-required";
   if (disabled) return "disabled";
   if (checks.some((item) => item.status === "fail")) return "unhealthy";
   return "ready";
@@ -575,6 +585,8 @@ export function doctorProduction(options: ProductionHealthOptions = {}): Product
 
   let dbPath: string | null = options.dbPath ? resolve(options.dbPath) : null;
   let setupRequired = false;
+  let migrationRequired = false;
+  let updateRequired = false;
   let disabled = false;
 
   if (selection.mode === "standalone") {
@@ -586,45 +598,106 @@ export function doctorProduction(options: ProductionHealthOptions = {}): Product
         gateway_host: installation.config.gateway.host,
         gateway_port: installation.config.gateway.port
       });
+      const update = planStandaloneUpdate(selection.root);
+      migrationRequired = update.migration_required;
+      updateRequired = update.update_required && !migrationRequired;
+      check(
+        checks,
+        "standalone-lifecycle-version",
+        "attachment",
+        migrationRequired ? "warning" : updateRequired ? "warning" : update.can_update ? "pass" : "fail",
+        migrationRequired
+          ? "Standalone coordination state requires an explicit migration before this package can update it."
+          : updateRequired
+            ? "Standalone installation metadata requires update/adoption for this package version."
+            : update.can_update
+              ? "Standalone installation version and coordination schema are current."
+              : update.blocked_reason ?? "Standalone update compatibility check failed.",
+        {
+          installed_version: update.installed_version,
+          target_version: update.target_version,
+          installed_version_state: update.installed_version_state,
+          migration_required: update.migration_required,
+          migration_supported: update.migration_supported,
+          can_update: update.can_update
+        }
+      );
     } catch (error) {
       setupRequired = true;
       check(checks, "standalone-attachment", "attachment", "fail", error instanceof Error ? error.message : String(error));
     }
   } else {
     try {
-      const plan = planAiVerseOsInstall(selection.root);
-      dbPath = dbPath ?? plan.coordination_db_path;
-      const entry = plan.current_registration;
-      const filesCurrent = plan.files.every((item) => item.state === "current");
-      const registered = Boolean(
-        entry
-        && entry.id === AI_VERSE_MULTIPLE_BOTS_EXTENSION_ID
-        && entry.installed === true
-        && entry.supported === true
-      );
-      disabled = registered && entry?.enabled === false;
-      setupRequired = !registered || !filesCurrent || plan.database_state !== "present";
+      const update = planAiVerseOsProductUpdate(selection.root);
+      dbPath = dbPath ?? update.database;
+      disabled = !update.enabled;
+      migrationRequired = update.migration_required;
+      updateRequired = update.update_required && !migrationRequired;
+      const unsafe = update.blocked_reasons.length > 0 && !migrationRequired && update.current_version_state !== "newer";
       check(
         checks,
         "ai-verse-os-attachment",
         "attachment",
-        setupRequired ? "fail" : disabled ? "warning" : "pass",
-        setupRequired
-          ? "AI-Verse OS attachment is incomplete; setup/install is required."
-          : disabled
-            ? "AI-Verse OS attachment is structurally current but explicitly disabled."
-            : "AI-Verse OS extension files, registration, and coordination database are current.",
+        unsafe ? "fail" : disabled || updateRequired || migrationRequired ? "warning" : "pass",
+        unsafe
+          ? "AI-Verse OS attachment/update preflight contains unsafe or missing registered paths."
+          : migrationRequired
+            ? "AI-Verse OS coordination state requires an explicit migration before update."
+            : updateRequired
+              ? "AI-Verse OS package-owned extension payload/registration requires update."
+              : disabled
+                ? "AI-Verse OS attachment is current but explicitly disabled."
+                : "AI-Verse OS extension files, registration, and coordination database are current.",
         {
-          registered,
-          enabled: entry?.enabled === true,
-          files_current: filesCurrent,
-          database_state: plan.database_state,
-          conflicts: plan.conflicts
+          installed_version: update.current_version,
+          target_version: update.target_version,
+          version_state: update.current_version_state,
+          enabled: update.enabled,
+          files: update.files,
+          adapter_failures: update.adapter_failures,
+          migration_required: update.migration_required,
+          migration_supported: update.migration_supported,
+          can_update: update.can_update,
+          blocked_reasons: update.blocked_reasons
         }
       );
-    } catch (error) {
-      setupRequired = true;
-      check(checks, "ai-verse-os-attachment", "attachment", "fail", error instanceof Error ? error.message : String(error));
+    } catch (updateError) {
+      try {
+        const plan = planAiVerseOsInstall(selection.root);
+        dbPath = dbPath ?? plan.coordination_db_path;
+        const entry = plan.current_registration;
+        const filesCurrent = plan.files.every((item) => item.state === "current");
+        const registered = Boolean(
+          entry
+          && entry.id === AI_VERSE_MULTIPLE_BOTS_EXTENSION_ID
+          && entry.installed === true
+          && entry.supported === true
+        );
+        disabled = registered && entry?.enabled === false;
+        setupRequired = !registered || !filesCurrent || plan.database_state !== "present";
+        check(
+          checks,
+          "ai-verse-os-attachment",
+          "attachment",
+          setupRequired ? "fail" : disabled ? "warning" : "pass",
+          setupRequired
+            ? "AI-Verse OS attachment is incomplete; setup/install is required."
+            : disabled
+              ? "AI-Verse OS attachment is structurally current but explicitly disabled."
+              : "AI-Verse OS extension files, registration, and coordination database are current.",
+          {
+            registered,
+            enabled: entry?.enabled === true,
+            files_current: filesCurrent,
+            database_state: plan.database_state,
+            conflicts: plan.conflicts,
+            update_preflight_error: updateError instanceof Error ? updateError.message : String(updateError)
+          }
+        );
+      } catch (error) {
+        setupRequired = true;
+        check(checks, "ai-verse-os-attachment", "attachment", "fail", error instanceof Error ? error.message : String(error));
+      }
     }
   }
 
@@ -643,7 +716,7 @@ export function doctorProduction(options: ProductionHealthOptions = {}): Product
     });
   }
 
-  const state = lifecycleState(checks, setupRequired, disabled);
+  const state = lifecycleState(checks, setupRequired, migrationRequired, updateRequired, disabled);
   return {
     schema_version: PRODUCTION_HEALTH_SCHEMA,
     provider: PRODUCTION_HEALTH_PROVIDER,

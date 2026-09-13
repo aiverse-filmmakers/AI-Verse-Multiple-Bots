@@ -36,6 +36,8 @@ Production status reports one of:
 
 ```text
 setup-required
+migration-required
+update-required
 disabled
 unhealthy
 ready
@@ -44,6 +46,8 @@ ready
 Meanings:
 
 - `setup-required`: the selected installation is absent or incomplete.
+- `migration-required`: canonical coordination state is on an unsupported schema transition and ordinary software update must not cross it.
+- `update-required`: setup/state is compatible, but package-owned installation metadata/payload is older than the current package.
 - `disabled`: the AI-Verse OS extension is installed/current but explicitly disabled.
 - `unhealthy`: setup exists, but one or more required component checks fail.
 - `ready`: every required check performed by Multiple Bots passes. Warnings may remain for dependencies that were intentionally not contacted.
@@ -107,6 +111,8 @@ Doctor reuses the Phase 5.3 read-only install plan and checks:
 - explicit enabled/disabled state.
 
 Doctor never silently enables a disabled registration.
+
+Phase 5.7 adds read-only version/migration assessment to attachment verification. An older compatible installation is reported as `update-required`; an unsupported coordination schema is reported as `migration-required`. Doctor does not run either operation.
 
 ## Runtime checks
 
@@ -278,7 +284,7 @@ GET /v1/health/readiness
 Response behavior:
 
 - HTTP 200 when component state is `ready`;
-- HTTP 503 for setup-required, disabled or unhealthy state.
+- HTTP 503 for setup-required, migration-required, update-required, disabled or unhealthy state.
 
 The endpoint returns the same structured production report used by the CLI.
 
@@ -287,9 +293,9 @@ The endpoint returns the same structured production report used by the CLI.
 Phase 5.6 does not implement:
 
 - automated repair;
-- upgrade/migration execution;
-- standardized public enable/disable/update lifecycle;
+- update/migration execution (doctor only reports the Phase 5.7 lifecycle state);
+- standardized public enable/disable lifecycle;
 - secure remote Gateway exposure;
 - Dashboard/channel UI.
 
-Upgrade/migration strategy is Phase 5.7.
+Update/migration strategy is implemented by Phase 5.7. Secure remote Gateway exposure is Phase 5.8.

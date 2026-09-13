@@ -4,6 +4,8 @@ import { DatabaseSync } from "node:sqlite";
 import type { AppendedEvent, CoordinationEvent, DeliveryRecord, JsonObject, ProtocolKind, StoredObject } from "./types.js";
 import { validateProtocolObject } from "./validator.js";
 
+export const COORDINATION_SCHEMA_VERSION = "1";
+
 function nowIso(): string {
   return new Date().toISOString();
 }
@@ -86,7 +88,7 @@ export class CoordinationStore {
         key TEXT PRIMARY KEY,
         value TEXT NOT NULL
       );
-      INSERT OR IGNORE INTO meta(key, value) VALUES ('schema_version', '1');
+      INSERT OR IGNORE INTO meta(key, value) VALUES ('schema_version', '${COORDINATION_SCHEMA_VERSION}');
 
       CREATE TABLE IF NOT EXISTS objects (
         id TEXT PRIMARY KEY,

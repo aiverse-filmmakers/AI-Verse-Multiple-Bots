@@ -24,11 +24,14 @@ Given a standalone project root:
 project/
 └── .ai-verse-bots/
     ├── config.json
+    ├── install.json
     └── runtime/
         └── coordination.db
 ```
 
 SQLite may create its normal transient sidecar files next to `coordination.db`.
+
+New Phase 5.7 installations also write package-owned `install.json` version metadata. Older standalone installations without that receipt remain valid and are explicitly adopted by `standalone update`; initialization does not silently rewrite legacy installations just to add metadata.
 
 The standalone installer does not create:
 
@@ -86,6 +89,13 @@ Run standalone health validation:
 ai-verse-multiple-bots standalone doctor
 ```
 
+Preview and apply package-version update/adoption:
+
+```bash
+ai-verse-multiple-bots standalone update-plan
+ai-verse-multiple-bots standalone update
+```
+
 Start the Gateway from the stored standalone config:
 
 ```bash
@@ -105,7 +115,8 @@ Standalone initialization is explicit. Installing the npm package still performs
 3. writes the standalone config only when absent;
 4. initializes the coordination database through the normal schema migration path;
 5. runs the coordination-store health check before reporting success;
-6. creates no AI-Verse OS state.
+6. writes a package-owned installation/version receipt for a new installation;
+7. creates no AI-Verse OS state.
 
 Re-running initialization against an already compatible installation is byte-stable and returns `unchanged`.
 
@@ -158,6 +169,6 @@ Phase 5.2 does not implement:
 - production service manager installation;
 - remote authentication or public-network binding;
 - Dashboard/channel integration;
-- upgrade/migration policy beyond current safe initialization behavior.
+- secure remote/public Gateway exposure.
 
-Those remain later Phase 5 slices.
+Phase 5.7 now owns update/adoption and migration-required detection. See `UPDATE-MIGRATION-STRATEGY.md`.
