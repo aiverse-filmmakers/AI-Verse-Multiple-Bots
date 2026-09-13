@@ -56,6 +56,7 @@ try {
     "dist/src/server.js",
     "dist/src/standalone-install.js",
     "dist/src/ai-verse-os-install.js",
+    "dist/src/setup.js",
     "schemas/coordination-v1.schema.json",
     "templates/bot.yaml",
     "templates/room.yaml",
@@ -91,6 +92,27 @@ try {
   const binName = process.platform === "win32" ? "ai-verse-multiple-bots.cmd" : "ai-verse-multiple-bots";
   const binPath = join(installDir, "node_modules", ".bin", binName);
   assert.equal(existsSync(binPath), true, "npm install did not expose the CLI bin");
+
+  const setupModes = JSON.parse(run(binPath, ["setup", "modes"], { cwd: installDir }));
+  assert.equal(setupModes.ok, true);
+  assert.deepEqual(
+    setupModes.setup_help.modes.map((item) => item.mode),
+    ["standalone", "ai-verse-os"]
+  );
+
+  const setupStandaloneRoot = join(installDir, "setup-standalone-project");
+  mkdirSync(setupStandaloneRoot, { recursive: true });
+  const setupStandalone = JSON.parse(run(
+    binPath,
+    ["setup", "--mode", "standalone", "--root", setupStandaloneRoot, "--port", "0"],
+    { cwd: installDir }
+  ));
+  assert.equal(setupStandalone.ok, true);
+  assert.equal(setupStandalone.setup.mode, "standalone");
+  assert.equal(setupStandalone.setup.status, "ready");
+  assert.equal(setupStandalone.setup.selected_by, "explicit");
+  assert.equal(existsSync(join(setupStandaloneRoot, ".ai-verse-bots", "config.json")), true);
+  assert.equal(existsSync(join(setupStandaloneRoot, ".ai-verse-bots", "runtime", "coordination.db")), true);
 
   const dbPath = join(installDir, "runtime", "install-smoke.db");
   const initOutput = run(binPath, ["init", "--db", dbPath], { cwd: installDir });
@@ -197,6 +219,14 @@ try {
   assert.equal(osInstallAgain.install.database_initialized, false);
   assert.equal(osInstallAgain.install.registration_status, "unchanged");
 
+  const setupOs = JSON.parse(run(binPath, ["setup", "--root", osRoot], { cwd: installDir }));
+  assert.equal(setupOs.ok, true);
+  assert.equal(setupOs.setup.mode, "ai-verse-os");
+  assert.equal(setupOs.setup.status, "ready");
+  assert.equal(setupOs.setup.selected_by, "detected");
+  assert.equal(setupOs.setup.changed, false);
+  assert.equal(setupOs.setup.verification.ok, true);
+
   console.log(JSON.stringify({
     ok: true,
     package: `${record.name}@${record.version}`,
@@ -206,7 +236,8 @@ try {
     install_smoke: "passed",
     standalone_install_smoke: "passed",
     ai_verse_os_install_smoke: "passed",
-    ai_verse_os_engine_smoke: "passed"
+    ai_verse_os_engine_smoke: "passed",
+    setup_onboarding_smoke: "passed"
   }, null, 2));
 } finally {
   rmSync(tempRoot, { recursive: true, force: true });

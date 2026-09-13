@@ -19,6 +19,11 @@ import {
 } from "./ai-verse-os-install.js";
 import { CoordinationGateway } from "./gateway.js";
 import { CoordinationStore } from "./store.js";
+import {
+  MultipleBotsSetupError,
+  setupModeHelp,
+  setupMultipleBots
+} from "./setup.js";
 import { createGatewayServer } from "./server.js";
 import {
   StandaloneInstallError,
@@ -35,7 +40,7 @@ function flag(name: string): string | undefined {
 }
 
 function usage(): never {
-  console.error(`AI-Verse Multiple Bots CLI\n\nCommands:\n  standalone init [--root PATH] [--host HOST] [--port N]\n  standalone doctor [--root PATH]\n  standalone serve [--root PATH]\n  init [--db PATH]\n  doctor [--db PATH]\n  bot create --id ID --name NAME --workspace ID --role TITLE --mission TEXT [--db PATH]\n  bot list [--workspace ID] [--db PATH]\n  events [--after N] [--limit N] [--db PATH]\n  serve [--host HOST] [--port N] [--db PATH] [--os-root PATH]\n  os detect [--root PATH]\n  os install-plan [--root PATH]\n  os install [--root PATH]\n  os plan [--root PATH]\n  os register [--root PATH]\n  os upgrade-plan [--root PATH]\n  os upgrade [--root PATH]\n  os uninstall-plan [--root PATH]\n  os uninstall [--root PATH]\n`);
+  console.error(`AI-Verse Multiple Bots CLI\n\nCommands:\n  setup [--mode standalone|os] [--root PATH] [--host HOST] [--port N]\n  setup modes\n  standalone init [--root PATH] [--host HOST] [--port N]\n  standalone doctor [--root PATH]\n  standalone serve [--root PATH]\n  init [--db PATH]\n  doctor [--db PATH]\n  bot create --id ID --name NAME --workspace ID --role TITLE --mission TEXT [--db PATH]\n  bot list [--workspace ID] [--db PATH]\n  events [--after N] [--limit N] [--db PATH]\n  serve [--host HOST] [--port N] [--db PATH] [--os-root PATH]\n  os detect [--root PATH]\n  os install-plan [--root PATH]\n  os install [--root PATH]\n  os plan [--root PATH]\n  os register [--root PATH]\n  os upgrade-plan [--root PATH]\n  os upgrade [--root PATH]\n  os uninstall-plan [--root PATH]\n  os uninstall [--root PATH]\n`);
   process.exit(2);
   throw new Error("unreachable");
 }
@@ -80,9 +85,46 @@ function reportStandaloneError(error: unknown): void {
   process.exitCode = 1;
 }
 
+function reportSetupError(error: unknown): void {
+  const setupError = error instanceof MultipleBotsSetupError ? error : null;
+  const standaloneError = error instanceof StandaloneInstallError ? error : null;
+  const osInstallError = error instanceof AiVerseOsInstallError ? error : null;
+  const osRegistrationError = error instanceof AiVerseOsRegistrationError ? error : null;
+  console.error(JSON.stringify({
+    ok: false,
+    code: setupError?.code
+      ?? standaloneError?.code
+      ?? osInstallError?.code
+      ?? osRegistrationError?.code
+      ?? "SETUP_ERROR",
+    error: error instanceof Error ? error.message : String(error),
+    setup_help: setupModeHelp()
+  }, null, 2));
+  process.exitCode = 1;
+}
+
 const args = process.argv.slice(2);
 const dbPath = flag("db") ?? "runtime/ai-verse-bots/coordination.db";
-if (args[0] === "standalone") {
+if (args[0] === "setup") {
+  try {
+    if (args[1] === "modes") {
+      console.log(JSON.stringify({ ok: true, setup_help: setupModeHelp() }, null, 2));
+    } else {
+      const portFlag = flag("port");
+      const result = setupMultipleBots({
+        ...(flag("mode") !== undefined ? { mode: flag("mode") } : {}),
+        ...(flag("root") !== undefined ? { root: flag("root") } : {}),
+        ...(flag("host") !== undefined ? { host: flag("host") } : {}),
+        ...(portFlag !== undefined ? { port: Number(portFlag) } : {}),
+        cwd: process.cwd()
+      });
+      console.log(JSON.stringify({ ok: result.ready, setup: result }, null, 2));
+      if (!result.ready) process.exitCode = 1;
+    }
+  } catch (error) {
+    reportSetupError(error);
+  }
+} else if (args[0] === "standalone") {
   try {
     if (args[1] === "init") {
       const root = requestedStandaloneRoot(false);

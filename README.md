@@ -24,11 +24,11 @@ The target experience is inspired most strongly by xAI's Grok Bot persistent-tea
 
 **Phase 4: Runtime and Agent Interoperability: COMPLETE**
 
-**Phase 5: Product, Installer, Omnichannel and Dashboard: IN PROGRESS (~15%)**
+**Phase 5: Product, Installer, Omnichannel and Dashboard: IN PROGRESS (~20%)**
 
-Phase 5.1 provides the installable package surface, Phase 5.2 provides standalone mode, and Phase 5.3 provides real AI-Verse OS materialization/attachment. The current verified implementation gate passes **434/434 repository tests**, **5/5 Phase 4 compatibility evaluations**, package/standalone/OS install smokes, and a generated-engine startup/health smoke. Phase 5.4 setup/onboarding is next.
+Phase 5.1 provides the installable package surface, Phase 5.2 standalone mode, Phase 5.3 AI-Verse OS installation, and Phase 5.4 the unified setup/onboarding flow. The current verified implementation gate passes **441/441 repository tests**, **5/5 Phase 4 compatibility evaluations**, all install/runtime smokes, and the installed-package setup/onboarding smoke. Phase 5.5 Bot/team templates are next.
 
-## Package installation
+## Install
 
 Requires **Node.js 22.5 or newer**.
 
@@ -48,7 +48,88 @@ ai-verse-multiple-bots standalone doctor
 
 The package is configured for public scoped npm publication as `@ai-verse/multiple-bots`, but this repository does not claim that version `0.1.0-alpha.1` has already been published to the public npm registry.
 
-npm installation itself performs no hidden host configuration. Standalone configuration is explicit through Phase 5.2; AI-Verse OS installation remains Phase 5.3.
+npm installation itself performs no hidden host configuration. Setup is always explicit.
+
+## Setup
+
+Choose one mode on first setup.
+
+Standalone:
+
+```bash
+ai-verse-multiple-bots setup --mode standalone
+```
+
+AI-Verse OS:
+
+```bash
+ai-verse-multiple-bots setup --mode os --root /path/to/AI-Verse-OS
+```
+
+See the available modes:
+
+```bash
+ai-verse-multiple-bots setup modes
+```
+
+Once an installation already exists, rerunning `ai-verse-multiple-bots setup` from inside it can auto-detect the single existing mode. If both modes are discoverable, setup requires an explicit `--mode`.
+
+Setup returns structured verification plus tailored next steps. It does not silently create a Bot or team.
+
+## Verify
+
+Standalone:
+
+```bash
+ai-verse-multiple-bots standalone doctor --root /path/to/project
+```
+
+AI-Verse OS materialization/attachment:
+
+```bash
+ai-verse-multiple-bots os install-plan --root /path/to/AI-Verse-OS
+```
+
+Phase 5.4 verification is structural + attachment depth. Production runtime/dependency/operational/composed doctor depth remains Phase 5.6.
+
+## Use
+
+Start standalone mode:
+
+```bash
+ai-verse-multiple-bots standalone serve --root /path/to/project
+```
+
+Start against AI-Verse OS using its canonical Multiple Bots database:
+
+```bash
+ai-verse-multiple-bots serve \
+  --os-root /path/to/AI-Verse-OS \
+  --db /path/to/AI-Verse-OS/runtime/ai-verse-bots/coordination.db
+```
+
+Setup also returns the exact resolved commands/paths for the selected installation. Durable Bot creation remains explicit; Phase 5.5 adds reusable starter Bot/team templates.
+
+## Update / disable / uninstall
+
+The existing expert AI-Verse OS lifecycle commands remain available:
+
+```bash
+ai-verse-multiple-bots os upgrade-plan --root /path/to/AI-Verse-OS
+ai-verse-multiple-bots os upgrade --root /path/to/AI-Verse-OS
+ai-verse-multiple-bots os uninstall-plan --root /path/to/AI-Verse-OS
+ai-verse-multiple-bots os uninstall --root /path/to/AI-Verse-OS
+```
+
+The standardized public update/enable/disable/uninstall lifecycle and migration UX is still a later Phase 5 slice. Setup never silently re-enables a disabled registration.
+
+## What setup does and does not grant
+
+Setup initializes Multiple Bots-owned coordination state and, in AI-Verse OS mode, materializes/attaches the local extension through the existing safe registry boundary.
+
+Setup does **not** grant AI-Verse OS workspace access, connection permission, external action approval, Brain authority, or remote/public-network exposure.
+
+See [`docs/SETUP-ONBOARDING.md`](docs/SETUP-ONBOARDING.md).
 
 ## Standalone mode
 
@@ -117,7 +198,7 @@ The current package includes:
 - exact Brain re-ingress contract protection for authority, deadlines, hops, leases and Approvals
 - explicit AI-Verse Memory recall through the installed Memory engine without reading or owning its SQLite index
 - bounded canonical Memory source/path/provenance validation with runtime-only recalled text for durable Bots and temporary Workers
-- installable `ai-verse-multiple-bots` CLI with standalone `init`/`doctor`/`serve`, AI-Verse OS `install-plan`/`install`, and lower-level OS registration/lifecycle surfaces
+- installable `ai-verse-multiple-bots` CLI with unified `setup`, standalone `init`/`doctor`/`serve`, AI-Verse OS `install-plan`/`install`, and lower-level OS registration/lifecycle surfaces
 
 See [`docs/BUILD-MAP.md`](docs/BUILD-MAP.md) for the canonical project progress map and [`docs/PHASE-5-STATUS.md`](docs/PHASE-5-STATUS.md) for the current productization ledger.
 
@@ -607,6 +688,7 @@ Therefore the system selects the **smallest sufficient topology** and keeps mult
 - [`docs/PHASE-5-STATUS.md`](docs/PHASE-5-STATUS.md) - current Phase 5 ledger
 - [`docs/STANDALONE-INSTALL.md`](docs/STANDALONE-INSTALL.md) - Phase 5.2 standalone installation contract
 - [`docs/AI-VERSE-OS-INSTALL.md`](docs/AI-VERSE-OS-INSTALL.md) - Phase 5.3 AI-Verse OS installation contract
+- [`docs/SETUP-ONBOARDING.md`](docs/SETUP-ONBOARDING.md) - Phase 5.4 setup/onboarding contract
 - [`docs/AI-VERSE-OS-REGISTRATION-CONTRACT.md`](docs/AI-VERSE-OS-REGISTRATION-CONTRACT.md) - Phase 3.1 host contract
 - [`docs/AI-VERSE-BRAIN-OBJECTIVE-INGRESS.md`](docs/AI-VERSE-BRAIN-OBJECTIVE-INGRESS.md) - Phase 3.3 Brain ingress contract
 - [`docs/AI-VERSE-MEMORY-RECALL.md`](docs/AI-VERSE-MEMORY-RECALL.md) - Phase 3.4 Memory recall contract
@@ -627,7 +709,7 @@ Contracts are tightened through implementation/evaluation rather than treated as
 
 Phases 0 through 4 are complete. Phase 5 is in progress.
 
-Phase 5.1 package installation, Phase 5.2 standalone mode, and Phase 5.3 AI-Verse OS install mode are complete. Remaining productization work starts with setup/onboarding, followed by templates, production health, lifecycle, secure remote access, Dashboard/channel surfaces, observability, release documentation and the final release acceptance suite.
+Phase 5.1 package installation, Phase 5.2 standalone mode, Phase 5.3 AI-Verse OS install mode, and Phase 5.4 setup/onboarding are complete. Remaining productization work starts with Bot/team templates, followed by production health, lifecycle, secure remote access, Dashboard/channel surfaces, observability, release documentation and the final release acceptance suite.
 
 The visual Bot roster belongs in AI-Verse Dashboard. Multiple Bots remains the backend coordination authority for Bot identity, routing, Tasks, Handoffs, Rooms, Team Runs and runtime orchestration.
 
