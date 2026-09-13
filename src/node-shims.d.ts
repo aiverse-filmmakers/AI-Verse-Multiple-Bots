@@ -64,6 +64,7 @@ declare module "node:url" {
   export class URL {
     constructor(input: string, base?: string);
     pathname: string;
+    protocol: string;
     searchParams: { get(name: string): string | null };
   }
   export function fileURLToPath(url: string | URL): string;
