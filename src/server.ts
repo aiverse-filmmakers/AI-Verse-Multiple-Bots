@@ -78,7 +78,7 @@ async function readJson(req: any, maxBytes = DEFAULT_GATEWAY_MAX_BODY_BYTES): Pr
   let size = 0;
   for await (const chunk of req) {
     const text = String(chunk);
-    size += text.length;
+    size += typeof chunk?.length === "number" ? Number(chunk.length) : text.length;
     if (size > maxBytes) {
       throw new GatewaySecurityError(
         "REQUEST_BODY_TOO_LARGE",
