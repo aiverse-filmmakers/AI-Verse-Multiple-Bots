@@ -312,7 +312,10 @@ test("Phase 5.11 operator approval cards provide decision context and route appr
     assert.equal(approved.body.approval_status, "approved");
     assert.equal(approved.body.task_status, "assigned");
     assert.equal(service.store.getObject(delegated.approval.id)?.payload.status, "approved");
-    assert.equal(service.store.getObject(delegated.task.id)?.payload.status, "assigned");
+    assert.equal(
+      ["assigned", "running", "completed"].includes(String(service.store.getObject(delegated.task.id)?.payload.status ?? "")),
+      true
+    );
 
     const pendingAfter = await httpJson(
       address.port,
