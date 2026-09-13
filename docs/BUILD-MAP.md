@@ -18,7 +18,7 @@ Phase 1  Runnable Coordination Core     [COMPLETE]    100%
 Phase 2  Dynamic Multi-Agent Squads     [COMPLETE]    100%
 Phase 3  AI-Verse Native Integration    [COMPLETE]    100%
 Phase 4  Runtime / A2A Interoperability [COMPLETE]    100%
-Phase 5  Product + Install + Dashboard  [IN PROGRESS] ~5%
+Phase 5  Product + Install + Dashboard  [IN PROGRESS] ~10%
 ```
 
 **Directional overall first-release progress:** roughly 95% complete.
@@ -779,15 +779,15 @@ See `docs/PHASE-4-COMPATIBILITY-EVALUATION.md`, `evals/phase-4-runtime-compatibi
 
 **Status:** IN PROGRESS
 
-**Directional phase progress:** approximately 5%
+**Directional phase progress:** approximately 10%
 
 Goal: turn the completed coordination/integration/interoperability layers into a member-installable product with health, onboarding, remote/channel access and observability.
 
 Remaining major slices:
 
 1. simple install command/package - **COMPLETE**
-2. standalone install mode - **NEXT**
-3. AI-Verse OS install mode - **NOT STARTED**
+2. standalone install mode - **COMPLETE**
+3. AI-Verse OS install mode - **NEXT**
 4. setup/onboarding flow - **NOT STARTED**
 5. Bot/team templates - **NOT STARTED**
 6. production health/doctor - **NOT STARTED**
@@ -821,6 +821,28 @@ The artifact is proven installable from a built npm tarball. Public npm-registry
 
 See `docs/PHASE-5-STATUS.md`.
 
+### Phase 5.2 - standalone install mode
+
+Implemented:
+
+- canonical host-neutral standalone home at `.ai-verse-bots/`
+- deterministic schema-`1.0` standalone config
+- fixed internal coordination DB at `.ai-verse-bots/runtime/coordination.db`
+- `standalone init`, `standalone doctor` and `standalone serve`
+- explicit root/initial bind configuration and ancestor discovery
+- idempotent byte-stable re-initialization
+- fail-closed malformed config, incompatible schema, mismatch and symlink/path handling
+- missing-install doctor that does not create state
+- standalone Gateway startup without AI-Verse OS attachment
+- explicit proof that native Brain/Memory/Skills/Automations/workspace/write-command sources remain detached
+- installed-package standalone init/doctor smoke verification
+- no AI-Verse OS manifest, operator/workspace tree or extension registry creation
+- no secure remote/public-network product scope pulled forward
+
+**Verified implementation gate:** GitHub Actions CI run 495 (`34766373647`) passed the full **426/426 tests**, the Phase 4 compatibility suite **5/5**, the package install smoke, and the installed-package standalone smoke on implementation head `d1baf0daee3bb03f5d4ead0d484c7145831e00fd`.
+
+See `docs/STANDALONE-INSTALL.md` and `docs/PHASE-5-STATUS.md`.
+
 ## Release acceptance
 
 The first finished release must prove at minimum:
@@ -841,9 +863,9 @@ The first finished release must prove at minimum:
 
 ## Next gate
 
-**Phase 5.2 - standalone install mode.**
+**Phase 5.3 - AI-Verse OS install mode.**
 
-Phase 5.1 is complete. The next canonical slice is standalone installation/configuration. AI-Verse OS install mode remains Phase 5.3.
+Phase 5.2 is complete. The next canonical slice is AI-Verse OS package materialization and attachment through the existing safe registration boundary.
 
 ## How to report progress
 
