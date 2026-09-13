@@ -111,14 +111,14 @@ These are separate states:
 materialized files != registered != enabled != healthy != authorized
 ```
 
-`registerAiVerseOsExtension()` verifies that the paths it records as installed actually exist, but it does not create the production engine payload and does not assert live engine health. Final one-command packaging/materialization belongs to Phase 5.
+`registerAiVerseOsExtension()` verifies that the paths it records as installed actually exist, but it remains a lower-level registration primitive and does not assert live engine health. Phase 5.3 now provides package-owned one-command materialization through `os install`; registration itself remains separate from materialization, health and authorization.
 
 The Phase 3.1 CLI therefore exposes host-registration operations for an installer or operator that already materialized the extension-owned files:
 
 ```bash
-ai-verse-bots os detect --root /path/to/AI-Verse-OS
-ai-verse-bots os plan --root /path/to/AI-Verse-OS
-ai-verse-bots os register --root /path/to/AI-Verse-OS
+ai-verse-multiple-bots os detect --root /path/to/AI-Verse-OS
+ai-verse-multiple-bots os plan --root /path/to/AI-Verse-OS
+ai-verse-multiple-bots os register --root /path/to/AI-Verse-OS
 ```
 
 The programmatic adapter is also exported as `aiVerseOsRegistrationAdapter`.
@@ -163,3 +163,19 @@ Phase 3.1 establishes the safe attachment point only. It intentionally does not 
 Those are Phase 3.2 through 3.10 and must build on this contract rather than bypass it.
 
 Phase 3.10 now defines the lifecycle completion of this registration contract. Upgrade requires an existing owned registration and preserves disabled/unknown metadata. Uninstall removes only the owned registry entry and known registered regular files inside the extension root, preserves coordination state and canonical host state, and never recursively scavenges unknown files. See `AI-VERSE-UPGRADE-UNINSTALL-SAFETY.md`.
+
+
+## Phase 5.3 materialization completion
+
+Phase 5.3 adds the member-facing installation layer on top of this unchanged registration boundary:
+
+```bash
+ai-verse-multiple-bots os install-plan --root /path/to/AI-Verse-OS
+ai-verse-multiple-bots os install --root /path/to/AI-Verse-OS
+```
+
+The installer materializes the package-owned instructions and engine, initializes/health-checks `runtime/ai-verse-bots/coordination.db`, and then calls the same safe registry transaction defined above.
+
+The generated engine is a thin bridge to the installed package's real Coordination Gateway. No parallel OS runtime, Brain, Memory, Skills, Automations or canonical workspace store is created.
+
+See `AI-VERSE-OS-INSTALL.md`.
