@@ -858,7 +858,7 @@ Contracts are tightened through implementation/evaluation rather than treated as
 
 Phases 0 through 4 are complete. Phase 5 is in progress.
 
-Phase 5.1 package installation, Phase 5.2 standalone mode, Phase 5.3 AI-Verse OS install mode, Phase 5.4 setup/onboarding, Phase 5.5 Bot/team templates, Phase 5.6 production health/doctor, Phase 5.7 update/migration strategy, Phase 5.8 secure remote Gateway, Phase 5.9 Dashboard projections/control endpoints, and Phase 5.10 channel bridge contracts are complete. The Phase 5.11 operator approvals/attention UX implementation is complete pending hosted acceptance. Remaining productization work starts with observability, followed by release documentation and the final release acceptance suite.
+Phase 5.1 package installation, Phase 5.2 standalone mode, Phase 5.3 AI-Verse OS install mode, Phase 5.4 setup/onboarding, Phase 5.5 Bot/team templates, Phase 5.6 production health/doctor, Phase 5.7 update/migration strategy, Phase 5.8 secure remote Gateway, Phase 5.9 Dashboard projections/control endpoints, and Phase 5.10 channel bridge contracts are complete. Phase 5.11 operator approvals/attention UX is complete. Remaining productization work starts with observability, followed by release documentation and the final release acceptance suite.
 
 The visual Bot roster belongs in AI-Verse Dashboard. Multiple Bots remains the backend coordination authority for Bot identity, routing, Tasks, Handoffs, Rooms, Team Runs and runtime orchestration.
 
