@@ -6,7 +6,7 @@
 
 **Overall status:** IN PROGRESS
 
-**Directional phase progress:** approximately 45%
+**Directional phase progress:** approximately 55%
 
 This file is the implementation ledger for Phase 5. The canonical product roadmap remains `BUILD-MAP.md`.
 
@@ -25,8 +25,8 @@ Turn the completed coordination, AI-Verse integration and runtime-interoperabili
 7. upgrade/migration strategy - **COMPLETE**
 8. secure remote Gateway option - **COMPLETE**
 9. Dashboard projections/control endpoints - **COMPLETE**
-10. Telegram/Discord/other channel bridge contracts - **NEXT**
-11. operator approvals/attention UX - **NOT STARTED**
+10. Telegram/Discord/other channel bridge contracts - **COMPLETE IMPLEMENTATION, ACCEPTANCE PENDING CI**
+11. operator approvals/attention UX - **NEXT**
 12. observability/usage views - **NOT STARTED**
 13. release docs/examples - **NOT STARTED**
 14. full release acceptance suite - **NOT STARTED**
@@ -437,6 +437,43 @@ The implementation head `122616d2b9aff059a24d16c5f30944b441d3c897` passed GitHub
 
 See `docs/DASHBOARD-PROJECTION-CONTROL.md`.
 
+## Slice 5.10 - Telegram/Discord/other channel bridge contracts
+
+**Implementation status:** COMPLETE IMPLEMENTATION, ACCEPTANCE PENDING CI
+
+Phase 5.10 adds a provider-neutral omnichannel boundary without creating another scheduler, identity database or coordination authority.
+
+Implemented:
+
+- host-supplied, workspace-scoped channel bindings
+- one enabled provider/account/conversation route per binding
+- Telegram message/update normalization
+- Discord message normalization
+- generic normalized ingress contract
+- explicit adapter-side transport verification requirement
+- external sender allow-lists
+- deterministic channel actor IDs without a second identity store
+- deterministic canonical message IDs and ingress idempotency
+- external-message provenance with `trusted_instruction: false`
+- text plus external attachment-reference normalization
+- canonical reply correlation
+- Bot ingress routed through `CoordinationGateway`
+- Room/Thread ingress routed through `RoomCoordinator`
+- canonical message events now carry `message_id`
+- outbound formatting from existing canonical messages
+- Telegram, Discord and generic transport-command projections
+- external reply-target recovery
+- echo prevention for inbound external messages
+- idempotent `sent` / `delivered` / `failed` egress receipts
+- no provider secret storage
+- no public webhook termination inside Multiple Bots
+- no provider network delivery inside Multiple Bots
+- installed-package channel ingress/egress smoke coverage
+
+Acceptance proof will be recorded after hosted CI passes on the PR head.
+
+See `docs/CHANNEL-BRIDGE-CONTRACTS.md`.
+
 ## Ownership boundary
 
 Phase 5.1 intentionally does not choose or configure an operating mode during npm installation.
@@ -448,6 +485,6 @@ Phase 5.1 intentionally does not choose or configure an operating mode during np
 
 ## Next gate
 
-**Phase 5.10 - Telegram/Discord/other channel bridge contracts.**
+**Phase 5.11 - operator approvals/attention UX.**
 
-Phase 5.9 is complete. The next task is channel ingress/egress contracts that reuse the Gateway without creating a second scheduler, identity store or coordination authority.
+Phase 5.10 implementation is complete pending hosted acceptance. The next product slice is the operator-facing approvals and attention contract over the existing canonical approval/attention state.
