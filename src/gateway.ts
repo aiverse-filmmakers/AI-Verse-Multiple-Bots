@@ -32,6 +32,11 @@ export interface SendMessageInput {
   correlationId?: string;
   roomId?: string;
   threadId?: string;
+  replyToMessageId?: string;
+  messageId?: string;
+  timestamp?: string;
+  content?: JsonObject[];
+  provenance?: JsonObject;
   idempotencyKey?: string;
 }
 
@@ -95,6 +100,8 @@ export interface PublishRoomMessageInput {
   replyToMessageId?: string;
   messageId?: string;
   timestamp?: string;
+  content?: JsonObject[];
+  provenance?: JsonObject;
   idempotencyKey?: string;
 }
 
@@ -111,6 +118,10 @@ interface EmitInput {
   traceId?: string | null;
   summary?: string | null;
   attentionState?: string;
+  messageId?: string | null;
+  channelBindingId?: string | null;
+  channelProvider?: string | null;
+  externalDeliveryId?: string | null;
   idempotencyKey?: string;
 }
 
@@ -850,24 +861,42 @@ export class CoordinationGateway {
   sendMessage(input: SendMessageInput): { message: StoredObject; delivery: DeliveryRecord; event: AppendedEvent } {
     if (input.targetKind === "bot") this.policy?.assertMessage(input.senderId, input.targetId, input.workspaceId);
 
-    const messageId = createId("msg");
+    const messageId = input.messageId ?? createId("msg");
+    const content = input.content ?? [{ kind: "text", text: input.text }];
+    const provenance = input.provenance ?? { origin: "bot_generated", trusted_instruction: false };
+    const existing = this.store.getObject(messageId);
+    if (existing) {
+      const target = objectValue(existing.payload.target);
+      if (
+        existing.kind !== "message"
+        || String(existing.payload.sender_id ?? "") !== input.senderId
+        || existing.workspaceId !== input.workspaceId
+        || String(target.kind ?? "") !== input.targetKind
+        || String(target.id ?? "") !== input.targetId
+        || JSON.stringify(existing.payload.content ?? []) !== JSON.stringify(content)
+      ) {
+        throw new Error(`Message id ${messageId} was already used by another message payload`);
+      }
+    }
+
     const message: JsonObject = {
       schema_version: "1.0",
       id: messageId,
       type: "message.chat",
-      timestamp: nowIso(),
+      timestamp: input.timestamp ?? nowIso(),
       sender_id: input.senderId,
       target: { kind: input.targetKind, id: input.targetId },
       workspace_id: input.workspaceId,
       room_id: input.roomId ?? null,
       thread_id: input.threadId ?? null,
+      reply_to_message_id: input.replyToMessageId ?? null,
       correlation_id: input.correlationId ?? null,
       delivery_state: "queued",
-      content: [{ kind: "text", text: input.text }],
-      provenance: { origin: "bot_generated", trusted_instruction: false }
+      content,
+      provenance
     };
     validateProtocolObject(message, "message");
-    const stored = this.store.putObject("message", message);
+    const stored = existing ?? this.store.putObject("message", message);
     const timestamp = nowIso();
     const delivery = this.store.enqueueDelivery({
       id: createId("delivery"),
@@ -887,6 +916,7 @@ export class CoordinationGateway {
       roomId: input.roomId,
       threadId: input.threadId,
       correlationId: input.correlationId,
+      messageId,
       summary: `Message queued for ${input.targetKind}:${input.targetId}`,
       idempotencyKey: input.idempotencyKey
     });
@@ -948,11 +978,20 @@ export class CoordinationGateway {
 
     const messageId = input.messageId ?? createId("msg");
     const messageTimestamp = input.timestamp ?? nowIso();
+    const content = input.content ?? [{ kind: "text", text: input.text }];
+    const provenance = input.provenance ?? {
+      origin: input.senderId.startsWith("bot_") ? "bot_generated" : input.senderId.startsWith("worker_") ? "worker_generated" : "operator_input",
+      trusted_instruction: !input.senderId.startsWith("bot_") && !input.senderId.startsWith("worker_")
+    };
     const existing = this.store.getObject(messageId);
     if (existing) {
       if (existing.kind !== "message") throw new Error(`Room message id ${messageId} already belongs to ${existing.kind}`);
-      if (String(existing.payload.room_id ?? "") !== input.roomId || String(existing.payload.sender_id ?? "") !== input.senderId) {
-        throw new Error(`Room message id ${messageId} was already used by another Room or sender`);
+      if (
+        String(existing.payload.room_id ?? "") !== input.roomId
+        || String(existing.payload.sender_id ?? "") !== input.senderId
+        || JSON.stringify(existing.payload.content ?? []) !== JSON.stringify(content)
+      ) {
+        throw new Error(`Room message id ${messageId} was already used by another Room, sender, or content payload`);
       }
       const event = this.emit({
         type: "room.message",
@@ -961,6 +1000,7 @@ export class CoordinationGateway {
         roomId: input.roomId,
         threadId: input.threadId,
         correlationId: input.correlationId,
+        messageId,
         summary: input.text.length > 160 ? `${input.text.slice(0, 157)}...` : input.text,
         idempotencyKey: input.idempotencyKey
       });
@@ -980,13 +1020,10 @@ export class CoordinationGateway {
       reply_to_message_id: input.replyToMessageId ?? null,
       correlation_id: input.correlationId ?? null,
       delivery_state: "delivered",
-      content: [{ kind: "text", text: input.text }],
+      content,
       mentions: input.mentions ?? [],
       artifact_refs: input.artifactRefs ?? [],
-      provenance: {
-        origin: input.senderId.startsWith("bot_") ? "bot_generated" : input.senderId.startsWith("worker_") ? "worker_generated" : "operator_input",
-        trusted_instruction: !input.senderId.startsWith("bot_") && !input.senderId.startsWith("worker_")
-      }
+      provenance
     };
     const stored = this.store.putObject("message", validateProtocolObject(message, "message"));
     const event = this.emit({
@@ -996,6 +1033,7 @@ export class CoordinationGateway {
       roomId: input.roomId,
       threadId: input.threadId,
       correlationId: input.correlationId,
+      messageId,
       summary: input.text.length > 160 ? `${input.text.slice(0, 157)}...` : input.text,
       idempotencyKey: input.idempotencyKey
     });
@@ -1024,7 +1062,11 @@ export class CoordinationGateway {
       causation_id: input.causationId ?? null,
       trace_id: input.traceId ?? null,
       summary: input.summary ?? null,
-      ...(input.attentionState ? { attention_state: input.attentionState } : {})
+      ...(input.attentionState ? { attention_state: input.attentionState } : {}),
+      ...(input.messageId ? { message_id: input.messageId } : {}),
+      ...(input.channelBindingId ? { channel_binding_id: input.channelBindingId } : {}),
+      ...(input.channelProvider ? { channel_provider: input.channelProvider } : {}),
+      ...(input.externalDeliveryId ? { external_delivery_id: input.externalDeliveryId } : {})
     };
   }
 
