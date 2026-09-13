@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import process from "node:process";
 import test from "node:test";
 import { A2AJsonRpcRuntimeAdapter } from "../src/a2a-runtime.js";
 import { ClaudeCodePrintRuntimeAdapter } from "../src/claude-code-runtime.js";
