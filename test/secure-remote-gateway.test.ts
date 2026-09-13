@@ -41,6 +41,10 @@ if (args[0] === "version") {
   console.log("1.99.0-test");
   process.exit(0);
 }
+if (args[0] === "status" && args[1] === "--json") {
+  console.log(JSON.stringify({ BackendState: "Running" }));
+  process.exit(0);
+}
 if (args[0] === "serve") {
   console.log("Available within your tailnet:");
   console.log("https://phase-5-8-test.example.ts.net");
@@ -129,6 +133,7 @@ test("Phase 5.8 remote plan is read-only, secret-redacted, and fails closed with
       env: { PATH: process.env.PATH }
     });
     assert.equal(missingAuth.transport.provider_available, true);
+    assert.equal(missingAuth.transport.tailnet_connected, true);
     assert.equal(missingAuth.auth.configured, false);
     assert.equal(missingAuth.can_start, false);
     assert.match(missingAuth.blocked_reasons.join(" "), /bearer token/i);
@@ -145,6 +150,7 @@ test("Phase 5.8 remote plan is read-only, secret-redacted, and fails closed with
     });
     assert.equal(unavailable.auth.configured, true);
     assert.equal(unavailable.transport.provider_available, false);
+    assert.equal(unavailable.transport.tailnet_connected, false);
     assert.equal(unavailable.can_start, false);
 
     const ready = planSecureRemoteGateway({
@@ -160,6 +166,7 @@ test("Phase 5.8 remote plan is read-only, secret-redacted, and fails closed with
     assert.equal(ready.can_start, true);
     assert.equal(ready.local_host, "127.0.0.1");
     assert.equal(ready.transport.exposure, "tailnet-only");
+    assert.equal(ready.transport.tailnet_connected, true);
     assert.equal(ready.transport.tls_terminated_by, "tailscale-serve");
     assert.equal(ready.transport.direct_non_loopback_bind, false);
     assert.equal(ready.auth.env_name, DEFAULT_GATEWAY_TOKEN_ENV);
