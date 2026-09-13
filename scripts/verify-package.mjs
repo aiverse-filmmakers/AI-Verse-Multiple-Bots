@@ -72,6 +72,8 @@ try {
     "dist/src/versioning.js",
     "dist/src/gateway-security.js",
     "dist/src/secure-remote-gateway.js",
+    "dist/src/dashboard-projection.js",
+    "dist/src/dashboard-control.js",
     "schemas/coordination-v1.schema.json",
     "templates/bot.yaml",
     "templates/room.yaml",
@@ -247,6 +249,19 @@ if (args[0] === "serve") {
   assert.equal(inboundAuthSmoke.authorized, 200);
   assert.equal(inboundAuthSmoke.ok, true);
   assert.equal(inboundAuthSmoke.nosniff, "nosniff");
+
+  const dashboardSmoke = JSON.parse(run(process.execPath, [
+    "--input-type=module",
+    "--eval",
+    `const s=await import(${JSON.stringify(installedServerUrl)}); const service=s.createGatewayServer({dbPath:':memory:',port:0}); service.gateway.createBot({schema_version:'1.0',id:'bot_dashboard_package',name:'Package Dashboard Bot',kind:'durable',status:'active',role:{title:'Package Bot',mission:'Verify Dashboard package surface'},runtime:{adapter:'deterministic'},execution:{environment_policy:'shared_workspace'},scope:{type:'workspace',workspace_id:'ws_dashboard_package'},permissions:{policy_ref:'default-bot',allowed_peers:['*']},coordination:{default_mode:'direct'}}); const a=await service.listen(); try { const base='http://127.0.0.1:'+a.port; const before=await (await fetch(base+'/v1/dashboard/snapshot?workspace=ws_dashboard_package')).json(); const control=await (await fetch(base+'/v1/dashboard/control',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:'bot.disable',workspaceId:'ws_dashboard_package',targetId:'bot_dashboard_package',actorId:'operator_package'})})).json(); const after=await (await fetch(base+'/v1/dashboard/snapshot?workspace=ws_dashboard_package')).json(); console.log(JSON.stringify({provider:before.provider,projection_only:before.projection_only,bots_before:before.bots.length,control_provider:control.provider,control_status:control.resulting_status,bot_status_after:after.bots[0]?.status,dashboard_owns_truth:after.dashboard_owns_truth})); } finally { await service.close(); }`
+  ], { cwd: installDir }));
+  assert.equal(dashboardSmoke.provider, "ai-verse-multiple-bots/dashboard-projection-v1");
+  assert.equal(dashboardSmoke.projection_only, true);
+  assert.equal(dashboardSmoke.bots_before, 1);
+  assert.equal(dashboardSmoke.control_provider, "ai-verse-multiple-bots/dashboard-control-v1");
+  assert.equal(dashboardSmoke.control_status, "disabled");
+  assert.equal(dashboardSmoke.bot_status_after, "disabled");
+  assert.equal(dashboardSmoke.dashboard_owns_truth, false);
 
   const standaloneConfigPath = join(setupStandaloneRoot, ".ai-verse-bots", "config.json");
   const standaloneReceiptPath = join(setupStandaloneRoot, ".ai-verse-bots", "install.json");
@@ -480,7 +495,8 @@ if (args[0] === "serve") {
     starter_template_smoke: "passed",
     production_doctor_smoke: "passed",
     update_migration_smoke: "passed",
-    secure_remote_gateway_smoke: "passed"
+    secure_remote_gateway_smoke: "passed",
+    dashboard_projection_control_smoke: "passed"
   }, null, 2));
 } finally {
   rmSync(tempRoot, { recursive: true, force: true });
