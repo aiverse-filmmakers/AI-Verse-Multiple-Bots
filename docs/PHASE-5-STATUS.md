@@ -6,7 +6,7 @@
 
 **Overall status:** IN PROGRESS
 
-**Directional phase progress:** approximately 65%
+**Directional phase progress:** approximately 70%
 
 This file is the implementation ledger for Phase 5. The canonical product roadmap remains `BUILD-MAP.md`.
 
@@ -26,7 +26,7 @@ Turn the completed coordination, AI-Verse integration and runtime-interoperabili
 8. secure remote Gateway option - **COMPLETE**
 9. Dashboard projections/control endpoints - **COMPLETE**
 10. Telegram/Discord/other channel bridge contracts - **COMPLETE**
-11. operator approvals/attention UX - **COMPLETE IMPLEMENTATION, ACCEPTANCE PENDING CI**
+11. operator approvals/attention UX - **COMPLETE**
 12. observability/usage views - **NEXT**
 13. release docs/examples - **NOT STARTED**
 14. full release acceptance suite - **NOT STARTED**
@@ -494,7 +494,7 @@ See `docs/CHANNEL-BRIDGE-CONTRACTS.md`.
 
 ## Slice 5.11 - operator approvals/attention UX
 
-**Implementation status:** COMPLETE IMPLEMENTATION, ACCEPTANCE PENDING CI
+**Implementation status:** COMPLETE
 
 Phase 5.11 turns canonical approval, Task, Handoff, execution and attention state into a compact operator-facing queue without creating a notification/read-state database.
 
@@ -517,7 +517,26 @@ Implemented:
 - no private model reasoning exposed
 - installed-package operator attention/Approval smoke coverage
 
-Acceptance proof will be recorded after hosted CI passes on the PR head.
+### 5.11 acceptance proof
+
+The implementation head `6028dca16f6ace413927918399dd746889a19b8a` passed GitHub Actions **CI run 584 (`34785373757`)**:
+
+- full repository suite: **487/487 tests passed**
+- Phase 4 compatibility suite: **5/5 tests passed**
+- package install smoke: **passed**
+- standalone install smoke: **passed**
+- AI-Verse OS install smoke: **passed**
+- materialized AI-Verse OS engine smoke: **passed**
+- setup/onboarding smoke: **passed**
+- starter-template smoke: **passed**
+- production-doctor smoke: **passed**
+- update/migration smoke: **passed**
+- secure-remote Gateway smoke: **passed**
+- Dashboard projection/control smoke: **passed**
+- channel bridge smoke: **passed**
+- installed-package operator attention/Approval smoke: **passed**
+- packed artifact: **224 files**
+- **0 failures, 0 canceled and 0 skipped**
 
 See `docs/OPERATOR-ATTENTION-UX.md`.
 
@@ -534,4 +553,4 @@ Phase 5.1 intentionally does not choose or configure an operating mode during np
 
 **Phase 5.12 - observability/usage views.**
 
-Phase 5.11 implementation is complete pending hosted acceptance. The next product slice is structured observability and usage projection over the existing canonical event/execution substrate.
+Phase 5.11 is complete. The next product slice is structured observability and usage projection over the existing canonical event/execution substrate.
