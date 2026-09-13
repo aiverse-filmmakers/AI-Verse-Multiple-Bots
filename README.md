@@ -24,9 +24,9 @@ The target experience is inspired most strongly by xAI's Grok Bot persistent-tea
 
 **Phase 4: Runtime and Agent Interoperability: COMPLETE**
 
-**Phase 5: Product, Installer, Omnichannel and Dashboard: IN PROGRESS (~5%)**
+**Phase 5: Product, Installer, Omnichannel and Dashboard: IN PROGRESS (~10%)**
 
-Phase 5.1 provides the first real installable package surface. The current verified gate passes **420/420 repository tests**, **5/5 Phase 4 compatibility evaluations**, and a real npm pack/install smoke test. Phase 5.2 standalone install mode is next.
+Phase 5.1 provides the installable package surface and Phase 5.2 provides the real standalone lifecycle. The current verified implementation gate passes **426/426 repository tests**, **5/5 Phase 4 compatibility evaluations**, the package install smoke, and the installed-package standalone smoke. Phase 5.3 AI-Verse OS install mode is next.
 
 ## Package installation
 
@@ -48,7 +48,32 @@ ai-verse-multiple-bots doctor
 
 The package is configured for public scoped npm publication as `@ai-verse/multiple-bots`, but this repository does not claim that version `0.1.0-alpha.1` has already been published to the public npm registry.
 
-npm installation itself performs no hidden standalone or AI-Verse OS configuration. Those mode-specific flows belong to Phase 5.2 and Phase 5.3.
+npm installation itself performs no hidden host configuration. Standalone configuration is explicit through Phase 5.2; AI-Verse OS installation remains Phase 5.3.
+
+## Standalone mode
+
+Create a host-neutral standalone installation:
+
+```bash
+mkdir my-bots
+cd my-bots
+ai-verse-multiple-bots standalone init
+ai-verse-multiple-bots standalone doctor
+ai-verse-multiple-bots standalone serve
+```
+
+Standalone state lives only under:
+
+```text
+.ai-verse-bots/
+├── config.json
+└── runtime/
+    └── coordination.db
+```
+
+The default Gateway bind is `127.0.0.1:8787`. Standalone mode does not create `AI-VERSE.yaml`, `.aiverse/`, `operator/`, `workspaces/`, or substitute Brain/Memory/Skills/Automations stores.
+
+See [`docs/STANDALONE-INSTALL.md`](docs/STANDALONE-INSTALL.md).
 
 The current package includes:
 
@@ -75,7 +100,7 @@ The current package includes:
 - exact Brain re-ingress contract protection for authority, deadlines, hops, leases and Approvals
 - explicit AI-Verse Memory recall through the installed Memory engine without reading or owning its SQLite index
 - bounded canonical Memory source/path/provenance validation with runtime-only recalled text for durable Bots and temporary Workers
-- installable `ai-verse-multiple-bots` CLI plus `os detect`, `os plan`, and `os register` surfaces
+- installable `ai-verse-multiple-bots` CLI with standalone `init`/`doctor`/`serve` plus `os detect`, `os plan`, and `os register` surfaces
 
 See [`docs/BUILD-MAP.md`](docs/BUILD-MAP.md) for the canonical project progress map and [`docs/PHASE-5-STATUS.md`](docs/PHASE-5-STATUS.md) for the current productization ledger.
 
@@ -561,6 +586,7 @@ Therefore the system selects the **smallest sufficient topology** and keeps mult
 - [`docs/PHASE-3-STATUS.md`](docs/PHASE-3-STATUS.md) - completed Phase 3 ledger
 - [`docs/PHASE-4-STATUS.md`](docs/PHASE-4-STATUS.md) - completed Phase 4 ledger
 - [`docs/PHASE-5-STATUS.md`](docs/PHASE-5-STATUS.md) - current Phase 5 ledger
+- [`docs/STANDALONE-INSTALL.md`](docs/STANDALONE-INSTALL.md) - Phase 5.2 standalone installation contract
 - [`docs/AI-VERSE-OS-REGISTRATION-CONTRACT.md`](docs/AI-VERSE-OS-REGISTRATION-CONTRACT.md) - Phase 3.1 host contract
 - [`docs/AI-VERSE-BRAIN-OBJECTIVE-INGRESS.md`](docs/AI-VERSE-BRAIN-OBJECTIVE-INGRESS.md) - Phase 3.3 Brain ingress contract
 - [`docs/AI-VERSE-MEMORY-RECALL.md`](docs/AI-VERSE-MEMORY-RECALL.md) - Phase 3.4 Memory recall contract
@@ -581,7 +607,7 @@ Contracts are tightened through implementation/evaluation rather than treated as
 
 Phases 0 through 4 are complete. Phase 5 is in progress.
 
-Phase 5.1, the simple install command/package, is complete. Remaining productization work starts with standalone install mode, followed by AI-Verse OS install mode, onboarding, templates, production health, lifecycle, secure remote access, Dashboard/channel surfaces, observability, release documentation and the final release acceptance suite.
+Phase 5.1, the simple install command/package, and Phase 5.2, standalone install mode, are complete. Remaining productization work starts with AI-Verse OS install mode, followed by onboarding, templates, production health, lifecycle, secure remote access, Dashboard/channel surfaces, observability, release documentation and the final release acceptance suite.
 
 The visual Bot roster belongs in AI-Verse Dashboard. Multiple Bots remains the backend coordination authority for Bot identity, routing, Tasks, Handoffs, Rooms, Team Runs and runtime orchestration.
 
