@@ -66,4 +66,6 @@ declare module "node:url" {
     pathname: string;
     searchParams: { get(name: string): string | null };
   }
+  export function fileURLToPath(url: string | URL): string;
+  export function pathToFileURL(path: string): { href: string; toString(): string };
 }
