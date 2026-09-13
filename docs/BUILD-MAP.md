@@ -18,7 +18,7 @@ Phase 1  Runnable Coordination Core     [COMPLETE]    100%
 Phase 2  Dynamic Multi-Agent Squads     [COMPLETE]    100%
 Phase 3  AI-Verse Native Integration    [COMPLETE]    100%
 Phase 4  Runtime / A2A Interoperability [COMPLETE]    100%
-Phase 5  Product + Install + Dashboard  [IN PROGRESS] ~35%
+Phase 5  Product + Install + Dashboard  [IN PROGRESS] ~40%
 ```
 
 **Directional overall first-release progress:** roughly 95% complete.
@@ -792,8 +792,8 @@ Remaining major slices:
 5. Bot/team templates - **COMPLETE**
 6. production health/doctor - **COMPLETE**
 7. upgrade/migration strategy - **COMPLETE**
-8. secure remote Gateway option - **NEXT**
-9. Dashboard projections/control endpoints - **NOT STARTED**
+8. secure remote Gateway option - **COMPLETE**
+9. Dashboard projections/control endpoints - **NEXT**
 10. Telegram/Discord/other channel bridge contracts - **NOT STARTED**
 11. operator approvals/attention UX - **NOT STARTED**
 12. observability/usage views - **NOT STARTED**
@@ -941,6 +941,27 @@ Implemented:
 
 See `docs/UPDATE-MIGRATION-STRATEGY.md` and `docs/PHASE-5-STATUS.md`.
 
+### Phase 5.8 - secure remote Gateway option
+
+Implemented:
+
+- loopback-only Gateway listener law
+- direct non-loopback HTTP bind rejection
+- read-only `remote plan`
+- managed `remote serve`
+- Tailscale Serve tailnet-only HTTPS transport
+- connected-tailnet preflight
+- environment-handle bearer authentication across the full remote API
+- secret redaction from config/plans/output
+- request-size and response-header hardening
+- transport lifecycle tied to Gateway lifecycle
+- standalone and AI-Verse OS remote support
+- installed-package secure-remote acceptance smoke
+
+**Verified implementation gate:** GitHub Actions CI run 553 (`34780581616`) passed **471/471 repository tests**, **5/5 Phase 4 evaluations**, all existing package/install/setup/template/runtime/doctor/update smokes and the installed-package secure-remote Gateway smoke at head `96eef0e3ad65aa9b456dab18f679566d0c6eea69`.
+
+See `docs/SECURE-REMOTE-GATEWAY.md` and `docs/PHASE-5-STATUS.md`.
+
 ## Release acceptance
 
 The first finished release must prove at minimum:
@@ -961,9 +982,9 @@ The first finished release must prove at minimum:
 
 ## Next gate
 
-**Phase 5.8 - secure remote Gateway option.**
+**Phase 5.9 - Dashboard projections/control endpoints.**
 
-Phase 5.7 is complete. The next canonical slice is authenticated remote Gateway exposure without weakening loopback-first defaults or local authority.
+Phase 5.8 is complete. The next canonical slice is a Dashboard projection/control API that preserves Multiple Bots as the coordination source of truth.
 
 ## How to report progress
 
