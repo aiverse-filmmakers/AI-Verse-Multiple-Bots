@@ -68,7 +68,6 @@ import { DeterministicRuntimeAdapter, RuntimeRegistry } from "./runtime.js";
 import { SkillsCapabilityRuntimeRegistry } from "./skills-capability-runtime.js";
 import { CoordinationStore } from "./store.js";
 import { ExecutionSupervisor } from "./supervisor.js";
-import { TeamRunControl } from "./team-run-control.js";
 import { TeamRunCoordinator } from "./team-runs.js";
 
 export interface GatewayServerOptions {
@@ -245,7 +244,7 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
     candidateWritebackAvailable: Boolean(candidateWritebacks)
   });
   const teamRunCoordinator = new TeamRunCoordinator(store);
-  const teamRunControl = new TeamRunControl(teamRunCoordinator, gateway, executionQueue, runner);
+  const teamRunControl = runner.teamRunControl;
   const supervisor = new ExecutionSupervisor(gateway, executionQueue, runner);
   const dashboardProjection = new DashboardProjectionProjector(store, executionQueue);
   const dashboardControl = new DashboardControlBoundary(
