@@ -333,7 +333,7 @@ test("Phase 5.9 Dashboard task cancel and retry route through canonical runner/r
         actorId: "operator_dashboard"
       }
     );
-    assert.equal(retried.status, 200);
+    assert.equal(retried.status, 200, JSON.stringify(retried.body));
     assert.equal(retried.body.resulting_status, "queued");
     assert.equal(service.executionQueue.getByItem("task_retry")?.state, "queued");
   } finally {
