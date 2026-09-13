@@ -510,7 +510,8 @@ if (args[0] === "serve") {
     production_doctor_smoke: "passed",
     update_migration_smoke: "passed",
     secure_remote_gateway_smoke: "passed",
-    dashboard_projection_control_smoke: "passed"
+    dashboard_projection_control_smoke: "passed",
+    channel_bridge_smoke: "passed"
   }, null, 2));
 } finally {
   rmSync(tempRoot, { recursive: true, force: true });
