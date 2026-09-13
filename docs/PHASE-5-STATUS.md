@@ -369,7 +369,7 @@ Implemented:
 
 ### 5.8 acceptance proof
 
-The hardened branch head `96eef0e3ad65aa9b456dab18f679566d0c6eea69` passed GitHub Actions **CI run 553 (`34780581616`)**:
+The hardened implementation head `96eef0e3ad65aa9b456dab18f679566d0c6eea69` passed GitHub Actions **CI run 553 (`34780581616`)**:
 
 - full repository suite: **471/471 tests passed**
 - Phase 4 compatibility suite: **5/5 tests passed**
