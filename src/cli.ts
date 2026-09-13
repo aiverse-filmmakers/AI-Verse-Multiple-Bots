@@ -32,6 +32,13 @@ import {
   initializeStandalone,
   standaloneGatewayOptions
 } from "./standalone-install.js";
+import {
+  StarterTemplateError,
+  applyStarterTemplate,
+  getStarterTemplate,
+  listStarterTemplates,
+  planStarterTemplate
+} from "./template-catalog.js";
 import type { BotManifest } from "./types.js";
 
 function flag(name: string): string | undefined {
@@ -40,7 +47,7 @@ function flag(name: string): string | undefined {
 }
 
 function usage(): never {
-  console.error(`AI-Verse Multiple Bots CLI\n\nCommands:\n  setup [--mode standalone|os] [--root PATH] [--host HOST] [--port N]\n  setup modes\n  standalone init [--root PATH] [--host HOST] [--port N]\n  standalone doctor [--root PATH]\n  standalone serve [--root PATH]\n  init [--db PATH]\n  doctor [--db PATH]\n  bot create --id ID --name NAME --workspace ID --role TITLE --mission TEXT [--db PATH]\n  bot list [--workspace ID] [--db PATH]\n  events [--after N] [--limit N] [--db PATH]\n  serve [--host HOST] [--port N] [--db PATH] [--os-root PATH]\n  os detect [--root PATH]\n  os install-plan [--root PATH]\n  os install [--root PATH]\n  os plan [--root PATH]\n  os register [--root PATH]\n  os upgrade-plan [--root PATH]\n  os upgrade [--root PATH]\n  os uninstall-plan [--root PATH]\n  os uninstall [--root PATH]\n`);
+  console.error(`AI-Verse Multiple Bots CLI\n\nCommands:\n  setup [--mode standalone|os] [--root PATH] [--host HOST] [--port N]\n  setup modes\n  template list\n  template show --id ID\n  template plan --id ID --workspace ID [--prefix PREFIX] [--runtime ADAPTER] [--db PATH]\n  template apply --id ID --workspace ID [--prefix PREFIX] [--runtime ADAPTER] [--db PATH]\n  standalone init [--root PATH] [--host HOST] [--port N]\n  standalone doctor [--root PATH]\n  standalone serve [--root PATH]\n  init [--db PATH]\n  doctor [--db PATH]\n  bot create --id ID --name NAME --workspace ID --role TITLE --mission TEXT [--db PATH]\n  bot list [--workspace ID] [--db PATH]\n  events [--after N] [--limit N] [--db PATH]\n  serve [--host HOST] [--port N] [--db PATH] [--os-root PATH]\n  os detect [--root PATH]\n  os install-plan [--root PATH]\n  os install [--root PATH]\n  os plan [--root PATH]\n  os register [--root PATH]\n  os upgrade-plan [--root PATH]\n  os upgrade [--root PATH]\n  os uninstall-plan [--root PATH]\n  os uninstall [--root PATH]\n`);
   process.exit(2);
   throw new Error("unreachable");
 }
@@ -103,9 +110,56 @@ function reportSetupError(error: unknown): void {
   process.exitCode = 1;
 }
 
+function reportTemplateError(error: unknown): void {
+  const templateError = error instanceof StarterTemplateError ? error : null;
+  console.error(JSON.stringify({
+    ok: false,
+    code: templateError?.code ?? "TEMPLATE_ERROR",
+    error: error instanceof Error ? error.message : String(error)
+  }, null, 2));
+  process.exitCode = 1;
+}
+
 const args = process.argv.slice(2);
 const dbPath = flag("db") ?? "runtime/ai-verse-bots/coordination.db";
-if (args[0] === "setup") {
+if (args[0] === "template") {
+  try {
+    if (args[1] === "list") {
+      console.log(JSON.stringify({ ok: true, templates: listStarterTemplates() }, null, 2));
+    } else if (args[1] === "show") {
+      const id = flag("id");
+      if (!id) usage();
+      console.log(JSON.stringify({ ok: true, template: getStarterTemplate(id) }, null, 2));
+    } else if (args[1] === "plan" || args[1] === "apply") {
+      const id = flag("id");
+      const workspace = flag("workspace");
+      if (!id || !workspace) usage();
+      const templateStore = new CoordinationStore(resolve(dbPath));
+      try {
+        const options = {
+          templateId: id,
+          workspaceId: workspace,
+          ...(flag("prefix") !== undefined ? { prefix: flag("prefix") } : {}),
+          ...(flag("runtime") !== undefined ? { runtimeAdapter: flag("runtime") } : {})
+        };
+        const result = args[1] === "plan"
+          ? planStarterTemplate(templateStore, options)
+          : applyStarterTemplate(templateStore, options);
+        console.log(JSON.stringify({
+          ok: args[1] === "plan" ? result.can_apply : true,
+          [args[1] === "plan" ? "plan" : "application"]: result
+        }, null, 2));
+        if (args[1] === "plan" && !result.can_apply) process.exitCode = 1;
+      } finally {
+        templateStore.close();
+      }
+    } else {
+      usage();
+    }
+  } catch (error) {
+    reportTemplateError(error);
+  }
+} else if (args[0] === "setup") {
   try {
     if (args[1] === "modes") {
       console.log(JSON.stringify({ ok: true, setup_help: setupModeHelp() }, null, 2));

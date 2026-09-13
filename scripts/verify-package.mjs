@@ -57,9 +57,11 @@ try {
     "dist/src/standalone-install.js",
     "dist/src/ai-verse-os-install.js",
     "dist/src/setup.js",
+    "dist/src/template-catalog.js",
     "schemas/coordination-v1.schema.json",
     "templates/bot.yaml",
     "templates/room.yaml",
+    "templates/starter-catalog.json",
     "integrations/ai-verse-os/INSTRUCTIONS.md",
     "integrations/ai-verse-os/extension.json"
   ]) {
@@ -99,6 +101,42 @@ try {
     setupModes.setup_help.modes.map((item) => item.mode),
     ["standalone", "ai-verse-os"]
   );
+
+  const templateList = JSON.parse(run(binPath, ["template", "list"], { cwd: installDir }));
+  assert.equal(templateList.ok, true);
+  assert.deepEqual(
+    templateList.templates.map((item) => item.id),
+    ["research-lead", "reviewer", "coordinator", "research-team", "delivery-team"]
+  );
+
+  const templateDbPath = join(installDir, "runtime", "template-smoke.db");
+  const templatePlan = JSON.parse(run(
+    binPath,
+    ["template", "plan", "--id", "research-team", "--workspace", "ws_package", "--db", templateDbPath],
+    { cwd: installDir }
+  ));
+  assert.equal(templatePlan.ok, true);
+  assert.equal(templatePlan.plan.can_apply, true);
+  assert.equal(templatePlan.plan.creates_team_run, false);
+  assert.equal(templatePlan.plan.objects.length, 4);
+
+  const templateApply = JSON.parse(run(
+    binPath,
+    ["template", "apply", "--id", "research-team", "--workspace", "ws_package", "--db", templateDbPath],
+    { cwd: installDir }
+  ));
+  assert.equal(templateApply.ok, true);
+  assert.equal(templateApply.application.status, "applied");
+  assert.equal(templateApply.application.created_ids.length, 4);
+
+  const templateApplyAgain = JSON.parse(run(
+    binPath,
+    ["template", "apply", "--id", "research-team", "--workspace", "ws_package", "--db", templateDbPath],
+    { cwd: installDir }
+  ));
+  assert.equal(templateApplyAgain.ok, true);
+  assert.equal(templateApplyAgain.application.status, "unchanged");
+  assert.deepEqual(templateApplyAgain.application.created_ids, []);
 
   const setupStandaloneRoot = join(installDir, "setup-standalone-project");
   mkdirSync(setupStandaloneRoot, { recursive: true });
@@ -237,7 +275,8 @@ try {
     standalone_install_smoke: "passed",
     ai_verse_os_install_smoke: "passed",
     ai_verse_os_engine_smoke: "passed",
-    setup_onboarding_smoke: "passed"
+    setup_onboarding_smoke: "passed",
+    starter_template_smoke: "passed"
   }, null, 2));
 } finally {
   rmSync(tempRoot, { recursive: true, force: true });

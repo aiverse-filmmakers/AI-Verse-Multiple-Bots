@@ -101,9 +101,9 @@ test("Phase 5.4 standalone setup initializes, verifies, guides, and creates no i
     assert.equal((result.verification as any).ok, true);
     assert.equal(result.next_steps[0]?.id, "verify");
     assert.equal(result.next_steps[1]?.id, "start");
-    assert.equal(result.next_steps[2]?.id, "create-bot");
+    assert.equal(result.next_steps[2]?.id, "starter-template");
     assert.match(result.next_steps[1]!.command, /standalone serve/);
-    assert.match(result.next_steps[2]!.description, /Phase 5\.5/);
+    assert.match(result.next_steps[2]!.command, /template list/);
     assert.equal(result.setup_does_not_grant.includes("Brain authority"), true);
 
     const dbPath = String((result.setup as any).database);

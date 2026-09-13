@@ -21,7 +21,7 @@ Setup selects or detects one of two modes:
 
 It then initializes/attaches the already-installed package through the owner-defined safe path and performs structural + attachment verification.
 
-Setup does not create a starter Bot or Team. Reusable Bot/team templates belong to Phase 5.5.
+Setup does not create a starter Bot or Team. Phase 5.5 now provides a separate explicit starter-template catalog that setup can point to after verification.
 
 ## Fresh setup
 
@@ -133,11 +133,9 @@ Setup returns three next-step categories:
 
 1. **verify** - recheck the selected installation without hidden mutation;
 2. **start** - start the local Coordination Gateway using the selected mode;
-3. **create-bot** - point to the existing explicit Bot creation surface.
+3. **starter-template** - browse the reusable starter catalog before explicitly planning/applying a Bot or durable team.
 
-The Bot step deliberately requires the operator to choose a real Bot ID, name, workspace, role and mission.
-
-Phase 5.5 adds reusable starter Bot/team templates. Phase 5.4 does not guess roles, create generic teammates, or insert durable Bot identities automatically.
+Setup itself still creates no Bot identity. The operator must choose a real workspace and explicitly run `template apply` after reviewing `template plan`.
 
 ## What setup does not grant
 
@@ -168,9 +166,10 @@ A standardized public enable/disable lifecycle is a later Phase 5 lifecycle slic
 
 ## Phase boundary
 
-Phase 5.4 does not implement:
+Phase 5.4 itself does not implement or auto-apply templates. Phase 5.5 provides that separate explicit surface.
 
-- reusable Bot/team templates;
+Phase 5.4 still does not implement:
+
 - production doctor/readiness depth;
 - standardized enable/disable/update lifecycle;
 - secure remote Gateway exposure;

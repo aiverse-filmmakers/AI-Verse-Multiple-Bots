@@ -24,6 +24,7 @@ export interface AtomicMutationObject {
 export interface AtomicMutationPrecondition {
   id: string;
   kind: ProtocolKind;
+  absent?: boolean;
   status?: string;
   ownerId?: string;
   updatedAt?: string;
@@ -215,6 +216,10 @@ export class CoordinationStore {
     try {
       for (const precondition of input.preconditions ?? []) {
         const row = this.db.prepare("SELECT kind, status, payload, updated_at FROM objects WHERE id = ?").get(precondition.id) as any;
+        if (precondition.absent === true) {
+          if (row) throw new Error(`Atomic precondition failed: object ${precondition.id} already exists`);
+          continue;
+        }
         if (!row) throw new Error(`Atomic precondition failed: object ${precondition.id} not found`);
         if (String(row.kind) !== precondition.kind) {
           throw new Error(`Atomic precondition failed: ${precondition.id} is ${String(row.kind)}, expected ${precondition.kind}`);

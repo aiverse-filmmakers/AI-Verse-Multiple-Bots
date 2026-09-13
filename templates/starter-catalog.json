@@ -1,0 +1,135 @@
+{
+  "schema_version": "1.0",
+  "templates": [
+    {
+      "id": "research-lead",
+      "kind": "bot",
+      "name": "Research Lead",
+      "description": "One durable evidence-first research teammate that can stay single or create bounded temporary Workers when justified.",
+      "bots": [
+        {
+          "slot": "lead",
+          "name": "Research Lead",
+          "role_title": "Research Lead",
+          "mission": "Own evidence-heavy research, preserve source quality, delegate bounded work only when useful, and return one coherent verifiable synthesis.",
+          "can_create_workers": true,
+          "can_handoff": true
+        }
+      ]
+    },
+    {
+      "id": "reviewer",
+      "kind": "bot",
+      "name": "Independent Reviewer",
+      "description": "One durable reviewer focused on checking claims, constraints, evidence, and failure modes without owning unrelated execution.",
+      "bots": [
+        {
+          "slot": "reviewer",
+          "name": "Independent Reviewer",
+          "role_title": "Independent Reviewer",
+          "mission": "Review important work independently, identify unsupported claims or missed constraints, and return concise evidence-backed corrections.",
+          "can_create_workers": false,
+          "can_handoff": true
+        }
+      ]
+    },
+    {
+      "id": "coordinator",
+      "kind": "bot",
+      "name": "Work Coordinator",
+      "description": "One durable coordinator for decomposition, ownership, follow-up, and escalation across bounded work.",
+      "bots": [
+        {
+          "slot": "coordinator",
+          "name": "Work Coordinator",
+          "role_title": "Work Coordinator",
+          "mission": "Break down multi-step work, keep one clear owner per stage, coordinate bounded delegation, surface blockers, and consolidate progress without inventing domain truth.",
+          "can_create_workers": true,
+          "can_handoff": true
+        }
+      ]
+    },
+    {
+      "id": "research-team",
+      "kind": "team",
+      "name": "Research Team",
+      "description": "A three-Bot durable research roster with a leader-first Room: Research Lead, Source Auditor, and Independent Reviewer.",
+      "bots": [
+        {
+          "slot": "lead",
+          "name": "Research Lead",
+          "role_title": "Research Lead",
+          "mission": "Own the research objective, choose the smallest sufficient collaboration pattern, preserve sources, and synthesize one coherent answer.",
+          "can_create_workers": true,
+          "can_handoff": true
+        },
+        {
+          "slot": "auditor",
+          "name": "Source Auditor",
+          "role_title": "Source Auditor",
+          "mission": "Check source quality, provenance, contradictions, recency, and unsupported claims. Return bounded evidence and corrections to the owning teammate.",
+          "can_create_workers": false,
+          "can_handoff": true
+        },
+        {
+          "slot": "reviewer",
+          "name": "Independent Reviewer",
+          "role_title": "Independent Reviewer",
+          "mission": "Independently review important conclusions for missed constraints, weak evidence, and material failure modes before final delivery.",
+          "can_create_workers": false,
+          "can_handoff": true
+        }
+      ],
+      "room": {
+        "name": "Research Team",
+        "leader_slot": "lead",
+        "mode": "manager",
+        "speaker_policy": "leader_first",
+        "work_owner_policy": "leader_owned",
+        "max_rounds_per_user_turn": 3,
+        "max_bot_messages_per_user_turn": 8
+      }
+    },
+    {
+      "id": "delivery-team",
+      "kind": "team",
+      "name": "Delivery Team",
+      "description": "A domain-neutral three-Bot roster for planning, execution support, and independent review.",
+      "bots": [
+        {
+          "slot": "coordinator",
+          "name": "Work Coordinator",
+          "role_title": "Work Coordinator",
+          "mission": "Own decomposition, assignment, handoffs, progress consolidation, and escalation while preserving one clear owner per stage.",
+          "can_create_workers": true,
+          "can_handoff": true
+        },
+        {
+          "slot": "analyst",
+          "name": "Delivery Analyst",
+          "role_title": "Delivery Analyst",
+          "mission": "Perform the assigned analysis or production-support work, preserve constraints and provenance, and return concrete artifacts to the current owner.",
+          "can_create_workers": false,
+          "can_handoff": true
+        },
+        {
+          "slot": "reviewer",
+          "name": "Independent Reviewer",
+          "role_title": "Independent Reviewer",
+          "mission": "Review consequential outputs independently, identify gaps or risks, and return bounded corrections without silently taking ownership.",
+          "can_create_workers": false,
+          "can_handoff": true
+        }
+      ],
+      "room": {
+        "name": "Delivery Team",
+        "leader_slot": "coordinator",
+        "mode": "manager",
+        "speaker_policy": "leader_first",
+        "work_owner_policy": "explicit_single_owner",
+        "max_rounds_per_user_turn": 3,
+        "max_bot_messages_per_user_turn": 8
+      }
+    }
+  ]
+}
