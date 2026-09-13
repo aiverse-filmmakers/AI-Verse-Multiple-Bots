@@ -8,6 +8,7 @@ import {
   writeFileSync
 } from "node:fs";
 import { resolve } from "node:path";
+import process from "node:process";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import {
