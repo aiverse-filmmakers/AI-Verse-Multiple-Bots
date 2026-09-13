@@ -18,7 +18,7 @@ Phase 1  Runnable Coordination Core     [COMPLETE]    100%
 Phase 2  Dynamic Multi-Agent Squads     [COMPLETE]    100%
 Phase 3  AI-Verse Native Integration    [COMPLETE]    100%
 Phase 4  Runtime / A2A Interoperability [COMPLETE]    100%
-Phase 5  Product + Install + Dashboard  [IN PROGRESS] ~65%
+Phase 5  Product + Install + Dashboard  [IN PROGRESS] ~70%
 ```
 
 **Directional overall first-release progress:** roughly 97% complete.
@@ -795,7 +795,7 @@ Remaining major slices:
 8. secure remote Gateway option - **COMPLETE**
 9. Dashboard projections/control endpoints - **COMPLETE**
 10. Telegram/Discord/other channel bridge contracts - **COMPLETE**
-11. operator approvals/attention UX - **COMPLETE IMPLEMENTATION, ACCEPTANCE PENDING CI**
+11. operator approvals/attention UX - **COMPLETE**
 12. observability/usage views - **NEXT**
 13. release docs/examples - **NOT STARTED**
 14. full release acceptance suite - **NOT STARTED**
@@ -814,7 +814,7 @@ Implemented:
 - no private model reasoning or duplicated UI truth
 - installed-package operator attention/Approval smoke
 
-**Hosted acceptance:** pending CI on the Phase 5.11 PR head.
+**Hosted acceptance:** GitHub Actions CI run 584 (`34785373757`) passed 487/487 tests, 5/5 Phase 4 compatibility tests, and the complete package/install smoke gate with a 224-file artifact.
 
 See `docs/OPERATOR-ATTENTION-UX.md` and `docs/PHASE-5-STATUS.md`.
 
