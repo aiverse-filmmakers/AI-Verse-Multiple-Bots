@@ -6,6 +6,13 @@ import {
   writeFileSync
 } from "node:fs";
 import { dirname, resolve, sep } from "node:path";
+import { AI_VERSE_MULTIPLE_BOTS_EXTENSION_VERSION } from "./ai-verse-os-registration.js";
+import {
+  currentStandaloneReceipt,
+  readStandaloneReceipt,
+  standaloneReceiptPath,
+  writeStandaloneReceipt
+} from "./standalone-receipt.js";
 import { CoordinationStore } from "./store.js";
 
 export const STANDALONE_HOME_DIRECTORY = ".ai-verse-bots";
@@ -47,6 +54,9 @@ export interface StandaloneInitOptions {
 export interface StandaloneInitResult extends StandaloneInstallation {
   status: "initialized" | "unchanged";
   schemaVersion: string;
+  componentVersion: string | null;
+  receiptPath: string;
+  receiptStatus: "created" | "current" | "legacy-unversioned" | "version-mismatch";
 }
 
 export interface StandaloneDoctorResult {
@@ -279,11 +289,32 @@ export function initializeStandalone(
     if (!doctor.ok) {
       throw new StandaloneInstallError("STANDALONE_DATABASE_UNHEALTHY", "Standalone coordination database failed its health check");
     }
+    const schemaVersion = store.schemaVersion();
+    let receipt = readStandaloneReceipt(paths.home);
+    let receiptStatus: StandaloneInitResult["receiptStatus"];
+    if (!receipt && (!configExisted || !dbExisted)) {
+      writeStandaloneReceipt(paths.home, currentStandaloneReceipt());
+      receipt = readStandaloneReceipt(paths.home);
+      receiptStatus = "created";
+    } else if (!receipt) {
+      receiptStatus = "legacy-unversioned";
+    } else if (
+      receipt.component_version === AI_VERSE_MULTIPLE_BOTS_EXTENSION_VERSION
+      && receipt.coordination_schema === schemaVersion
+    ) {
+      receiptStatus = "current";
+    } else {
+      receiptStatus = "version-mismatch";
+    }
+
     return {
       ...paths,
       config,
       status: configExisted && dbExisted ? "unchanged" : "initialized",
-      schemaVersion: store.schemaVersion()
+      schemaVersion,
+      componentVersion: receipt?.component_version ?? null,
+      receiptPath: standaloneReceiptPath(paths.home),
+      receiptStatus
     };
   } finally {
     store.close();
