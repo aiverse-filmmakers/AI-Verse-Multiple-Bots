@@ -398,7 +398,14 @@ test("Phase 5.11 operator capabilities expose the attention contract without cla
       "handoff_waiting",
       "unread_result"
     ]);
-    assert.equal(response.body.controls.includes("operator.approval.approve"), true);
+    assert.equal(
+      response.body.controls.approval_actions.includes("operator.approval.approve"),
+      true
+    );
+    assert.equal(
+      response.body.controls.attention_item_actions.includes("task.retry"),
+      true
+    );
   } finally {
     await service.close();
   }
