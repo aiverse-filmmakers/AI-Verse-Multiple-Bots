@@ -490,7 +490,7 @@ export class OperatorAttentionProjector {
       decided_at: optionalString(approval.payload.decided_at ?? approval.payload.rejected_at),
       decided_by: optionalString(approval.payload.decided_by ?? approval.payload.rejected_by),
       reason: optionalString(approval.payload.reason),
-      rejection_reason: optionalString(approval.payload.rejection_reason),
+      rejection_reason: optionalString(approval.payload.decision_reason ?? approval.payload.rejection_reason),
       action_kind: optionalString(action.kind),
       action_summary: optionalString(action.summary),
       controls: String(approval.payload.status ?? "") === "pending"
