@@ -1,5 +1,4 @@
-import { existsSync, lstatSync } from "node:fs";
-import { DatabaseSync } from "node:sqlite";
+import { assessCoordinationMigration } from "./coordination-migration.js";
 import { AI_VERSE_MULTIPLE_BOTS_EXTENSION_VERSION } from "./ai-verse-os-registration.js";
 import {
   currentStandaloneReceipt,
@@ -49,50 +48,22 @@ export class StandaloneUpdateError extends Error {
   }
 }
 
-function inspectSchema(dbPath: string): { schema: string | null; quickCheck: string } {
-  if (!existsSync(dbPath)) {
-    throw new StandaloneUpdateError("COORDINATION_DATABASE_MISSING", `Standalone coordination database is missing: ${dbPath}`);
-  }
-  const stat = lstatSync(dbPath);
-  if (stat.isSymbolicLink() || !stat.isFile()) {
-    throw new StandaloneUpdateError(
-      "INVALID_COORDINATION_DATABASE_PATH",
-      `Standalone coordination database must be a regular file: ${dbPath}`
-    );
-  }
-  const db = new DatabaseSync(dbPath, { readOnly: true });
-  try {
-    const tables = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<{ name: string }>;
-    const names = new Set(tables.map((row) => String(row.name)));
-    const row = names.has("meta")
-      ? db.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get() as { value?: string } | undefined
-      : undefined;
-    const quick = db.prepare("PRAGMA quick_check").get() as Record<string, unknown> | undefined;
-    return {
-      schema: row?.value ? String(row.value) : null,
-      quickCheck: quick ? String(Object.values(quick)[0] ?? "unknown") : "unknown"
-    };
-  } finally {
-    db.close();
-  }
-}
-
 export function planStandaloneUpdate(rootInput: string): StandaloneUpdatePlan {
   const installation = readStandaloneInstallation(rootInput);
   const receipt = readStandaloneReceipt(installation.home);
-  const inspection = inspectSchema(installation.dbPath);
+  const migration = assessCoordinationMigration(installation.dbPath);
   const installedVersionState = receipt
     ? versionOrder(receipt.component_version, AI_VERSE_MULTIPLE_BOTS_EXTENSION_VERSION)
     : "legacy-unversioned";
-  const migrationRequired = inspection.schema !== COORDINATION_SCHEMA_VERSION;
-  const receiptSchemaDrift = Boolean(receipt && receipt.coordination_schema !== inspection.schema);
+  const migrationRequired = migration.migration_required;
+  const receiptSchemaDrift = Boolean(receipt && receipt.coordination_schema !== migration.installed_schema);
   const downgradeBlocked = installedVersionState === "newer";
-  const quickCheckFailed = inspection.quickCheck !== "ok";
+  const quickCheckFailed = migration.quick_check !== "ok";
 
   let blockedReason: string | null = null;
-  if (quickCheckFailed) blockedReason = "coordination database integrity check failed";
+  if (quickCheckFailed) blockedReason = migration.blocked_reason ?? "coordination database integrity check failed";
   else if (receiptSchemaDrift) blockedReason = "standalone install receipt coordination schema does not match the database";
-  else if (migrationRequired) blockedReason = `coordination schema '${String(inspection.schema ?? "missing")}' requires an explicit migration before update`;
+  else if (migrationRequired) blockedReason = migration.blocked_reason ?? `coordination schema '${String(migration.installed_schema ?? "missing")}' requires an explicit migration before update`;
   else if (downgradeBlocked) blockedReason = "installed standalone receipt is newer than this package; downgrade requires a separate rollback flow";
 
   const updateRequired = installedVersionState !== "same";
@@ -113,13 +84,13 @@ export function planStandaloneUpdate(rootInput: string): StandaloneUpdatePlan {
     installed_version_state: installedVersionState,
     target_version: AI_VERSE_MULTIPLE_BOTS_EXTENSION_VERSION,
     coordination_schema: {
-      installed: inspection.schema,
+      installed: migration.installed_schema,
       target: COORDINATION_SCHEMA_VERSION,
-      quick_check: inspection.quickCheck
+      quick_check: migration.quick_check
     },
     update_required: updateRequired,
     migration_required: migrationRequired,
-    migration_supported: !migrationRequired,
+    migration_supported: migration.migration_supported,
     can_update: canUpdate,
     blocked_reason: blockedReason,
     actions,
