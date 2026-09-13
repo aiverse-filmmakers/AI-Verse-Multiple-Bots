@@ -1,7 +1,7 @@
 import process from "node:process";
 import { existsSync, lstatSync, readFileSync } from "node:fs";
 import { delimiter, dirname, resolve, sep } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, URL } from "node:url";
 import { DatabaseSync } from "node:sqlite";
 import {
   AI_VERSE_MULTIPLE_BOTS_EXTENSION_ID,
