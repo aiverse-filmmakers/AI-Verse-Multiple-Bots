@@ -6,7 +6,7 @@
 
 **Overall status:** IN PROGRESS
 
-**Directional phase progress:** approximately 15%
+**Directional phase progress:** approximately 20%
 
 This file is the implementation ledger for Phase 5. The canonical product roadmap remains `BUILD-MAP.md`.
 
@@ -19,8 +19,8 @@ Turn the completed coordination, AI-Verse integration and runtime-interoperabili
 1. simple install command/package - **COMPLETE**
 2. standalone install mode - **COMPLETE**
 3. AI-Verse OS install mode - **COMPLETE**
-4. setup/onboarding flow - **NEXT**
-5. Bot/team templates - **NOT STARTED**
+4. setup/onboarding flow - **COMPLETE**
+5. Bot/team templates - **NEXT**
 6. production health/doctor - **NOT STARTED**
 7. upgrade/migration strategy - **NOT STARTED**
 8. secure remote Gateway option - **NOT STARTED**
@@ -154,17 +154,59 @@ The hardened implementation head `cabd7216c783b9bae61bcfa29cc22275a2a30dd3` pass
 
 See `docs/AI-VERSE-OS-INSTALL.md`.
 
+## Slice 5.4 - setup/onboarding flow
+
+**Implementation status:** COMPLETE
+
+Phase 5.4 adds the canonical AI-Verse public `setup` vocabulary over the completed standalone and AI-Verse OS installation modes.
+
+Implemented:
+
+- public `setup --mode standalone`
+- public `setup --mode os --root ...`
+- `setup modes` discovery/help surface
+- safe rerun mode auto-detection from the current directory/ancestors
+- fresh setup requires explicit mode instead of silently guessing standalone
+- ambiguous dual-mode discovery fails with `SETUP_MODE_AMBIGUOUS`
+- standalone setup uses the existing idempotent standalone initializer
+- AI-Verse OS setup uses the existing package-owned OS materializer/attachment flow
+- setup performs explicit structural + attachment verification
+- standardized `ready` / `disabled` setup result
+- disabled OS registrations remain disabled and return non-ready
+- mode-inapplicable options fail closed
+- structured next steps for verify, start and explicit Bot creation
+- explicit setup non-grants for workspace access, connection permission, external approval, Brain authority and remote exposure
+- setup creates no implicit Bot or team
+- installed-package setup/onboarding smoke coverage
+- README first-use path aligned to Install -> Setup -> Verify -> Use
+
+### 5.4 acceptance proof
+
+The implementation head `1472b9d9fe73ec6c95cbc51de24ff374a9485904` passed GitHub Actions **CI run 509 (`34769052535`)**:
+
+- full repository suite: **441/441 tests passed**
+- Phase 4 compatibility suite: **5/5 tests passed**
+- package install smoke: **passed**
+- standalone install smoke: **passed**
+- AI-Verse OS install smoke: **passed**
+- materialized AI-Verse OS engine startup/health smoke: **passed**
+- public setup/onboarding smoke: **passed**
+- packed artifact: **181 files**
+- **0 failures, 0 canceled and 0 skipped**
+
+See `docs/SETUP-ONBOARDING.md`.
+
 ## Ownership boundary
 
 Phase 5.1 intentionally does not choose or configure an operating mode during npm installation.
 
 - standalone configuration is implemented by Phase 5.2
 - AI-Verse OS installation/attachment is implemented by Phase 5.3
-- onboarding belongs to Phase 5.4
+- setup/onboarding is implemented by Phase 5.4
 - npm installation itself has no hidden host mutations
 
 ## Next gate
 
-**Phase 5.4 - setup/onboarding flow.**
+**Phase 5.5 - Bot/team templates.**
 
-Phase 5.3 is complete. The next task is the member-facing setup/onboarding flow over the completed standalone and AI-Verse OS installation modes.
+Phase 5.4 is complete. The next task is reusable starter Bot/team templates without weakening explicit identity, workspace or authority boundaries.
