@@ -127,20 +127,34 @@ const args = process.argv.slice(2);
 const dbPath = flag("db") ?? "runtime/ai-verse-bots/coordination.db";
 if (args[0] === "status" || args[0] === "doctor") {
   try {
-    const options = {
-      ...(flag("mode") !== undefined ? { mode: flag("mode") } : {}),
-      ...(flag("root") !== undefined ? { root: flag("root") } : {}),
-      ...(flag("db") !== undefined ? { dbPath: flag("db") } : {}),
-      cwd: process.cwd()
-    };
-    if (args[0] === "status") {
-      const result = statusProduction(options);
-      console.log(JSON.stringify(result, null, 2));
-      if (!result.ready) process.exitCode = 1;
+    const explicitMode = flag("mode");
+    const explicitRoot = flag("root");
+    const explicitDb = flag("db");
+    if (args[0] === "doctor" && explicitDb !== undefined && explicitMode === undefined && explicitRoot === undefined) {
+      // Backward-compatible expert raw-database doctor. The public product doctor
+      // is selected by omitting --db or by supplying an installation mode/root.
+      const legacyStore = new CoordinationStore(resolve(explicitDb));
+      try {
+        console.log(JSON.stringify(legacyStore.doctor(), null, 2));
+      } finally {
+        legacyStore.close();
+      }
     } else {
-      const result = doctorProduction(options);
-      console.log(JSON.stringify(result, null, 2));
-      if (!result.ready) process.exitCode = 1;
+      const options = {
+        ...(explicitMode !== undefined ? { mode: explicitMode } : {}),
+        ...(explicitRoot !== undefined ? { root: explicitRoot } : {}),
+        ...(explicitDb !== undefined ? { dbPath: explicitDb } : {}),
+        cwd: process.cwd()
+      };
+      if (args[0] === "status") {
+        const result = statusProduction(options);
+        console.log(JSON.stringify(result, null, 2));
+        if (!result.ready) process.exitCode = 1;
+      } else {
+        const result = doctorProduction(options);
+        console.log(JSON.stringify(result, null, 2));
+        if (!result.ready) process.exitCode = 1;
+      }
     }
   } catch (error) {
     console.error(JSON.stringify({
