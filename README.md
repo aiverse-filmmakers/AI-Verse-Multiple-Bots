@@ -20,9 +20,35 @@ The target experience is inspired most strongly by xAI's Grok Bot persistent-tea
 
 **Phase 2: Dynamic Multi-Agent Squads: COMPLETE**
 
-**Phase 3: AI-Verse Native Integration: IN PROGRESS (~40%)**
+**Phase 3: AI-Verse Native Integration: COMPLETE**
 
-Phase 2 is merged to `main` and its post-merge gate passed **175/175 tests**. Phase 3.1 through 3.4 cover safe AI-Verse OS registration, live workspace-state projection, bounded Brain objective ingress, and explicit workspace-scoped Memory recall. The hardened Phase 3.4 branch gate passes **221/221 tests** plus the five-repository Platform Smoke gate. Phase 3.5 Skills capability resolution is next.
+**Phase 4: Runtime and Agent Interoperability: COMPLETE**
+
+**Phase 5: Product, Installer, Omnichannel and Dashboard: IN PROGRESS (~5%)**
+
+Phase 5.1 provides the first real installable package surface. The current verified gate passes **420/420 repository tests**, **5/5 Phase 4 compatibility evaluations**, and a real npm pack/install smoke test. Phase 5.2 standalone install mode is next.
+
+## Package installation
+
+Requires **Node.js 22.5 or newer**.
+
+The package artifact exposes one stable command:
+
+```bash
+ai-verse-multiple-bots
+```
+
+A built package tarball can be installed globally and used immediately:
+
+```bash
+npm install -g ./ai-verse-multiple-bots-0.1.0-alpha.1.tgz
+ai-verse-multiple-bots init
+ai-verse-multiple-bots doctor
+```
+
+The package is configured for public scoped npm publication as `@ai-verse/multiple-bots`, but this repository does not claim that version `0.1.0-alpha.1` has already been published to the public npm registry.
+
+npm installation itself performs no hidden standalone or AI-Verse OS configuration. Those mode-specific flows belong to Phase 5.2 and Phase 5.3.
 
 The current package includes:
 
@@ -49,9 +75,9 @@ The current package includes:
 - exact Brain re-ingress contract protection for authority, deadlines, hops, leases and Approvals
 - explicit AI-Verse Memory recall through the installed Memory engine without reading or owning its SQLite index
 - bounded canonical Memory source/path/provenance validation with runtime-only recalled text for durable Bots and temporary Workers
-- CLI surfaces for `os detect`, `os plan`, and `os register`
+- installable `ai-verse-multiple-bots` CLI plus `os detect`, `os plan`, and `os register` surfaces
 
-See [`docs/BUILD-MAP.md`](docs/BUILD-MAP.md) for the canonical project progress map, [`docs/PHASE-2-STATUS.md`](docs/PHASE-2-STATUS.md) for the complete squad-core ledger, and [`docs/PHASE-3-STATUS.md`](docs/PHASE-3-STATUS.md) for current native-integration progress.
+See [`docs/BUILD-MAP.md`](docs/BUILD-MAP.md) for the canonical project progress map and [`docs/PHASE-5-STATUS.md`](docs/PHASE-5-STATUS.md) for the current productization ledger.
 
 ## Canonical architecture
 
@@ -473,12 +499,12 @@ Programmatic host registration is exported as `aiVerseOsRegistrationAdapter`.
 CLI surfaces:
 
 ```bash
-ai-verse-bots os detect --root /path/to/AI-Verse-OS
-ai-verse-bots os plan --root /path/to/AI-Verse-OS
-ai-verse-bots os register --root /path/to/AI-Verse-OS
+ai-verse-multiple-bots os detect --root /path/to/AI-Verse-OS
+ai-verse-multiple-bots os plan --root /path/to/AI-Verse-OS
+ai-verse-multiple-bots os register --root /path/to/AI-Verse-OS
 ```
 
-`os register` is intentionally a registration operation, not the final member-facing installer. It expects extension-owned files to have already been materialized and verifies them before writing `installed: true`. Clean-machine packaging/materialization remains a Phase 5 product gate.
+`os register` remains a registration operation, not the member-facing OS installer. Phase 5.1 now provides the installable npm package; AI-Verse OS extension materialization and attachment remain Phase 5.3.
 
 See [`docs/AI-VERSE-OS-REGISTRATION-CONTRACT.md`](docs/AI-VERSE-OS-REGISTRATION-CONTRACT.md), [`docs/AI-VERSE-BRAIN-OBJECTIVE-INGRESS.md`](docs/AI-VERSE-BRAIN-OBJECTIVE-INGRESS.md), and [`docs/AI-VERSE-MEMORY-RECALL.md`](docs/AI-VERSE-MEMORY-RECALL.md).
 
@@ -532,7 +558,9 @@ Therefore the system selects the **smallest sufficient topology** and keeps mult
 - [`docs/BUILD-MAP.md`](docs/BUILD-MAP.md) - canonical project completion map
 - [`docs/PHASE-1-STATUS.md`](docs/PHASE-1-STATUS.md) - Phase 1 ledger
 - [`docs/PHASE-2-STATUS.md`](docs/PHASE-2-STATUS.md) - Phase 2 ledger
-- [`docs/PHASE-3-STATUS.md`](docs/PHASE-3-STATUS.md) - current Phase 3 ledger
+- [`docs/PHASE-3-STATUS.md`](docs/PHASE-3-STATUS.md) - completed Phase 3 ledger
+- [`docs/PHASE-4-STATUS.md`](docs/PHASE-4-STATUS.md) - completed Phase 4 ledger
+- [`docs/PHASE-5-STATUS.md`](docs/PHASE-5-STATUS.md) - current Phase 5 ledger
 - [`docs/AI-VERSE-OS-REGISTRATION-CONTRACT.md`](docs/AI-VERSE-OS-REGISTRATION-CONTRACT.md) - Phase 3.1 host contract
 - [`docs/AI-VERSE-BRAIN-OBJECTIVE-INGRESS.md`](docs/AI-VERSE-BRAIN-OBJECTIVE-INGRESS.md) - Phase 3.3 Brain ingress contract
 - [`docs/AI-VERSE-MEMORY-RECALL.md`](docs/AI-VERSE-MEMORY-RECALL.md) - Phase 3.4 Memory recall contract
@@ -551,13 +579,9 @@ Contracts are tightened through implementation/evaluation rather than treated as
 
 ## Implementation progress
 
-Phases 0, 1 and 2 are complete. Phase 3 is in progress at approximately 40%.
+Phases 0 through 4 are complete. Phase 5 is in progress.
 
-The remaining first-release program is:
-
-1. **Phase 3: AI-Verse Native Integration** - 3.1 registration, 3.2 workspace projection, 3.3 Brain ingress and 3.4 Memory recall are complete; Skills, Automations, write-command/write-back, health and lifecycle integration remain.
-2. **Phase 4: Runtime and Agent Interoperability** - A2A, Hermes, OpenClaw and other managed agent/runtime adapters.
-3. **Phase 5: Product, Installer, Omnichannel and Dashboard** - clean installation, onboarding, secure remote access, Dashboard control surfaces, channel bridges and full release acceptance.
+Phase 5.1, the simple install command/package, is complete. Remaining productization work starts with standalone install mode, followed by AI-Verse OS install mode, onboarding, templates, production health, lifecycle, secure remote access, Dashboard/channel surfaces, observability, release documentation and the final release acceptance suite.
 
 The visual Bot roster belongs in AI-Verse Dashboard. Multiple Bots remains the backend coordination authority for Bot identity, routing, Tasks, Handoffs, Rooms, Team Runs and runtime orchestration.
 

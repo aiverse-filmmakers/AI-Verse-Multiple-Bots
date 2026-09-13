@@ -4,13 +4,35 @@
   "private": false,
   "description": "Runtime-neutral coordination core for persistent AI teammates and bounded multi-agent teams.",
   "type": "module",
+  "bin": {
+    "ai-verse-multiple-bots": "dist/src/cli.js"
+  },
+  "files": [
+    "dist/src",
+    "schemas",
+    "templates",
+    "integrations"
+  ],
   "engines": {
     "node": ">=22.5.0"
   },
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/aiverse-filmmakers/AI-Verse-Multiple-Bots.git"
+  },
+  "bugs": {
+    "url": "https://github.com/aiverse-filmmakers/AI-Verse-Multiple-Bots/issues"
+  },
+  "homepage": "https://github.com/aiverse-filmmakers/AI-Verse-Multiple-Bots#readme",
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "npm run build && node --test dist/test/*.test.js",
     "eval:phase4": "npm run build && node --test dist/test/runtime-compatibility-evaluation.test.js",
+    "pack:check": "npm run build && node scripts/verify-package.mjs",
+    "prepack": "npm run build",
     "start": "node dist/src/cli.js",
     "doctor": "npm run build && node dist/src/cli.js doctor"
   },
