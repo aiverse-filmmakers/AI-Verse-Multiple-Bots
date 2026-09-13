@@ -7,16 +7,19 @@ import {
   findAiVerseOsRoot,
   planAiVerseOsRegistration,
   planAiVerseOsUninstall,
-  planAiVerseOsUpgrade,
   registerAiVerseOsExtension,
-  uninstallAiVerseOsExtension,
-  upgradeAiVerseOsExtension
+  uninstallAiVerseOsExtension
 } from "./ai-verse-os-registration.js";
 import {
   AiVerseOsInstallError,
   installAiVerseOsExtension,
   planAiVerseOsInstall
 } from "./ai-verse-os-install.js";
+import {
+  AiVerseOsProductUpdateError,
+  planAiVerseOsProductUpdate,
+  updateAiVerseOsProduct
+} from "./ai-verse-os-update.js";
 import { CoordinationGateway } from "./gateway.js";
 import { CoordinationStore } from "./store.js";
 import {
@@ -36,6 +39,11 @@ import {
   standaloneGatewayOptions
 } from "./standalone-install.js";
 import {
+  StandaloneUpdateError,
+  planStandaloneUpdate,
+  updateStandaloneInstallation
+} from "./standalone-update.js";
+import {
   StarterTemplateError,
   applyStarterTemplate,
   getStarterTemplate,
@@ -43,6 +51,11 @@ import {
   planStarterTemplate
 } from "./template-catalog.js";
 import type { BotManifest } from "./types.js";
+import {
+  MultipleBotsUpdateError,
+  planMultipleBotsUpdate,
+  updateMultipleBots
+} from "./update.js";
 
 function flag(name: string): string | undefined {
   const index = process.argv.indexOf(`--${name}`);
@@ -64,9 +77,10 @@ function requestedOsRoot(): string {
 function reportOsError(error: unknown): void {
   const registrationError = error instanceof AiVerseOsRegistrationError ? error : null;
   const installError = error instanceof AiVerseOsInstallError ? error : null;
+  const updateError = error instanceof AiVerseOsProductUpdateError ? error : null;
   console.error(JSON.stringify({
     ok: false,
-    code: installError?.code ?? registrationError?.code ?? "AI_VERSE_OS_REGISTRATION_ERROR",
+    code: updateError?.code ?? installError?.code ?? registrationError?.code ?? "AI_VERSE_OS_LIFECYCLE_ERROR",
     error: error instanceof Error ? error.message : String(error)
   }, null, 2));
   process.exitCode = 1;
@@ -86,10 +100,11 @@ function requestedStandaloneRoot(requireExisting: boolean): string {
 
 function reportStandaloneError(error: unknown): void {
   const standaloneError = error instanceof StandaloneInstallError ? error : null;
+  const updateError = error instanceof StandaloneUpdateError ? error : null;
   console.error(JSON.stringify({
     ok: false,
     mode: "standalone",
-    code: standaloneError?.code ?? "STANDALONE_INSTALL_ERROR",
+    code: updateError?.code ?? standaloneError?.code ?? "STANDALONE_LIFECYCLE_ERROR",
     error: error instanceof Error ? error.message : String(error)
   }, null, 2));
   process.exitCode = 1;
@@ -118,6 +133,18 @@ function reportTemplateError(error: unknown): void {
   console.error(JSON.stringify({
     ok: false,
     code: templateError?.code ?? "TEMPLATE_ERROR",
+    error: error instanceof Error ? error.message : String(error)
+  }, null, 2));
+  process.exitCode = 1;
+}
+
+function reportUpdateError(error: unknown): void {
+  const orchestrationError = error instanceof MultipleBotsUpdateError ? error : null;
+  const standaloneError = error instanceof StandaloneUpdateError ? error : null;
+  const osError = error instanceof AiVerseOsProductUpdateError ? error : null;
+  console.error(JSON.stringify({
+    ok: false,
+    code: orchestrationError?.code ?? standaloneError?.code ?? osError?.code ?? "UPDATE_ERROR",
     error: error instanceof Error ? error.message : String(error)
   }, null, 2));
   process.exitCode = 1;
@@ -220,6 +247,23 @@ if (args[0] === "status" || args[0] === "doctor") {
   } catch (error) {
     reportSetupError(error);
   }
+} else if (args[0] === "update-plan" || args[0] === "update") {
+  try {
+    const options = {
+      ...(flag("mode") !== undefined ? { mode: flag("mode") } : {}),
+      ...(flag("root") !== undefined ? { root: flag("root") } : {}),
+      cwd: process.cwd()
+    };
+    if (args[0] === "update-plan") {
+      const result = planMultipleBotsUpdate(options);
+      console.log(JSON.stringify({ ok: result.can_update, update: result }, null, 2));
+      if (!result.can_update) process.exitCode = 1;
+    } else {
+      console.log(JSON.stringify({ ok: true, update: updateMultipleBots(options) }, null, 2));
+    }
+  } catch (error) {
+    reportUpdateError(error);
+  }
 } else if (args[0] === "standalone") {
   try {
     if (args[1] === "init") {
@@ -240,6 +284,14 @@ if (args[0] === "status" || args[0] === "doctor") {
       });
       console.log(JSON.stringify(result, null, 2));
       if (!result.ready) process.exitCode = 1;
+    } else if (args[1] === "update-plan") {
+      const root = requestedStandaloneRoot(true);
+      const plan = planStandaloneUpdate(root);
+      console.log(JSON.stringify({ ok: plan.can_update, update: plan }, null, 2));
+      if (!plan.can_update) process.exitCode = 1;
+    } else if (args[1] === "update") {
+      const root = requestedStandaloneRoot(true);
+      console.log(JSON.stringify({ ok: true, update: updateStandaloneInstallation(root) }, null, 2));
     } else if (args[1] === "serve") {
       const root = requestedStandaloneRoot(true);
       const options = standaloneGatewayOptions(root);
@@ -311,10 +363,15 @@ if (args[0] === "status" || args[0] === "doctor") {
       console.log(JSON.stringify({ ok: true, plan: planAiVerseOsRegistration(root) }, null, 2));
     } else if (args[1] === "register") {
       console.log(JSON.stringify({ ok: true, registration: registerAiVerseOsExtension(root) }, null, 2));
-    } else if (args[1] === "upgrade-plan") {
-      console.log(JSON.stringify({ ok: true, upgrade: planAiVerseOsUpgrade(root) }, null, 2));
-    } else if (args[1] === "upgrade") {
-      console.log(JSON.stringify({ ok: true, upgrade: upgradeAiVerseOsExtension(root) }, null, 2));
+    } else if (args[1] === "update-plan" || args[1] === "upgrade-plan") {
+      const plan = planAiVerseOsProductUpdate(root);
+      const key = args[1] === "upgrade-plan" ? "upgrade" : "update";
+      console.log(JSON.stringify({ ok: plan.can_update, [key]: plan }, null, 2));
+      if (!plan.can_update) process.exitCode = 1;
+    } else if (args[1] === "update" || args[1] === "upgrade") {
+      const result = updateAiVerseOsProduct(root);
+      const key = args[1] === "upgrade" ? "upgrade" : "update";
+      console.log(JSON.stringify({ ok: true, [key]: result }, null, 2));
     } else if (args[1] === "uninstall-plan") {
       console.log(JSON.stringify({ ok: true, uninstall: planAiVerseOsUninstall(root) }, null, 2));
     } else if (args[1] === "uninstall") {
