@@ -428,7 +428,7 @@ function createEvent(input: {
 }): CoordinationEvent {
   return {
     schema_version: "1.0",
-    id: createId("event"),
+    id: createId("evt"),
     type: input.type,
     timestamp: new Date().toISOString(),
     actor_id: input.actorId,
