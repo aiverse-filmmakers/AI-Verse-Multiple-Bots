@@ -9,8 +9,6 @@ import {
   planAiVerseOsInstall
 } from "./ai-verse-os-install.js";
 import {
-  STANDALONE_DEFAULT_HOST,
-  STANDALONE_DEFAULT_PORT,
   doctorStandalone,
   findStandaloneRoot,
   initializeStandalone,
