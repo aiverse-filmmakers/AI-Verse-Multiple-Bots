@@ -794,7 +794,7 @@ Remaining major slices:
 7. upgrade/migration strategy - **COMPLETE**
 8. secure remote Gateway option - **COMPLETE**
 9. Dashboard projections/control endpoints - **COMPLETE**
-10. Telegram/Discord/other channel bridge contracts - **COMPLETE IMPLEMENTATION, ACCEPTANCE PENDING CI**
+10. Telegram/Discord/other channel bridge contracts - **COMPLETE**
 11. operator approvals/attention UX - **NEXT**
 12. observability/usage views - **NOT STARTED**
 13. release docs/examples - **NOT STARTED**
@@ -817,7 +817,7 @@ Implemented:
 - no provider credential storage, public webhook termination, provider network delivery or scheduler ownership
 - installed-package channel ingress/egress smoke
 
-**Hosted acceptance:** pending CI on the Phase 5.10 PR head.
+**Hosted acceptance:** GitHub Actions CI run 577 (`34782846365`) passed 482/482 tests, 5/5 Phase 4 compatibility tests, and the complete package/install smoke gate with a 221-file artifact.
 
 See `docs/CHANNEL-BRIDGE-CONTRACTS.md` and `docs/PHASE-5-STATUS.md`.
 
