@@ -6,7 +6,7 @@
 
 **Overall status:** IN PROGRESS
 
-**Directional phase progress:** approximately 10%
+**Directional phase progress:** approximately 15%
 
 This file is the implementation ledger for Phase 5. The canonical product roadmap remains `BUILD-MAP.md`.
 
@@ -18,8 +18,8 @@ Turn the completed coordination, AI-Verse integration and runtime-interoperabili
 
 1. simple install command/package - **COMPLETE**
 2. standalone install mode - **COMPLETE**
-3. AI-Verse OS install mode - **NEXT**
-4. setup/onboarding flow - **NOT STARTED**
+3. AI-Verse OS install mode - **COMPLETE**
+4. setup/onboarding flow - **NEXT**
 5. Bot/team templates - **NOT STARTED**
 6. production health/doctor - **NOT STARTED**
 7. upgrade/migration strategy - **NOT STARTED**
@@ -112,17 +112,59 @@ The implementation head `d1baf0daee3bb03f5d4ead0d484c7145831e00fd` passed GitHub
 
 See `docs/STANDALONE-INSTALL.md`.
 
+## Slice 5.3 - AI-Verse OS install mode
+
+**Implementation status:** COMPLETE
+
+Phase 5.3 closes the gap between safe registration and a real member-facing AI-Verse OS installation.
+
+Implemented:
+
+- `os install-plan` read-only materialization preview
+- `os install` package-owned installation
+- compatible AI-Verse OS v2 / `unified-workspace` validation
+- extension-owned `INSTRUCTIONS.md` materialization
+- extension-owned executable `engine.mjs` materialization
+- canonical OS-mode coordination database initialization under `runtime/ai-verse-bots/coordination.db`
+- coordination DB health validation before registration
+- registration through the existing exclusive-lock + atomic registry contract
+- foreign same-key registry ownership rejection
+- different-version install rejection in favor of the upgrade lifecycle
+- conflicting known extension-file rejection
+- symlink/path-chain fail-closed behavior
+- unknown extension files preserved
+- canonical OS/operator/workspace/Skills state preservation
+- generated engine that loads the installed package and starts the normal native OS-attached Gateway
+- idempotent reinstall returning `unchanged`
+- installed-package OS install smoke
+- installed-package generated-engine startup + health smoke
+
+### 5.3 acceptance proof
+
+The implementation head `4911febde60fcb750c5e5a1d589b42dad4afbd11` passed GitHub Actions **CI run 502 (`34767116729`)**:
+
+- full repository suite: **432/432 tests passed**
+- Phase 4 compatibility suite: **5/5 tests passed**
+- package install smoke: **passed**
+- standalone install smoke: **passed**
+- AI-Verse OS install/materialization smoke: **passed**
+- materialized AI-Verse OS engine startup/health smoke: **passed**
+- packed artifact: **178 files**
+- **0 failures, 0 canceled and 0 skipped**
+
+See `docs/AI-VERSE-OS-INSTALL.md`.
+
 ## Ownership boundary
 
 Phase 5.1 intentionally does not choose or configure an operating mode during npm installation.
 
 - standalone configuration is implemented by Phase 5.2
-- AI-Verse OS installation/attachment belongs to Phase 5.3
+- AI-Verse OS installation/attachment is implemented by Phase 5.3
 - onboarding belongs to Phase 5.4
 - npm installation itself has no hidden host mutations
 
 ## Next gate
 
-**Phase 5.3 - AI-Verse OS install mode.**
+**Phase 5.4 - setup/onboarding flow.**
 
-Phase 5.2 is complete. The next task is to materialize and attach the installed package to a compatible AI-Verse OS host through the existing safe registration contract, without duplicating canonical OS state.
+Phase 5.3 is complete. The next task is the member-facing setup/onboarding flow over the completed standalone and AI-Verse OS installation modes.
