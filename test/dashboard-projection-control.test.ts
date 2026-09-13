@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
+import { rmSync } from "node:fs";
 import { request } from "node:http";
 import test from "node:test";
 import {
@@ -277,7 +278,8 @@ test("Phase 5.9 Dashboard controls reuse canonical Bot and Approval owners and r
 });
 
 test("Phase 5.9 Dashboard task cancel and retry route through canonical runner/recovery boundaries", async () => {
-  const service = createGatewayServer({ dbPath: ":memory:", port: 0 });
+  const dbPath = "/tmp/dashboard-control-recovery-" + randomUUID() + ".db";
+  const service = createGatewayServer({ dbPath, port: 0 });
   const address = await service.listen();
   try {
     service.store.putObject("bot", {
@@ -338,6 +340,9 @@ test("Phase 5.9 Dashboard task cancel and retry route through canonical runner/r
     assert.equal(service.executionQueue.getByItem("task_retry")?.state, "queued");
   } finally {
     await service.close();
+    rmSync(dbPath, { force: true });
+    rmSync(dbPath + "-wal", { force: true });
+    rmSync(dbPath + "-shm", { force: true });
   }
 });
 
