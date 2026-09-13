@@ -232,7 +232,8 @@ if (args[0] === "status" || args[0] === "doctor") {
       const service = createGatewayServer({
         host: options.host,
         port: options.port,
-        dbPath: options.dbPath
+        dbPath: options.dbPath,
+        standaloneRoot: options.root
       });
       const address = await service.listen();
       console.log(JSON.stringify({
