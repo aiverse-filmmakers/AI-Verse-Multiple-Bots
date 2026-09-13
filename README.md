@@ -24,9 +24,9 @@ The target experience is inspired most strongly by xAI's Grok Bot persistent-tea
 
 **Phase 4: Runtime and Agent Interoperability: COMPLETE**
 
-**Phase 5: Product, Installer, Omnichannel and Dashboard: IN PROGRESS (~40%)**
+**Phase 5: Product, Installer, Omnichannel and Dashboard: IN PROGRESS (~45%)**
 
-Phase 5.1 provides the installable package surface, Phase 5.2 standalone mode, Phase 5.3 AI-Verse OS installation, Phase 5.4 setup/onboarding, Phase 5.5 reusable Bot/team templates, Phase 5.6 truthful production health/doctor, Phase 5.7 safe update/migration strategy, and Phase 5.8 secure remote Gateway access. The current verified implementation gate passes **471/471 repository tests**, **5/5 Phase 4 compatibility evaluations**, all prior package smokes, and the installed-package secure-remote Gateway smoke. Phase 5.9 Dashboard projections/control endpoints is next.
+Phase 5.1 provides the installable package surface, Phase 5.2 standalone mode, Phase 5.3 AI-Verse OS installation, Phase 5.4 setup/onboarding, Phase 5.5 reusable Bot/team templates, Phase 5.6 truthful production health/doctor, Phase 5.7 safe update/migration strategy, Phase 5.8 secure remote Gateway access, and Phase 5.9 Dashboard projections/control endpoints. The current verified implementation gate passes **476/476 repository tests**, **5/5 Phase 4 compatibility evaluations**, all prior package smokes, and the installed-package Dashboard projection/control smoke. Phase 5.10 channel bridge contracts is next.
 
 ## Install
 
@@ -154,6 +154,39 @@ The managed provider is Tailscale Serve. It requires an active connected tailnet
 Phase 5.8 intentionally does not enable public Tailscale Funnel exposure.
 
 See [`docs/SECURE-REMOTE-GATEWAY.md`](docs/SECURE-REMOTE-GATEWAY.md).
+
+## Dashboard backend contract
+
+AI-Verse Dashboard can consume Multiple Bots without becoming a second source of truth.
+
+Workspace snapshot:
+
+```text
+GET /v1/dashboard/snapshot?workspace=<workspace-id>
+```
+
+Workspace event replay / live stream:
+
+```text
+GET /v1/dashboard/events?workspace=<workspace-id>&after=<cursor>
+GET /v1/dashboard/events/stream?workspace=<workspace-id>&after=<cursor>
+```
+
+Capability discovery:
+
+```text
+GET /v1/dashboard/capabilities?workspace=<workspace-id>
+```
+
+Bounded operator controls:
+
+```text
+POST /v1/dashboard/control
+```
+
+Current controls cover Bot lifecycle, Approval decisions, Task cancel/retry, and Team Run cancellation. Every mutation routes through the existing canonical owner and rejects cross-workspace targets. The projection explicitly reports `dashboard_owns_truth: false`.
+
+See [`docs/DASHBOARD-PROJECTION-CONTROL.md`](docs/DASHBOARD-PROJECTION-CONTROL.md).
 
 ## Starter Bot and team templates
 
@@ -801,6 +834,7 @@ Therefore the system selects the **smallest sufficient topology** and keeps mult
 - [`docs/PRODUCTION-HEALTH-DOCTOR.md`](docs/PRODUCTION-HEALTH-DOCTOR.md) - Phase 5.6 truthful production readiness contract
 - [`docs/UPDATE-MIGRATION-STRATEGY.md`](docs/UPDATE-MIGRATION-STRATEGY.md) - Phase 5.7 update, migration and preservation contract
 - [`docs/SECURE-REMOTE-GATEWAY.md`](docs/SECURE-REMOTE-GATEWAY.md) - Phase 5.8 authenticated tailnet-only remote Gateway contract
+- [`docs/DASHBOARD-PROJECTION-CONTROL.md`](docs/DASHBOARD-PROJECTION-CONTROL.md) - Phase 5.9 workspace-scoped Dashboard projection/control contract
 - [`docs/AI-VERSE-OS-REGISTRATION-CONTRACT.md`](docs/AI-VERSE-OS-REGISTRATION-CONTRACT.md) - Phase 3.1 host contract
 - [`docs/AI-VERSE-BRAIN-OBJECTIVE-INGRESS.md`](docs/AI-VERSE-BRAIN-OBJECTIVE-INGRESS.md) - Phase 3.3 Brain ingress contract
 - [`docs/AI-VERSE-MEMORY-RECALL.md`](docs/AI-VERSE-MEMORY-RECALL.md) - Phase 3.4 Memory recall contract
@@ -822,7 +856,7 @@ Contracts are tightened through implementation/evaluation rather than treated as
 
 Phases 0 through 4 are complete. Phase 5 is in progress.
 
-Phase 5.1 package installation, Phase 5.2 standalone mode, Phase 5.3 AI-Verse OS install mode, Phase 5.4 setup/onboarding, Phase 5.5 Bot/team templates, Phase 5.6 production health/doctor, Phase 5.7 update/migration strategy, and Phase 5.8 secure remote Gateway are complete. Remaining productization work starts with Dashboard projections/control endpoints, followed by channel surfaces, operator attention UX, observability, release documentation and the final release acceptance suite.
+Phase 5.1 package installation, Phase 5.2 standalone mode, Phase 5.3 AI-Verse OS install mode, Phase 5.4 setup/onboarding, Phase 5.5 Bot/team templates, Phase 5.6 production health/doctor, Phase 5.7 update/migration strategy, Phase 5.8 secure remote Gateway, and Phase 5.9 Dashboard projections/control endpoints are complete. Remaining productization work starts with channel bridge contracts, followed by operator attention UX, observability, release documentation and the final release acceptance suite.
 
 The visual Bot roster belongs in AI-Verse Dashboard. Multiple Bots remains the backend coordination authority for Bot identity, routing, Tasks, Handoffs, Rooms, Team Runs and runtime orchestration.
 
