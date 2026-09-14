@@ -51,7 +51,7 @@ try {
 
   const record = packed[0];
   assert.equal(record.name, "@ai-verse/multiple-bots");
-  assert.equal(record.version, "0.1.0-alpha.1");
+  assert.equal(record.version, "0.1.0-beta.1");
   const files = new Set((record.files ?? []).map((entry) => String(entry.path)));
 
   for (const required of [
@@ -475,7 +475,7 @@ if (args[0] === "serve") {
 
   const registered = JSON.parse(readFileSync(registryPath, "utf8")).extensions["ai-verse-multiple-bots"];
   assert.equal(registered.source, "AI-Verse-Multiple-Bots");
-  assert.equal(registered.version, "0.1.0-alpha.1");
+  assert.equal(registered.version, "0.1.0-beta.1");
   assert.equal(registered.engine, ".aiverse/extensions/ai-verse-multiple-bots/engine.mjs");
 
   assert.deepEqual({
@@ -530,7 +530,7 @@ if (args[0] === "serve") {
     ".aiverse/extensions/ai-verse-multiple-bots/engine.mjs"
   ].sort());
   assert.equal(sha256(osDbPath), osDbBeforeUpdate);
-  assert.equal(JSON.parse(readFileSync(registryPath, "utf8")).extensions["ai-verse-multiple-bots"].version, "0.1.0-alpha.1");
+  assert.equal(JSON.parse(readFileSync(registryPath, "utf8")).extensions["ai-verse-multiple-bots"].version, "0.1.0-beta.1");
   assert.notEqual(readFileSync(instructionsPath, "utf8"), "# old package instructions\n");
   assert.notEqual(readFileSync(enginePath, "utf8"), "export const oldPackageEngine = true;\n");
   assert.deepEqual({
