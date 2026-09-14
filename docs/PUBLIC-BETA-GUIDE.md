@@ -314,3 +314,18 @@ Then capture:
 Do not include raw credentials or provider secrets.
 
 See `docs/TROUBLESHOOTING.md`.
+
+
+## Phase 5.13 release-document acceptance
+
+The packaged member-facing documentation and examples passed GitHub Actions **CI run 603 (`34811761570`)** on implementation head `2a6d35d8b971bd46207e06d87db27acd90f974c4`:
+
+- **497/497** repository tests
+- **5/5** Phase 4 compatibility tests
+- clean packed install
+- all prior product smokes
+- all three packaged examples executed from the clean installed tarball
+- **234-file** package artifact
+- **0 failures, 0 canceled, 0 skipped**
+
+Phase 5.14 remains the final whole-release acceptance gate.
