@@ -18,10 +18,10 @@ Phase 1  Runnable Coordination Core     [COMPLETE]    100%
 Phase 2  Dynamic Multi-Agent Squads     [COMPLETE]    100%
 Phase 3  AI-Verse Native Integration    [COMPLETE]    100%
 Phase 4  Runtime / A2A Interoperability [COMPLETE]    100%
-Phase 5  Product + Install + Dashboard  [FINAL ACCEPTANCE PENDING]
+Phase 5  Product + Install + Dashboard  [COMPLETE]    100%
 ```
 
-**Directional overall first-release progress:** implementation complete; final acceptance pending.
+**Multiple Bots component first-release implementation:** 100% complete.
 
 That overall figure is intentionally approximate because later phases contain different amounts of work. Passed phase gates, not percentages, are authoritative.
 
@@ -777,9 +777,9 @@ See `docs/PHASE-4-COMPATIBILITY-EVALUATION.md`, `evals/phase-4-runtime-compatibi
 
 ## Phase 5 - Product, Installer, Omnichannel and Dashboard
 
-**Status:** IN PROGRESS
+**Status:** COMPLETE
 
-**Directional phase progress:** final acceptance pending
+**Directional phase progress:** 100%
 
 Goal: turn the completed coordination/integration/interoperability layers into a member-installable product with health, onboarding, remote/channel access and observability.
 
@@ -798,7 +798,7 @@ Remaining major slices:
 11. operator approvals/attention UX - **COMPLETE**
 12. observability/usage views - **COMPLETE**
 13. release docs/examples - **COMPLETE**
-14. full release acceptance suite - **COMPLETE IMPLEMENTATION, ACCEPTANCE PENDING CI**
+14. full release acceptance suite - **COMPLETE**
 
 ### Phase 5.14 - full release acceptance suite
 
@@ -816,7 +816,7 @@ Implemented:
 - final security, projection, package and no-hidden-install-mutation laws
 - explicit no-claim list for publication/tag/composed Agent promotion
 
-**Hosted acceptance:** pending CI on the Phase 5.14 PR head.
+**Hosted acceptance:** GitHub Actions CI run 609 (`34816540056`) on implementation head `4f2146f5a8876d1594cbb8f3904c59f7d6e55a57` passed **508/508** repository tests, **5/5** Phase 4 compatibility tests, the **234-file** beta.1 clean package gate, all product/install smokes, and the dedicated public-beta release evaluation **7/7** with zero failures/skips.
 
 See `docs/PUBLIC-BETA-RELEASE-ACCEPTANCE.md` and `evals/public-beta-release-acceptance.json`.
 
