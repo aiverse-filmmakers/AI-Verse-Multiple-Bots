@@ -805,7 +805,10 @@ Remaining major slices:
 Implemented:
 
 - workspace-scoped operational snapshot over canonical coordination state
-- persisted token/cost/action usage totals with explicit coverage limits
+- persisted execution-local token/action/runtime-reported monetary evidence with explicit coverage limits
+- explicit AI-Verse Token ownership of immutable telemetry, pricing and ACTUAL/CALCULATED/UNKNOWN cost truth
+- canonical historical/global telemetry delegated to `@ai-verse/token/gateway`
+- no tariff calculation or Token ledger duplication
 - per-principal usage and activity breakdown
 - Team Run computed-vs-canonical usage consistency
 - Team Run token/cost/action budget utilization
