@@ -6,7 +6,7 @@
 
 **Overall status:** IN PROGRESS
 
-**Directional phase progress:** approximately 80%
+**Directional phase progress:** approximately 90%
 
 This file is the implementation ledger for Phase 5. The canonical product roadmap remains `BUILD-MAP.md`.
 
@@ -28,8 +28,8 @@ Turn the completed coordination, AI-Verse integration and runtime-interoperabili
 10. Telegram/Discord/other channel bridge contracts - **COMPLETE**
 11. operator approvals/attention UX - **COMPLETE**
 12. observability/usage views - **COMPLETE**
-13. release docs/examples - **NEXT**
-14. full release acceptance suite - **NOT STARTED**
+13. release docs/examples - **COMPLETE IMPLEMENTATION, ACCEPTANCE PENDING CI**
+14. full release acceptance suite - **NEXT**
 
 ## Slice 5.1 - simple install command/package
 
@@ -608,6 +608,33 @@ The accepted contract explicitly preserves:
 
 See `docs/OBSERVABILITY-USAGE-VIEWS.md`.
 
+## Slice 5.13 - release docs/examples
+
+**Implementation status:** COMPLETE IMPLEMENTATION, ACCEPTANCE PENDING CI
+
+Phase 5.13 converts the completed product surfaces into a packaged public-beta onboarding and reference layer.
+
+Implemented:
+
+- packaged `docs/PUBLIC-BETA-GUIDE.md`
+- packaged `docs/API-QUICK-REFERENCE.md`
+- packaged `docs/TROUBLESHOOTING.md`
+- packaged `examples/README.md`
+- executable `examples/standalone-quickstart.mjs`
+- executable `examples/operator-observability.mjs`
+- executable `examples/channel-bridge.mjs`
+- root README refreshed from stale Phase 5.9-era status
+- standalone example proves setup -> starter-team apply -> production doctor
+- operator example proves attention -> Approval decision -> observability
+- observability example output proves AI-Verse Token telemetry/pricing ownership
+- channel example proves verified-adapter ingress -> canonical Bot reply -> outbound transport formatting without provider network delivery
+- examples use only deterministic/in-memory/loopback-safe paths
+- package manifest includes only the public release docs rather than the full internal architecture/audit corpus
+- repository tests execute all examples
+- clean packed-install smoke executes all examples from `node_modules/@ai-verse/multiple-bots`
+
+Acceptance proof will be recorded after hosted CI passes the PR head.
+
 ## Ownership boundary
 
 Phase 5.1 intentionally does not choose or configure an operating mode during npm installation.
@@ -619,6 +646,6 @@ Phase 5.1 intentionally does not choose or configure an operating mode during np
 
 ## Next gate
 
-**Phase 5.13 - release docs/examples.**
+**Phase 5.14 - full release acceptance suite.**
 
-Phase 5.12 is complete. The next product slice is the final member-facing release documentation and runnable examples before full release acceptance.
+Phase 5.13 implementation is complete pending hosted acceptance. The final slice is the complete public-beta release acceptance gate across packaging, lifecycle, security, integrations, examples and canonical cross-component boundaries.
