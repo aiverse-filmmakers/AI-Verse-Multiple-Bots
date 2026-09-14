@@ -591,7 +591,8 @@ if (args[0] === "serve") {
     channel_bridge_smoke: "passed",
     operator_attention_smoke: "passed",
     observability_usage_smoke: "passed",
-    release_docs_examples_smoke: "passed"
+    release_docs_examples_smoke: "passed",
+    public_beta_candidate_package_smoke: "passed"
   }, null, 2));
 } finally {
   rmSync(tempRoot, { recursive: true, force: true });
