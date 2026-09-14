@@ -410,11 +410,24 @@ test("materialized OS engine creates a canonical durable Bot through the existin
       coordination: { default_mode: "direct", max_parallel_workers: 0, max_hops: 0 }
     });
 
-    assert.equal(created.id, "bot_durable-reviewer");
-    assert.equal(created.kind, "bot");
-    assert.equal(created.workspace_id, "demo");
-    assert.equal(created.payload.kind, "durable");
-    assert.equal(created.payload.status, "active");
+    assert.equal(created.state, "created");
+    assert.equal(created.bot.id, "bot_durable-reviewer");
+    assert.equal(created.bot.kind, "bot");
+    assert.equal(created.bot.workspace_id, "demo");
+    assert.equal(created.bot.payload.kind, "durable");
+    assert.equal(created.bot.payload.status, "active");
+
+    const replay = await engine.createDurableBot(created.bot.payload);
+    assert.equal(replay.state, "existing");
+    assert.equal(replay.bot.id, "bot_durable-reviewer");
+
+    await assert.rejects(
+      () => engine.createDurableBot({
+        ...created.bot.payload,
+        role: { ...created.bot.payload.role, mission: "Changed mission under the same durable identity." }
+      }),
+      /already exists with different canonical state/
+    );
 
     const store = new (await import("../src/store.js")).CoordinationStore(
       resolve(root, ...AI_VERSE_MULTIPLE_BOTS_COORDINATION_DB_PATH.split("/"))
