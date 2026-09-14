@@ -1186,12 +1186,14 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
       clearInterval(remoteRecoveryTimer);
       await supervisor.stop();
       await remoteRecovery.reconcileRevocations(remoteLeases).catch(() => undefined);
-      await new Promise<void>((resolve, reject) => {
-        server.close((error: Error | undefined) => {
-          if (error) reject(error);
-          else resolve();
+      if (server.listening) {
+        await new Promise<void>((resolve, reject) => {
+          server.close((error: Error | undefined) => {
+            if (error) reject(error);
+            else resolve();
+          });
         });
-      });
+      }
       executionQueue.close();
       remoteRecovery.close();
       store.close();
