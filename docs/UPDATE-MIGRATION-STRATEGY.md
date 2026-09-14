@@ -108,7 +108,7 @@ The package-owned `install.json` receipt records:
 {
   "schema_version": "1.0",
   "component_id": "ai-verse-multiple-bots",
-  "component_version": "0.1.0-alpha.1",
+  "component_version": "0.1.0-beta.1",
   "coordination_schema": "1",
   "mode": "standalone"
 }

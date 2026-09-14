@@ -3,7 +3,7 @@
   "id": "ai-verse-multiple-bots",
   "display_name": "AI-Verse Multiple Bots",
   "host": "ai-verse-os",
-  "package_version": "0.1.0-alpha.1",
+  "package_version": "0.1.0-beta.1",
   "supported_host_schema_major": 2,
   "supported_host_architecture": "unified-workspace",
   "registry_path": ".aiverse/extensions/registry.json",

@@ -39,7 +39,7 @@ npm installation itself performs no host mutation.
 From a packed artifact:
 
 ```bash
-npm install -g ./ai-verse-multiple-bots-0.1.0-alpha.1.tgz
+npm install -g ./ai-verse-multiple-bots-0.1.0-beta.1.tgz
 ```
 
 After npm publication, the intended equivalent is:

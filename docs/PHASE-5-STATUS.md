@@ -1,12 +1,12 @@
 # Phase 5 Status - Product, Installer, Omnichannel and Dashboard
 
-**Updated:** 2026-09-13
+**Updated:** 2026-09-14
 
 **Phase:** 5
 
-**Overall status:** IN PROGRESS
+**Overall status:** COMPLETE
 
-**Directional phase progress:** approximately 95%
+**Directional phase progress:** 100%
 
 This file is the implementation ledger for Phase 5. The canonical product roadmap remains `BUILD-MAP.md`.
 
@@ -29,7 +29,7 @@ Turn the completed coordination, AI-Verse integration and runtime-interoperabili
 11. operator approvals/attention UX - **COMPLETE**
 12. observability/usage views - **COMPLETE**
 13. release docs/examples - **COMPLETE**
-14. full release acceptance suite - **NEXT**
+14. full release acceptance suite - **COMPLETE**
 
 ## Slice 5.1 - simple install command/package
 
@@ -656,6 +656,54 @@ The corrected implementation head `2a6d35d8b971bd46207e06d87db27acd90f974c4` pas
 - packed artifact: **234 files**
 - **0 failures, 0 canceled and 0 skipped**
 
+## Slice 5.14 - full release acceptance suite
+
+**Implementation status:** COMPLETE
+
+Phase 5.14 is the final Multiple Bots component release gate.
+
+Implemented:
+
+- canonical machine-readable release contract at `evals/public-beta-release-acceptance.json`
+- dedicated `npm run eval:release` gate
+- complete local `npm run release:check` command
+- hosted CI now runs repository tests, Phase 4 compatibility, clean package verification and release evaluation as separate gates
+- package/extension candidate promoted consistently to `@ai-verse/multiple-bots@0.1.0-beta.1`
+- explicit distinction between this component release gate and the separate whole-Agent/Distribution composed acceptance gate
+- canonical owner inventory covering OS, Brain, Memory, Skills, Data, Connections, Automations, Dashboard and Token
+- AI-Verse Token telemetry/pricing non-ownership frozen into the release manifest
+- direct non-loopback/bearer/channel-adapter security laws frozen into the release manifest
+- final audit repair for whole logical Message idempotency
+- direct Message replay now atomically covers Message + delivery + Event + idempotency receipt
+- Room/Thread replay stops before speaker scheduling, preventing duplicate Task fan-out
+- semantic drift under one idempotency key fails closed
+- legacy alpha Event-only idempotency keys fail closed instead of guessing or duplicating work
+- new restart-safe direct/Room idempotency acceptance coverage
+- explicit release operations that remain unclaimed: npm publication, immutable Git tag, Agent composed acceptance and Distribution Agent promotion
+- component-level public-beta stop rule documented in `docs/PUBLIC-BETA-RELEASE-ACCEPTANCE.md`
+
+### 5.14 acceptance proof
+
+The beta.1 implementation head `4f2146f5a8876d1594cbb8f3904c59f7d6e55a57` passed GitHub Actions **CI run 609 (`34816540056`)** across all four release gates:
+
+- full repository suite: **508/508 tests passed**
+- Phase 4 compatibility suite: **5/5 tests passed**
+- clean package/install/product smoke: **passed**
+- packed beta candidate: **234 files**
+- packaged release docs/examples smoke: **passed**
+- public-beta candidate package smoke: **passed**
+- dedicated public-beta release evaluation: **7/7 tests passed**
+- whole logical direct-message idempotency/restart coverage: **passed**
+- Room replay/no-duplicate-Task coverage: **passed**
+- semantic-drift and legacy-alpha fail-closed coverage: **passed**
+- AI-Verse Token ownership boundary: **passed**
+- component-vs-composed-Agent scope boundary: **passed**
+- **0 failures, 0 canceled and 0 skipped**
+
+This is the Multiple Bots component acceptance gate. It does not claim npm publication, an immutable Git tag, whole-Agent composed acceptance, or Distribution Agent promotion.
+
+See `docs/PUBLIC-BETA-RELEASE-ACCEPTANCE.md`.
+
 ## Ownership boundary
 
 Phase 5.1 intentionally does not choose or configure an operating mode during npm installation.
@@ -665,8 +713,10 @@ Phase 5.1 intentionally does not choose or configure an operating mode during np
 - setup/onboarding is implemented by Phase 5.4
 - npm installation itself has no hidden host mutations
 
-## Next gate
+## Phase 5 completion
 
-**Phase 5.14 - full release acceptance suite.**
+All **14/14 Phase 5 slices are COMPLETE**.
 
-Phase 5.13 is complete. The final slice is the complete public-beta release acceptance gate across packaging, lifecycle, security, integrations, examples and canonical cross-component boundaries.
+The repository is a source-level public-beta component candidate at `@ai-verse/multiple-bots@0.1.0-beta.1`.
+
+The remaining actions are release operations outside this Phase 5 implementation ledger: final PR-head verification, merge/post-merge CI, optional immutable tagging/npm publication, and the separate System/Distribution whole-Agent composed acceptance.
