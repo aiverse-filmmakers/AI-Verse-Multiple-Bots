@@ -74,15 +74,17 @@ GET /v1/observability/usage?workspace=<workspace-id>
 
 Returns the usage, latency, outcome and execution portions without returning the timeline.
 
-Current usage units:
+Current execution-local usage units:
 
 ```text
 input_tokens
 output_tokens
 total_tokens
-cost
+runtime_reported_cost_evidence
 actions
 ```
+
+`runtime_reported_cost_evidence` is intentionally not called canonical cost. It is the normalized monetary value returned by the runtime execution result and persisted on the Multiple Bots Task for operational budget enforcement and settlement.
 
 Current dimensions:
 
@@ -110,9 +112,64 @@ Returns compact canonical coordination events with:
 
 The timeline never includes private model chain-of-thought.
 
+## Verified AI-Verse Token ownership boundary
+
+Phase 5.12 was explicitly cross-checked against the live `aiverse-filmmakers/AI-Verse-Token` public-beta contract (`@ai-verse/token@0.1.0-beta.3`).
+
+The verified ownership split is:
+
+| Concern | Canonical owner |
+|---|---|
+| Task/Worker execution-local counters needed for coordination | Multiple Bots |
+| Team Run budget enforcement and runtime settlement | Multiple Bots |
+| operational token/action/cost evidence attached to a Task | Multiple Bots, as execution evidence only |
+| immutable normalized telemetry ledger | AI-Verse Token |
+| canonical historical/global token telemetry | AI-Verse Token |
+| pricing evidence and tariff history | AI-Verse Token |
+| ACTUAL / CALCULATED / UNKNOWN monetary truth | AI-Verse Token |
+| model pricing calculation | AI-Verse Token |
+| Bot/Worker/Run/Task telemetry attribution | Token evidence labels only, never coordination authority |
+
+The live Token repository exposes the owner-backed read path through:
+
+```text
+@ai-verse/token/gateway
+```
+
+and its Multiple Bots helper through:
+
+```text
+@ai-verse/token/bots
+```
+
+The Token Bots helper only attaches exact Bot/Worker/Team Run/Task/workspace attribution to Token telemetry. It does not move Bot authority into Token.
+
+Therefore Phase 5.12 obeys these laws:
+
+1. Multiple Bots does not open or write Token's ledger.
+2. Multiple Bots does not create pricing snapshots.
+3. Multiple Bots does not apply tariffs.
+4. Multiple Bots does not emit `ACTUAL`, `CALCULATED` or `UNKNOWN` monetary truth.
+5. Multiple Bots does not reinterpret runtime-reported cost evidence as canonical AI spend.
+6. Canonical historical/global telemetry or cost truth must be read from the supported Token projection, not reconstructed here.
+7. Multiple Bots retains its existing budget and limit enforcement because safe coordination requires execution-local ceilings before and during work.
+
+The public observability contract makes this machine-readable:
+
+```text
+canonical_telemetry_owner = ai-verse-token
+canonical_cost_truth_owner = ai-verse-token
+token_projection_interface = @ai-verse/token/gateway
+runtime_usage_is_canonical_token_truth = false
+prices_model_usage_here = false
+writes_token_telemetry_here = false
+```
+
+Phase 5.12 does not currently request canonical historical/global Token telemetry because its scope is execution-local operational observability. If a future Multiple Bots view needs canonical historical/global usage or AI cost truth, it must consume the authorized `@ai-verse/token/gateway` projection rather than calculating the answer independently.
+
 ## Usage truth
 
-Runtime adapters already return normalized usage:
+Runtime adapters already return normalized execution usage:
 
 ```json
 {
@@ -128,6 +185,8 @@ Successful Task execution persists normalized usage on the canonical Task and Ar
 Team Runs persist aggregate usage as work completes.
 
 Phase 5.12 reads those values instead of inventing a separate usage ledger.
+
+The internal runtime contract retains the field name `cost` because it is already part of Multiple Bots budget enforcement. The public observability projection renames that value to `runtime_reported_cost_evidence` so it cannot be mistaken for Token's canonical cost truth.
 
 ## Coverage honesty
 
@@ -312,6 +371,10 @@ Phase 5.12 is accepted when:
 - outcomes and terminal latency are visible;
 - timeline replay is cursor-based and workspace-scoped;
 - no private model reasoning is exposed;
+- Token remains the explicit canonical telemetry/pricing/cost-truth owner;
+- no pricing/tariff calculation exists in Multiple Bots observability;
+- public monetary values are labeled runtime-reported execution evidence;
+- canonical historical/global telemetry is delegated to `@ai-verse/token/gateway`;
 - invalid cursor/limit inputs fail closed;
 - installed-package observability smoke passes;
 - full repository and Phase 4 compatibility suites remain green.
