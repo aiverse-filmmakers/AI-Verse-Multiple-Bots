@@ -6,7 +6,7 @@
 
 **Overall status:** IN PROGRESS
 
-**Directional phase progress:** approximately 90%
+**Directional phase progress:** approximately 95%
 
 This file is the implementation ledger for Phase 5. The canonical product roadmap remains `BUILD-MAP.md`.
 
@@ -28,7 +28,7 @@ Turn the completed coordination, AI-Verse integration and runtime-interoperabili
 10. Telegram/Discord/other channel bridge contracts - **COMPLETE**
 11. operator approvals/attention UX - **COMPLETE**
 12. observability/usage views - **COMPLETE**
-13. release docs/examples - **COMPLETE IMPLEMENTATION, ACCEPTANCE PENDING CI**
+13. release docs/examples - **COMPLETE**
 14. full release acceptance suite - **NEXT**
 
 ## Slice 5.1 - simple install command/package
@@ -610,7 +610,7 @@ See `docs/OBSERVABILITY-USAGE-VIEWS.md`.
 
 ## Slice 5.13 - release docs/examples
 
-**Implementation status:** COMPLETE IMPLEMENTATION, ACCEPTANCE PENDING CI
+**Implementation status:** COMPLETE
 
 Phase 5.13 converts the completed product surfaces into a packaged public-beta onboarding and reference layer.
 
@@ -633,7 +633,28 @@ Implemented:
 - repository tests execute all examples
 - clean packed-install smoke executes all examples from `node_modules/@ai-verse/multiple-bots`
 
-Acceptance proof will be recorded after hosted CI passes the PR head.
+### 5.13 acceptance proof
+
+The corrected implementation head `2a6d35d8b971bd46207e06d87db27acd90f974c4` passed GitHub Actions **CI run 603 (`34811761570`)**:
+
+- full repository suite: **497/497 tests passed**
+- Phase 4 compatibility suite: **5/5 tests passed**
+- package install smoke: **passed**
+- standalone install smoke: **passed**
+- AI-Verse OS install/engine smoke: **passed**
+- setup/onboarding smoke: **passed**
+- starter-template smoke: **passed**
+- production-doctor smoke: **passed**
+- update/migration smoke: **passed**
+- secure-remote Gateway smoke: **passed**
+- Dashboard projection/control smoke: **passed**
+- channel bridge smoke: **passed**
+- operator attention/Approval smoke: **passed**
+- observability/usage smoke: **passed**
+- packaged release docs/examples smoke: **passed**
+- all three release examples executed successfully from the clean installed tarball
+- packed artifact: **234 files**
+- **0 failures, 0 canceled and 0 skipped**
 
 ## Ownership boundary
 
@@ -648,4 +669,4 @@ Phase 5.1 intentionally does not choose or configure an operating mode during np
 
 **Phase 5.14 - full release acceptance suite.**
 
-Phase 5.13 implementation is complete pending hosted acceptance. The final slice is the complete public-beta release acceptance gate across packaging, lifecycle, security, integrations, examples and canonical cross-component boundaries.
+Phase 5.13 is complete. The final slice is the complete public-beta release acceptance gate across packaging, lifecycle, security, integrations, examples and canonical cross-component boundaries.
