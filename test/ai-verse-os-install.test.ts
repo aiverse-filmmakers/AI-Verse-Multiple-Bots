@@ -317,6 +317,12 @@ test("Phase 5.3 materialized engine imports the installed package and starts a n
 test("materialized OS engine can run one bounded temporary Worker without starting a sidecar or creating a Bot", async () => {
   const root = fixture();
   try {
+    write(root, "AI-VERSE.yaml",
+      'schema_version: "2.0"\narchitecture: unified-workspace\npaths:\n  workspaces: workspaces\n'
+    );
+    write(root, "workspaces/demo/WORKSPACE.yaml",
+      'schema_version: "2.0"\nid: demo\nname: Demo\ntype: project\nstatus: active\npurpose: Temporary Worker extension acceptance.\ndomains: []\nowners: []\nsuccess_criteria: []\ncanonical_sources: []\nconnections: []\n'
+    );
     const result = installAiVerseOsExtension(root);
     const engine: any = await import(pathToFileURL(result.engine_path).href);
     assert.equal(typeof engine.runScopedTemporaryWorker, "function");
