@@ -796,7 +796,7 @@ Remaining major slices:
 9. Dashboard projections/control endpoints - **COMPLETE**
 10. Telegram/Discord/other channel bridge contracts - **COMPLETE**
 11. operator approvals/attention UX - **COMPLETE**
-12. observability/usage views - **COMPLETE IMPLEMENTATION, ACCEPTANCE PENDING CI**
+12. observability/usage views - **COMPLETE**
 13. release docs/examples - **NEXT**
 14. full release acceptance suite - **NOT STARTED**
 
@@ -820,7 +820,7 @@ Implemented:
 - no telemetry/billing database and no mutation authority
 - installed-package observability/usage smoke
 
-**Hosted acceptance:** pending CI on the Phase 5.12 PR head.
+**Hosted acceptance:** GitHub Actions CI run 597 (`34810524402`) passed 492/492 tests, 5/5 Phase 4 compatibility tests, the complete package/install smoke gate, the installed-package observability smoke, and explicit AI-Verse Token telemetry/pricing ownership assertions with a 227-file artifact.
 
 See `docs/OBSERVABILITY-USAGE-VIEWS.md` and `docs/PHASE-5-STATUS.md`.
 
