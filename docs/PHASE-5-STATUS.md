@@ -6,7 +6,7 @@
 
 **Overall status:** IN PROGRESS
 
-**Directional phase progress:** approximately 70%
+**Directional phase progress:** approximately 80%
 
 This file is the implementation ledger for Phase 5. The canonical product roadmap remains `BUILD-MAP.md`.
 
@@ -27,8 +27,8 @@ Turn the completed coordination, AI-Verse integration and runtime-interoperabili
 9. Dashboard projections/control endpoints - **COMPLETE**
 10. Telegram/Discord/other channel bridge contracts - **COMPLETE**
 11. operator approvals/attention UX - **COMPLETE**
-12. observability/usage views - **NEXT**
-13. release docs/examples - **NOT STARTED**
+12. observability/usage views - **COMPLETE IMPLEMENTATION, ACCEPTANCE PENDING CI**
+13. release docs/examples - **NEXT**
 14. full release acceptance suite - **NOT STARTED**
 
 ## Slice 5.1 - simple install command/package
@@ -540,6 +540,41 @@ The implementation head `6028dca16f6ace413927918399dd746889a19b8a` passed GitHub
 
 See `docs/OPERATOR-ATTENTION-UX.md`.
 
+## Slice 5.12 - observability/usage views
+
+**Implementation status:** COMPLETE IMPLEMENTATION, ACCEPTANCE PENDING CI
+
+Phase 5.12 exposes truthful workspace-scoped operational and usage views over canonical coordination state without introducing a second telemetry or billing store.
+
+Implemented:
+
+- `GET /v1/observability/capabilities?workspace=...`
+- `GET /v1/observability/snapshot?workspace=...&after=...&limit=...`
+- `GET /v1/observability/usage?workspace=...`
+- `GET /v1/observability/timeline?workspace=...&after=...&limit=...`
+- workspace Task/Bot/Worker/Team Run operational summary
+- Task outcome/status distribution
+- execution queue state distribution
+- dead-letter, retryable-dead-letter and stale-execution counts
+- persisted input/output/total token usage
+- persisted normalized cost and action usage
+- explicit usage coverage statement instead of inferred provider billing
+- per-principal usage breakdown
+- per-Team-Run usage recomputation vs canonical aggregate consistency
+- Team Run token/cost/action budget utilization
+- terminal Task latency samples/average/min/max
+- compact structured coordination timeline
+- event type and attention-state counts
+- exact workspace isolation
+- bounded cursor/limit validation
+- explicit `private_reasoning_exposed: false`
+- no telemetry mutation, usage mutation, retry authority or billing claim
+- installed-package observability/usage smoke coverage
+
+Acceptance proof will be recorded after hosted CI passes on the PR head.
+
+See `docs/OBSERVABILITY-USAGE-VIEWS.md`.
+
 ## Ownership boundary
 
 Phase 5.1 intentionally does not choose or configure an operating mode during npm installation.
@@ -551,6 +586,6 @@ Phase 5.1 intentionally does not choose or configure an operating mode during np
 
 ## Next gate
 
-**Phase 5.12 - observability/usage views.**
+**Phase 5.13 - release docs/examples.**
 
-Phase 5.11 is complete. The next product slice is structured observability and usage projection over the existing canonical event/execution substrate.
+Phase 5.12 implementation is complete pending hosted acceptance. The next product slice is the final member-facing release documentation and runnable examples before full release acceptance.
