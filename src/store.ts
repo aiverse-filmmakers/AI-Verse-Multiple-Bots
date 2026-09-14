@@ -63,6 +63,22 @@ export interface AtomicMutationResult {
   events: AppendedEvent[];
 }
 
+export interface IdempotentMessageMutationInput {
+  operation: "sendMessage" | "publishRoomMessage";
+  idempotencyKey?: string;
+  fingerprint: string;
+  message: JsonObject;
+  delivery?: DeliveryRecord;
+  event: CoordinationEvent;
+}
+
+export interface IdempotentMessageMutationResult {
+  message: StoredObject;
+  delivery?: DeliveryRecord;
+  event: AppendedEvent;
+  replayed: boolean;
+}
+
 export class CoordinationStore {
   readonly dbPath: string;
   private readonly db: DatabaseSync;
@@ -204,6 +220,115 @@ export class CoordinationStore {
       }
       this.db.exec("COMMIT;");
       return appended;
+    } catch (error) {
+      this.db.exec("ROLLBACK;");
+      throw error;
+    }
+  }
+
+  commitMessageMutation(input: IdempotentMessageMutationInput): IdempotentMessageMutationResult {
+    validateProtocolObject(input.message, "message");
+    validateProtocolObject(input.event, "event");
+    const key = input.idempotencyKey?.trim();
+    if (input.idempotencyKey !== undefined && !key) {
+      throw new Error("Message idempotency key must be non-empty when supplied");
+    }
+
+    this.db.exec("BEGIN IMMEDIATE;");
+    try {
+      if (key) {
+        const prior = this.db.prepare(
+          "SELECT operation, result_json FROM idempotency WHERE key = ?"
+        ).get(key) as { operation: string; result_json: string } | undefined;
+        if (prior) {
+          if (prior.operation !== input.operation) {
+            throw new Error(
+              `Idempotency key ${key} belongs to ${prior.operation}, not ${input.operation}`
+            );
+          }
+          const decoded = JSON.parse(prior.result_json) as {
+            fingerprint?: string;
+            result?: Omit<IdempotentMessageMutationResult, "replayed">;
+          };
+          if (decoded.fingerprint !== input.fingerprint || !decoded.result) {
+            throw new Error(`Idempotency key ${key} was reused with different message semantics`);
+          }
+          this.db.exec("COMMIT;");
+          return { ...decoded.result, replayed: true };
+        }
+      }
+
+      const messageId = String(input.message.id);
+      const existingMessageRow = this.db.prepare("SELECT * FROM objects WHERE id = ?").get(messageId) as any;
+      let message: StoredObject;
+      if (existingMessageRow) {
+        message = this.rowToObject(existingMessageRow);
+        if (message.kind !== "message" || JSON.stringify(message.payload) !== JSON.stringify(input.message)) {
+          throw new Error(`Message id ${messageId} was already used by another message payload`);
+        }
+      } else {
+        this.writeObject("message", input.message, nowIso());
+        const storedRow = this.db.prepare("SELECT * FROM objects WHERE id = ?").get(messageId) as any;
+        if (!storedRow) throw new Error(`Message ${messageId} was not stored`);
+        message = this.rowToObject(storedRow);
+      }
+
+      let delivery: DeliveryRecord | undefined;
+      if (input.delivery) {
+        const existingDeliveryRow = this.db.prepare(
+          "SELECT * FROM deliveries WHERE message_id = ?"
+        ).get(messageId) as any;
+        if (existingDeliveryRow) {
+          delivery = this.rowToDelivery(existingDeliveryRow);
+          if (
+            delivery.senderId !== input.delivery.senderId
+            || delivery.targetKind !== input.delivery.targetKind
+            || delivery.targetId !== input.delivery.targetId
+            || delivery.workspaceId !== input.delivery.workspaceId
+          ) {
+            throw new Error(`Delivery for message ${messageId} conflicts with the requested routing`);
+          }
+        } else {
+          this.db.prepare(`
+            INSERT INTO deliveries(
+              id, message_id, sender_id, target_kind, target_id, workspace_id,
+              state, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `).run(
+            input.delivery.id,
+            input.delivery.messageId,
+            input.delivery.senderId,
+            input.delivery.targetKind,
+            input.delivery.targetId,
+            input.delivery.workspaceId,
+            input.delivery.state,
+            input.delivery.createdAt,
+            input.delivery.updatedAt
+          );
+          delivery = input.delivery;
+        }
+      }
+
+      const event = this.writeEvent(input.event);
+      const result: Omit<IdempotentMessageMutationResult, "replayed"> = {
+        message,
+        ...(delivery ? { delivery } : {}),
+        event
+      };
+
+      if (key) {
+        this.db.prepare(
+          "INSERT INTO idempotency(key, operation, result_json, created_at) VALUES (?, ?, ?, ?)"
+        ).run(
+          key,
+          input.operation,
+          json({ fingerprint: input.fingerprint, result }),
+          nowIso()
+        );
+      }
+
+      this.db.exec("COMMIT;");
+      return { ...result, replayed: false };
     } catch (error) {
       this.db.exec("ROLLBACK;");
       throw error;
