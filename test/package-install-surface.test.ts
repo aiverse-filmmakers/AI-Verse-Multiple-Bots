@@ -26,7 +26,11 @@ test("Phase 5.1 package ships runtime code and required static integration asset
     "dist/src",
     "schemas",
     "templates",
-    "integrations"
+    "integrations",
+    "examples",
+    "docs/PUBLIC-BETA-GUIDE.md",
+    "docs/API-QUICK-REFERENCE.md",
+    "docs/TROUBLESHOOTING.md"
   ]);
   assert.equal(pkg.files.includes("test"), false);
   assert.equal(pkg.files.includes("runtime"), false);
