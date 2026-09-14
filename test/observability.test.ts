@@ -150,6 +150,7 @@ test("Phase 5.12 observability aggregates persisted Task usage and execution hea
     assert.equal(projection.timeline.attention_counts.unread_result, 1);
 
     const alpha = projection.usage.by_principal.find((item: any) => item.id === "bot_alpha");
+    assert.ok(alpha);
     assert.equal(alpha.runtime_adapter, "deterministic");
     assert.equal(alpha.usage.total_tokens, 140);
     assert.equal(alpha.tasks, 2);
@@ -196,6 +197,7 @@ test("Phase 5.12 Team Run usage shows canonical/computed consistency and budget 
 
     const projection = new ObservabilityProjector(store, queue).snapshot("ws_observe");
     const runView = projection.usage.by_team_run.find((item: any) => item.id === "run_observe");
+    assert.ok(runView);
     assert.equal(runView.usage_consistent, true);
     assert.equal(runView.usage.total_tokens, 400);
     assert.equal(runView.utilization_percent.tokens, 40);
@@ -238,8 +240,10 @@ test("Phase 5.12 timeline is workspace-scoped, cursor-based, compact, and expose
     const timeline = projector.timeline("ws_observe", first.sequence, 100);
 
     assert.equal(timeline.events.length, 1);
-    assert.equal(timeline.events[0].sequence, second.sequence);
-    assert.equal(timeline.events[0].summary, "Published result");
+    const visibleEvent = timeline.events[0];
+    assert.ok(visibleEvent);
+    assert.equal(visibleEvent.sequence, second.sequence);
+    assert.equal(visibleEvent.summary, "Published result");
     assert.equal(JSON.stringify(timeline).includes("Other workspace"), false);
     assert.equal(timeline.private_reasoning_exposed, false);
     assert.equal(timeline.event_cursor, second.sequence);
