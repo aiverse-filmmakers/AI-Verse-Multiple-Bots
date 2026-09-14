@@ -158,12 +158,30 @@ export async function createDurableBot(manifest, options = {}) {
   const service = createGateway(options);
   await service.supervisor.stop();
   try {
+    const existing = typeof manifest?.id === "string" ? service.gateway.getBot(manifest.id) : null;
+    if (existing) {
+      if (JSON.stringify(existing.payload) !== JSON.stringify(manifest)) {
+        throw new Error(`Durable Bot ${manifest.id} already exists with different canonical state`);
+      }
+      return {
+        state: "existing",
+        bot: {
+          id: existing.id,
+          kind: existing.kind,
+          workspace_id: existing.workspaceId ?? null,
+          payload: existing.payload
+        }
+      };
+    }
     const stored = service.gateway.createBot(manifest);
     return {
-      id: stored.id,
-      kind: stored.kind,
-      workspace_id: stored.workspaceId ?? null,
-      payload: stored.payload
+      state: "created",
+      bot: {
+        id: stored.id,
+        kind: stored.kind,
+        workspace_id: stored.workspaceId ?? null,
+        payload: stored.payload
+      }
     };
   } finally {
     await service.close();
