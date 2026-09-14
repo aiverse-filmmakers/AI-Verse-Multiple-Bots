@@ -18,7 +18,7 @@ Phase 1  Runnable Coordination Core     [COMPLETE]    100%
 Phase 2  Dynamic Multi-Agent Squads     [COMPLETE]    100%
 Phase 3  AI-Verse Native Integration    [COMPLETE]    100%
 Phase 4  Runtime / A2A Interoperability [COMPLETE]    100%
-Phase 5  Product + Install + Dashboard  [IN PROGRESS] ~90%
+Phase 5  Product + Install + Dashboard  [IN PROGRESS] ~95%
 ```
 
 **Directional overall first-release progress:** roughly 99% complete.
@@ -779,7 +779,7 @@ See `docs/PHASE-4-COMPATIBILITY-EVALUATION.md`, `evals/phase-4-runtime-compatibi
 
 **Status:** IN PROGRESS
 
-**Directional phase progress:** approximately 90%
+**Directional phase progress:** approximately 95%
 
 Goal: turn the completed coordination/integration/interoperability layers into a member-installable product with health, onboarding, remote/channel access and observability.
 
@@ -797,7 +797,7 @@ Remaining major slices:
 10. Telegram/Discord/other channel bridge contracts - **COMPLETE**
 11. operator approvals/attention UX - **COMPLETE**
 12. observability/usage views - **COMPLETE**
-13. release docs/examples - **COMPLETE IMPLEMENTATION, ACCEPTANCE PENDING CI**
+13. release docs/examples - **COMPLETE**
 14. full release acceptance suite - **NEXT**
 
 ### Phase 5.13 - release docs/examples
@@ -815,7 +815,7 @@ Implemented:
 - release docs preserve AI-Verse Token telemetry/pricing ownership and secure remote/channel boundaries
 - README refreshed to current product state
 
-**Hosted acceptance:** pending CI on the Phase 5.13 PR head.
+**Hosted acceptance:** GitHub Actions CI run 603 (`34811761570`) passed 497/497 tests, 5/5 Phase 4 compatibility tests, the complete package/install smoke gate, and clean-installed execution of all three packaged release examples with a 234-file artifact.
 
 See `docs/PUBLIC-BETA-GUIDE.md`, `docs/API-QUICK-REFERENCE.md`, `docs/TROUBLESHOOTING.md` and `examples/README.md`.
 
