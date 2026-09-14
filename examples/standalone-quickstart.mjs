@@ -37,8 +37,8 @@ try {
     setup_status: setup.setup.status,
     ready: doctor.ready,
     template_id: team.application.template_id,
-    created_bots: team.application.created_bot_ids,
-    created_rooms: team.application.created_room_ids,
+    created_ids: team.application.created_ids,
+    object_ids: team.application.objects.map((item) => item.id),
     cleanup_after_example: cleanup
   }, null, 2));
 } finally {
