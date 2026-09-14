@@ -1,0 +1,152 @@
+{
+  "schema_version": "1.0",
+  "component": "ai-verse-multiple-bots",
+  "package": "@ai-verse/multiple-bots",
+  "release_stage": "public-beta",
+  "candidate_version": "0.1.0-beta.1",
+  "acceptance_scope": {
+    "component_release_gate": "owned",
+    "composed_agent_profile_gate": "delegated",
+    "composed_agent_profile_owner": "AI-Verse-System + ai-verse-distribution",
+    "statement": "This gate certifies the Multiple Bots component. It does not claim the whole Agent profile or Distribution release set has passed composed acceptance."
+  },
+  "phase_5_slices": [
+    "5.1-install-package",
+    "5.2-standalone-install",
+    "5.3-ai-verse-os-install",
+    "5.4-setup-onboarding",
+    "5.5-starter-templates",
+    "5.6-production-health-doctor",
+    "5.7-update-migration",
+    "5.8-secure-remote-gateway",
+    "5.9-dashboard-projection-control",
+    "5.10-channel-bridge",
+    "5.11-operator-attention-approvals",
+    "5.12-observability-usage",
+    "5.13-release-docs-examples",
+    "5.14-full-release-acceptance"
+  ],
+  "canonical_ownership": {
+    "owns": [
+      "durable Bot coordination identity",
+      "Rooms and Threads",
+      "Messages and delivery state",
+      "Tasks and Handoffs",
+      "Team Runs and temporary Workers",
+      "coordination Approval lifecycle",
+      "coordination Artifact references and Events",
+      "execution queue and recovery state",
+      "execution-local budgets, limits and runtime settlement evidence"
+    ],
+    "delegates": [
+      {
+        "owner": "AI-Verse OS",
+        "concern": "canonical workspace state, outer scope and policy"
+      },
+      {
+        "owner": "AI-Verse Brain",
+        "concern": "intent, goals, strategy and verification"
+      },
+      {
+        "owner": "AI-Verse Memory",
+        "concern": "durable historical memory"
+      },
+      {
+        "owner": "AI-Verse Skills",
+        "concern": "reusable capability packages and trust"
+      },
+      {
+        "owner": "AI-Verse Data",
+        "concern": "canonical structured data, schemas and transactions"
+      },
+      {
+        "owner": "AI-Verse Connections",
+        "concern": "credentials and external connection authority"
+      },
+      {
+        "owner": "AI-Verse Automations",
+        "concern": "schedules, triggers and recurring execution policy"
+      },
+      {
+        "owner": "AI-Verse Dashboard",
+        "concern": "visual presentation only; never coordination truth"
+      },
+      {
+        "owner": "AI-Verse Token",
+        "concern": "immutable normalized telemetry, pricing evidence and ACTUAL/CALCULATED/UNKNOWN cost truth"
+      }
+    ],
+    "token_boundary": {
+      "canonical_telemetry_owner": "ai-verse-token",
+      "canonical_cost_truth_owner": "ai-verse-token",
+      "projection_interface": "@ai-verse/token/gateway",
+      "multiple_bots_prices_model_usage": false,
+      "runtime_usage_is_canonical_token_truth": false
+    }
+  },
+  "release_laws": [
+    "delegation and handoff cannot widen authority",
+    "one work stage has one canonical owner",
+    "temporary Workers never become durable Bots implicitly",
+    "whole logical message mutation is idempotent under one key",
+    "semantic drift under one idempotency key fails closed",
+    "direct non-loopback Gateway HTTP exposure is forbidden",
+    "managed remote exposure requires bearer authentication",
+    "channel ingress requires an already-verified external adapter",
+    "Dashboard and operator attention are projections, not truth stores",
+    "observability is projection-only and does not price model usage",
+    "setup never silently grants workspace, connection, Brain, Skill, Memory, Token or public-network authority",
+    "component doctor never claims whole-system composed readiness",
+    "standalone mode does not manufacture AI-Verse OS state",
+    "update and reinstall preserve canonical coordination state"
+  ],
+  "required_evidence_tests": [
+    "test/message-idempotency.test.ts",
+    "test/package-install-surface.test.ts",
+    "test/setup-onboarding.test.ts",
+    "test/starter-templates.test.ts",
+    "test/production-health.test.ts",
+    "test/update-migration.test.ts",
+    "test/secure-remote-gateway.test.ts",
+    "test/dashboard-projection-control.test.ts",
+    "test/channel-bridge.test.ts",
+    "test/operator-attention.test.ts",
+    "test/observability.test.ts",
+    "test/release-docs-examples.test.ts",
+    "test/runtime-compatibility-evaluation.test.ts",
+    "test/public-beta-release-acceptance.test.ts"
+  ],
+  "required_package_files": [
+    "README.md",
+    "dist/src/cli.js",
+    "dist/src/server.js",
+    "dist/src/observability.js",
+    "dist/src/operator-attention.js",
+    "dist/src/channel-bridge.js",
+    "schemas/coordination-v1.schema.json",
+    "templates/starter-catalog.json",
+    "integrations/ai-verse-os/extension.json",
+    "docs/PUBLIC-BETA-GUIDE.md",
+    "docs/API-QUICK-REFERENCE.md",
+    "docs/TROUBLESHOOTING.md",
+    "examples/standalone-quickstart.mjs",
+    "examples/operator-observability.mjs",
+    "examples/channel-bridge.mjs"
+  ],
+  "ci_gate": {
+    "node_major": 22,
+    "required_steps": [
+      "npm test",
+      "npm run eval:phase4",
+      "npm run pack:check",
+      "npm run eval:release"
+    ],
+    "local_composite_command": "npm run release:check"
+  },
+  "release_operations_not_claimed": [
+    "npm registry publication",
+    "immutable Git release tag",
+    "Agent profile composed acceptance",
+    "Distribution Agent release-set promotion"
+  ]
+}
