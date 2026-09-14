@@ -18,10 +18,10 @@ Phase 1  Runnable Coordination Core     [COMPLETE]    100%
 Phase 2  Dynamic Multi-Agent Squads     [COMPLETE]    100%
 Phase 3  AI-Verse Native Integration    [COMPLETE]    100%
 Phase 4  Runtime / A2A Interoperability [COMPLETE]    100%
-Phase 5  Product + Install + Dashboard  [IN PROGRESS] ~70%
+Phase 5  Product + Install + Dashboard  [IN PROGRESS] ~80%
 ```
 
-**Directional overall first-release progress:** roughly 97% complete.
+**Directional overall first-release progress:** roughly 98% complete.
 
 That overall figure is intentionally approximate because later phases contain different amounts of work. Passed phase gates, not percentages, are authoritative.
 
@@ -779,7 +779,7 @@ See `docs/PHASE-4-COMPATIBILITY-EVALUATION.md`, `evals/phase-4-runtime-compatibi
 
 **Status:** IN PROGRESS
 
-**Directional phase progress:** approximately 65%
+**Directional phase progress:** approximately 80%
 
 Goal: turn the completed coordination/integration/interoperability layers into a member-installable product with health, onboarding, remote/channel access and observability.
 
@@ -796,9 +796,30 @@ Remaining major slices:
 9. Dashboard projections/control endpoints - **COMPLETE**
 10. Telegram/Discord/other channel bridge contracts - **COMPLETE**
 11. operator approvals/attention UX - **COMPLETE**
-12. observability/usage views - **NEXT**
-13. release docs/examples - **NOT STARTED**
+12. observability/usage views - **COMPLETE IMPLEMENTATION, ACCEPTANCE PENDING CI**
+13. release docs/examples - **NEXT**
 14. full release acceptance suite - **NOT STARTED**
+
+### Phase 5.12 - observability/usage views
+
+Implemented:
+
+- workspace-scoped operational snapshot over canonical coordination state
+- persisted token/cost/action usage totals with explicit coverage limits
+- per-principal usage and activity breakdown
+- Team Run computed-vs-canonical usage consistency
+- Team Run token/cost/action budget utilization
+- execution-state, dead-letter, retryability and stale-execution health
+- Task outcome distribution and terminal success rate
+- terminal Task latency statistics
+- compact cursor-based coordination timeline with event/attention counts
+- explicit no-private-reasoning contract
+- no telemetry/billing database and no mutation authority
+- installed-package observability/usage smoke
+
+**Hosted acceptance:** pending CI on the Phase 5.12 PR head.
+
+See `docs/OBSERVABILITY-USAGE-VIEWS.md` and `docs/PHASE-5-STATUS.md`.
 
 ### Phase 5.11 - operator approvals/attention UX
 
