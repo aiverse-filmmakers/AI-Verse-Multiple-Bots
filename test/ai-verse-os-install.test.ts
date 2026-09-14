@@ -312,3 +312,62 @@ test("Phase 5.3 materialized engine imports the installed package and starts a n
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+
+test("materialized OS engine can run one bounded temporary Worker without starting a sidecar or creating a Bot", async () => {
+  const root = fixture();
+  try {
+    const result = installAiVerseOsExtension(root);
+    const engine: any = await import(pathToFileURL(result.engine_path).href);
+    assert.equal(typeof engine.runScopedTemporaryWorker, "function");
+
+    const outcome = await engine.runScopedTemporaryWorker({
+      leaderId: "runtime_gateway",
+      workspaceId: "demo",
+      rootObjectiveId: "obj_materialized_temp_worker",
+      objective: "Perform one bounded internal review and return the result.",
+      roleTitle: "Temporary Reviewer",
+      reason: "The current task benefits from isolated specialist review.",
+      runtimeLeader: {
+        runtime: { adapter: "deterministic" },
+        allowedTools: [],
+        allowedConnections: [],
+        skillRefs: []
+      },
+      runBudget: {
+        max_workers: 1,
+        max_tasks: 1,
+        max_actions: 2,
+        token_limit: 1000,
+        wall_clock_seconds: 60
+      },
+      workerBudget: {
+        max_actions: 1,
+        token_limit: 500,
+        wall_clock_seconds: 30
+      }
+    });
+
+    assert.equal(outcome.execution_status, "completed");
+    assert.equal(outcome.run.payload.status, "completed");
+    assert.equal(outcome.run.payload.leader_kind, "runtime");
+    assert.equal(outcome.worker.payload.kind, "temporary");
+    assert.equal(outcome.worker.payload.status, "expired");
+    assert.equal(outcome.lease.payload.destructive_actions, "deny");
+    assert.equal(typeof outcome.lease.payload.cleanup_revoked_at, "string");
+    assert.ok(outcome.artifact);
+    assert.ok(outcome.cleanup.summary.worker_ids_expired.includes(outcome.worker.id));
+
+    const store = new (await import("../src/store.js")).CoordinationStore(
+      resolve(root, ...AI_VERSE_MULTIPLE_BOTS_COORDINATION_DB_PATH.split("/"))
+    );
+    try {
+      assert.equal(store.listObjects("bot").length, 0);
+      assert.equal(store.getObject("runtime_gateway"), null);
+    } finally {
+      store.close();
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
