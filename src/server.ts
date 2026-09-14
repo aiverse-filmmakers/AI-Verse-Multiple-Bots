@@ -55,6 +55,10 @@ import {
   OperatorAttentionBoundary,
   OperatorAttentionError
 } from "./operator-attention.js";
+import {
+  ObservabilityError,
+  ObservabilityProjector
+} from "./observability.js";
 import { AiVerseOsWriteCommandSink, OsWriteCommandBoundary } from "./os-write-command.js";
 import { CoordinationPolicy } from "./policy.js";
 import { doctorProduction } from "./production-health.js";
@@ -130,12 +134,14 @@ function errorResponse(res: any, error: unknown): void {
     : null;
   const channelError = error instanceof ChannelBridgeError ? error : null;
   const operatorError = error instanceof OperatorAttentionError ? error : null;
+  const observabilityError = error instanceof ObservabilityError ? error : null;
   const status = securityError?.status
     ?? channelError?.status
     ?? operatorError?.status
+    ?? observabilityError?.status
     ?? (dashboardError?.code === "DASHBOARD_TARGET_NOT_FOUND" ? 404 : 400);
   json(res, status, {
-    error: securityError?.code ?? channelError?.code ?? operatorError?.code ?? dashboardError?.code ?? "BAD_REQUEST",
+    error: securityError?.code ?? channelError?.code ?? operatorError?.code ?? observabilityError?.code ?? dashboardError?.code ?? "BAD_REQUEST",
     message
   });
 }
@@ -275,6 +281,7 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
     options.channelBindings ?? []
   );
   const operatorAttention = new OperatorAttentionBoundary(gateway, executionQueue);
+  const observability = new ObservabilityProjector(store, executionQueue);
   supervisor.start();
 
   const reconcileRemoteRevocations = () => {
@@ -327,6 +334,70 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
       if (method === "GET" && url.pathname === "/v1/health/4cs") {
         const workspaceId = url.searchParams.get("workspace") ?? undefined;
         json(res, 200, fourCsHealth.project(workspaceId));
+        return;
+      }
+
+      if (method === "GET" && url.pathname === "/v1/observability/capabilities") {
+        const workspaceId = url.searchParams.get("workspace");
+        if (!workspaceId) {
+          throw new ObservabilityError(
+            "INVALID_OBSERVABILITY_WORKSPACE",
+            "Observability capabilities require ?workspace=<id>"
+          );
+        }
+        json(res, 200, observability.capabilities(workspaceId));
+        return;
+      }
+
+      if (method === "GET" && url.pathname === "/v1/observability/snapshot") {
+        const workspaceId = url.searchParams.get("workspace");
+        if (!workspaceId) {
+          throw new ObservabilityError(
+            "INVALID_OBSERVABILITY_WORKSPACE",
+            "Observability snapshot requires ?workspace=<id>"
+          );
+        }
+        json(
+          res,
+          200,
+          observability.snapshot(
+            workspaceId,
+            Number(url.searchParams.get("after") ?? "0"),
+            Number(url.searchParams.get("limit") ?? "100")
+          )
+        );
+        return;
+      }
+
+      if (method === "GET" && url.pathname === "/v1/observability/usage") {
+        const workspaceId = url.searchParams.get("workspace");
+        if (!workspaceId) {
+          throw new ObservabilityError(
+            "INVALID_OBSERVABILITY_WORKSPACE",
+            "Observability usage requires ?workspace=<id>"
+          );
+        }
+        json(res, 200, observability.usage(workspaceId));
+        return;
+      }
+
+      if (method === "GET" && url.pathname === "/v1/observability/timeline") {
+        const workspaceId = url.searchParams.get("workspace");
+        if (!workspaceId) {
+          throw new ObservabilityError(
+            "INVALID_OBSERVABILITY_WORKSPACE",
+            "Observability timeline requires ?workspace=<id>"
+          );
+        }
+        json(
+          res,
+          200,
+          observability.timeline(
+            workspaceId,
+            Number(url.searchParams.get("after") ?? "0"),
+            Number(url.searchParams.get("limit") ?? "100")
+          )
+        );
         return;
       }
 
@@ -1091,6 +1162,7 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
     dashboardControl,
     channelBridge,
     operatorAttention,
+    observability,
     memoryRecallSource,
     skillsCapabilitySource,
     supervisor,
