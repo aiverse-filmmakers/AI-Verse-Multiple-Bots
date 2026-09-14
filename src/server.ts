@@ -81,6 +81,7 @@ import { DeterministicRuntimeAdapter, RuntimeRegistry } from "./runtime.js";
 import { SkillsCapabilityRuntimeRegistry } from "./skills-capability-runtime.js";
 import { CoordinationStore } from "./store.js";
 import { ExecutionSupervisor } from "./supervisor.js";
+import { TeamRunManager } from "./team-run-manager.js";
 import { TeamRunCoordinator } from "./team-runs.js";
 
 export interface GatewayServerOptions {
@@ -264,6 +265,7 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
     candidateWritebackAvailable: Boolean(candidateWritebacks)
   });
   const teamRunCoordinator = new TeamRunCoordinator(store);
+  const teamRunManager = new TeamRunManager(teamRunCoordinator, gateway, executionQueue, runner);
   const teamRunControl = runner.teamRunControl;
   const supervisor = new ExecutionSupervisor(gateway, executionQueue, runner);
   const dashboardProjection = new DashboardProjectionProjector(store, executionQueue);
@@ -1157,6 +1159,7 @@ export function createGatewayServer(options: GatewayServerOptions = {}) {
     candidateWritebacks,
     fourCsHealth,
     teamRunCoordinator,
+    teamRunManager,
     teamRunControl,
     dashboardProjection,
     dashboardControl,
