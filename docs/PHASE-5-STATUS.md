@@ -557,7 +557,10 @@ Implemented:
 - execution queue state distribution
 - dead-letter, retryable-dead-letter and stale-execution counts
 - persisted input/output/total token usage
-- persisted normalized cost and action usage
+- persisted runtime-reported monetary evidence and action usage for coordination budgets
+- explicit `ai-verse-token` ownership of canonical telemetry and cost truth
+- explicit `@ai-verse/token/gateway` canonical historical/global read path
+- no pricing, tariff calculation or Token ledger duplication
 - explicit usage coverage statement instead of inferred provider billing
 - per-principal usage breakdown
 - per-Team-Run usage recomputation vs canonical aggregate consistency
@@ -568,7 +571,9 @@ Implemented:
 - exact workspace isolation
 - bounded cursor/limit validation
 - explicit `private_reasoning_exposed: false`
-- no telemetry mutation, usage mutation, retry authority or billing claim
+- explicit `runtime_usage_is_canonical_token_truth: false`
+- public runtime money renamed to `runtime_reported_cost_evidence`
+- no telemetry mutation, Token ledger mutation, pricing authority, retry authority or billing claim
 - installed-package observability/usage smoke coverage
 
 Acceptance proof will be recorded after hosted CI passes on the PR head.
