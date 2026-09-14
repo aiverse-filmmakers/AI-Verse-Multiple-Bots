@@ -138,9 +138,17 @@ test("Phase 5.12 observability aggregates persisted Task usage and execution hea
       input_tokens: 150,
       output_tokens: 50,
       total_tokens: 200,
-      cost: 0.2,
+      runtime_reported_cost_evidence: 0.2,
       actions: 3
     });
+    assert.equal(projection.canonical_telemetry_owner, "ai-verse-token");
+    assert.equal(projection.canonical_cost_truth_owner, "ai-verse-token");
+    assert.equal(projection.token_projection_interface, "@ai-verse/token/gateway");
+    assert.equal(projection.runtime_usage_is_canonical_token_truth, false);
+    assert.equal(projection.prices_model_usage_here, false);
+    assert.equal(projection.usage.authority.semantic, "execution-local operational evidence");
+    assert.equal(projection.usage.authority.writes_token_telemetry_here, false);
+    assert.equal(Object.prototype.hasOwnProperty.call(projection.usage.totals, "cost"), false);
     assert.equal(projection.usage.coverage.tasks_with_persisted_usage, 2);
     assert.equal(projection.summary.failed_tasks, 1);
     assert.equal(projection.execution.dead_letters, 1);
@@ -201,7 +209,7 @@ test("Phase 5.12 Team Run usage shows canonical/computed consistency and budget 
     assert.equal(runView.usage_consistent, true);
     assert.equal(runView.usage.total_tokens, 400);
     assert.equal(runView.utilization_percent.tokens, 40);
-    assert.equal(runView.utilization_percent.cost, 25);
+    assert.equal(runView.utilization_percent.runtime_reported_cost_evidence, 25);
     assert.equal(runView.utilization_percent.actions, 40);
   } finally {
     queue.close();
@@ -279,6 +287,11 @@ test("Phase 5.12 HTTP views expose capabilities, usage and bounded timeline", as
     assert.equal(capabilities.status, 200);
     assert.equal(capabilities.body.provider, OBSERVABILITY_PROVIDER);
     assert.equal(capabilities.body.observability_owns_truth, false);
+    assert.equal(capabilities.body.canonical_telemetry_owner, "ai-verse-token");
+    assert.equal(capabilities.body.canonical_cost_truth_owner, "ai-verse-token");
+    assert.equal(capabilities.body.token_projection_interface, "@ai-verse/token/gateway");
+    assert.equal(capabilities.body.runtime_usage_is_canonical_token_truth, false);
+    assert.equal(capabilities.body.prices_model_usage_here, false);
     assert.equal(capabilities.body.private_reasoning_exposed, false);
 
     const usage = await httpJson(
@@ -288,7 +301,13 @@ test("Phase 5.12 HTTP views expose capabilities, usage and bounded timeline", as
     );
     assert.equal(usage.status, 200);
     assert.equal(usage.body.usage.totals.total_tokens, 20);
-    assert.equal(usage.body.usage.totals.cost, 0.01);
+    assert.equal(usage.body.usage.totals.runtime_reported_cost_evidence, 0.01);
+    assert.equal(usage.body.canonical_telemetry_owner, "ai-verse-token");
+    assert.equal(usage.body.canonical_cost_truth_owner, "ai-verse-token");
+    assert.equal(usage.body.token_projection_interface, "@ai-verse/token/gateway");
+    assert.equal(usage.body.runtime_usage_is_canonical_token_truth, false);
+    assert.equal(usage.body.prices_model_usage_here, false);
+    assert.equal(Object.prototype.hasOwnProperty.call(usage.body.usage.totals, "cost"), false);
 
     const timeline = await httpJson(
       address.port,
@@ -307,5 +326,37 @@ test("Phase 5.12 HTTP views expose capabilities, usage and bounded timeline", as
     assert.equal(invalid.body.error, "INVALID_OBSERVABILITY_CURSOR");
   } finally {
     await service.close();
+  }
+});
+
+
+test("Phase 5.12 never claims Token pricing or ACTUAL/CALCULATED/UNKNOWN cost authority", () => {
+  const store = new CoordinationStore(":memory:");
+  const queue = new ExecutionQueue(":memory:");
+  try {
+    store.putObject("task", task("task_token_boundary", "completed", "bot_missing", "ws_observe", {
+      completed_at: new Date().toISOString(),
+      usage: { input_tokens: 9, output_tokens: 4, cost: 0.33, actions: 2 }
+    }));
+    const projection = new ObservabilityProjector(store, queue).snapshot("ws_observe");
+    const serialized = JSON.stringify(projection);
+
+    assert.equal(projection.canonical_telemetry_owner, "ai-verse-token");
+    assert.equal(projection.canonical_cost_truth_owner, "ai-verse-token");
+    assert.equal(projection.token_projection_interface, "@ai-verse/token/gateway");
+    assert.equal(projection.runtime_usage_is_canonical_token_truth, false);
+    assert.equal(projection.prices_model_usage_here, false);
+    assert.equal(projection.usage.authority.runtime_usage_is_canonical_token_truth, false);
+    assert.equal(projection.usage.authority.prices_model_usage_here, false);
+    assert.equal(projection.usage.authority.writes_token_telemetry_here, false);
+    assert.equal(projection.usage.totals.runtime_reported_cost_evidence, 0.33);
+    assert.equal(Object.prototype.hasOwnProperty.call(projection.usage.totals, "cost"), false);
+    assert.equal(serialized.includes('"pricing_snapshot"'), false);
+    assert.equal(serialized.includes('"tariff"'), false);
+    assert.equal(serialized.includes('"actual_cost"'), false);
+    assert.equal(serialized.includes('"calculated_cost"'), false);
+  } finally {
+    queue.close();
+    store.close();
   }
 });
