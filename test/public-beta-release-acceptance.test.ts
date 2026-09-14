@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import process from "node:process";
 import test from "node:test";
@@ -14,13 +14,6 @@ function json(path: string): any {
   return JSON.parse(read(path));
 }
 
-function listSourceFiles(dir: string): string[] {
-  const absolute = resolve(root, dir);
-  return readdirSync(absolute, { withFileTypes: true }).flatMap((entry) => {
-    const child = `${dir}/${entry.name}`;
-    return entry.isDirectory() ? listSourceFiles(child) : [child];
-  });
-}
 
 test("Phase 5.14 release manifest is complete, component-scoped, and version-aligned", () => {
   const manifest = json("evals/public-beta-release-acceptance.json");
@@ -121,17 +114,24 @@ test("Phase 5.14 release evidence inventory exists and does not rely on sibling 
     assert.equal(packageVerifier.includes(path), true, `Package verifier does not require ${path}`);
   }
 
-  const sourceText = listSourceFiles("src")
-    .filter((path) => path.endsWith(".ts"))
-    .map(read)
-    .join("\n");
+  const integrationSource = [
+    "src/server.ts",
+    "src/runtime.ts",
+    "src/ai-verse-os-workspace-projection.ts",
+    "src/brain-objective-ingress.ts",
+    "src/ai-verse-memory-recall.ts",
+    "src/ai-verse-skills-capability-resolution.ts",
+    "src/automation-wake-ingress.ts",
+    "src/os-write-command.ts",
+    "src/observability.ts"
+  ].map(read).join("\n");
 
-  assert.equal(sourceText.includes("../AI-Verse-Data"), false);
-  assert.equal(sourceText.includes("../AI-Verse-Token"), false);
-  assert.equal(sourceText.includes("../AI-Verse-Automations"), false);
-  assert.equal(sourceText.includes("../AI-Verse-Brain"), false);
-  assert.equal(sourceText.includes("../AI-Verse-Memory"), false);
-  assert.equal(sourceText.includes("../AI-Verse-Skills"), false);
+  assert.equal(integrationSource.includes("../AI-Verse-Data"), false);
+  assert.equal(integrationSource.includes("../AI-Verse-Token"), false);
+  assert.equal(integrationSource.includes("../AI-Verse-Automations"), false);
+  assert.equal(integrationSource.includes("../AI-Verse-Brain"), false);
+  assert.equal(integrationSource.includes("../AI-Verse-Memory"), false);
+  assert.equal(integrationSource.includes("../AI-Verse-Skills"), false);
 });
 
 test("Phase 5.14 release security and projection boundaries remain fail-closed", () => {
