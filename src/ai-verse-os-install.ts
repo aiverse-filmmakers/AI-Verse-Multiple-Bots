@@ -161,7 +161,7 @@ export async function createDurableBot(manifest, options = {}) {
     const existing = typeof manifest?.id === "string" ? service.gateway.getBot(manifest.id) : null;
     if (existing) {
       if (JSON.stringify(existing.payload) !== JSON.stringify(manifest)) {
-        throw new Error(`Durable Bot ${manifest.id} already exists with different canonical state`);
+        throw new Error("Durable Bot " + manifest.id + " already exists with different canonical state");
       }
       return {
         state: "existing",
