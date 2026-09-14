@@ -436,7 +436,7 @@ test("materialized OS engine creates a canonical durable Bot through the existin
       const bot = store.getObject("bot_durable-reviewer");
       assert.equal(bot?.kind, "bot");
       assert.equal(bot?.payload.kind, "durable");
-      assert.equal(bot?.payload.scope?.workspace_id, "demo");
+      assert.equal((bot?.payload.scope as any)?.workspace_id, "demo");
       assert.equal(store.listObjects("worker", "demo").length, 0);
     } finally {
       store.close();
