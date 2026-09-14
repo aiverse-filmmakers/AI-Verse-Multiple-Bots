@@ -179,6 +179,16 @@ Room/Thread replay also stops before Bot speaker scheduling, so one retried chan
 
 The release suite tests this across a database restart.
 
+### Legacy alpha idempotency keys
+
+The alpha implementation could store an idempotency key only for the Event after separately creating a Message/delivery. Those historical rows contain no whole-mutation semantic fingerprint, so beta.1 cannot safely infer that an arbitrary new request is the same logical mutation.
+
+If beta.1 encounters one of those legacy `appendEvent` keys through the new Message idempotency path, it fails closed before creating a Message, delivery or new Event.
+
+It does not guess, replay a possibly different request, or duplicate work.
+
+New beta.1 idempotency keys use the complete atomic contract above.
+
 ## Control-plane security interpretation
 
 The historical audit also identified unauthenticated caller identity as unsafe for remote exposure.
