@@ -125,12 +125,42 @@ export async function startGateway(options = {}) {
   };
 }
 
+export async function runScopedTemporaryWorker(input, options = {}) {
+  const service = createGateway(options);
+  await service.supervisor.stop();
+  try {
+    const result = await service.teamRunManager.runScopedTemporaryWorker(input);
+    const view = (object) => object ? {
+      id: object.id,
+      kind: object.kind,
+      workspace_id: object.workspaceId ?? null,
+      payload: object.payload
+    } : null;
+    return {
+      execution_status: result.executionStatus,
+      run: view(result.run),
+      worker: view(result.worker),
+      task: view(result.task),
+      lease: view(result.lease),
+      artifact: view(result.artifact),
+      cleanup: {
+        status: result.cleanup.status,
+        summary: result.cleanup.summary,
+        blocker_ids: result.cleanup.blocker_ids
+      }
+    };
+  } finally {
+    await service.close();
+  }
+}
+
 export default {
   id: "ai-verse-multiple-bots",
   version: packageVersion,
   root: aiVerseOsRoot,
   createGateway,
-  startGateway
+  startGateway,
+  runScopedTemporaryWorker
 };
 `;
 }

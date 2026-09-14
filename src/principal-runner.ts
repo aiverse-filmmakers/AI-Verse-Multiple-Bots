@@ -73,7 +73,7 @@ interface ResolvedExecutionPrincipal {
   principal: StoredObject;
   principalKind: ExecutionPrincipalKind;
   bot: StoredObject<BotManifest> | null;
-  leaderBot: StoredObject<BotManifest>;
+  leaderId: string;
   run: StoredObject | null;
   runtime: JsonObject;
   adapterId: string;
@@ -479,7 +479,7 @@ export class PrincipalRunner {
       const failureSettlement = resolved.principalKind === "bot" ? this.gateway.settleHandoffForTask(task.id, "failed", targetId) : null;
       failedTask = failureSettlement?.task ?? failedTask;
       if (error instanceof BudgetError && error.code.startsWith("TEAM_RUN_") && resolved.run) {
-        await this.exhaustTeamRun(resolved.run.id, resolved.leaderBot.id, message, task.id);
+        await this.exhaustTeamRun(resolved.run.id, resolved.leaderId, message, task.id);
       }
       if (executionAdapter) await this.settleRuntime(executionAdapter, task.id);
       return { execution: failedExecution, task: failedTask, artifact: null, status: "failed" };
@@ -518,7 +518,7 @@ export class PrincipalRunner {
       const runtime = asObject(bot.payload.runtime) ?? {};
       const adapterId = typeof runtime.adapter === "string" ? runtime.adapter : "";
       if (!adapterId) throw new Error(`Bot ${targetId} has no runtime adapter`);
-      return { principal: bot, principalKind: "bot", bot, leaderBot: bot, run: null, runtime, adapterId, provenanceOrigin: "bot_generated" };
+      return { principal: bot, principalKind: "bot", bot, leaderId: bot.id, run: null, runtime, adapterId, provenanceOrigin: "bot_generated" };
     }
 
     if (object.kind !== "worker") throw new Error(`Execution principal ${targetId} must be a Bot or Worker`);
@@ -526,10 +526,26 @@ export class PrincipalRunner {
     if (!new Set<WorkerStatus>(["ready", "running", "waiting"]).has(workerStatus)) throw new Error(`Worker ${targetId} is not executable from status ${workerStatus}`);
     const run = this.requireActiveRun(String(object.payload.run_id));
     const leaderId = String(run.payload.leader_id ?? object.payload.parent_owner_id ?? "");
-    const leader = this.store.getObject(leaderId);
-    if (!leader || leader.kind !== "bot" || leader.payload.status !== "active") throw new Error(`Worker ${targetId} has no active durable leader`);
-    if (leader.workspaceId !== object.workspaceId || run.workspaceId !== object.workspaceId) throw new Error(`Worker ${targetId} scope does not match its Team Run leader`);
-    const leaderRuntime = asObject(leader.payload.runtime) ?? {};
+    let leaderRuntime: JsonObject;
+    if (run.payload.leader_kind === "runtime") {
+      if (
+        !leaderId.startsWith("runtime_")
+        || run.payload.leader_lifecycle !== "run_scoped"
+        || String(object.payload.parent_owner_id ?? "") !== leaderId
+        || run.workspaceId !== object.workspaceId
+      ) {
+        throw new Error(`Worker ${targetId} has invalid run-scoped runtime leader binding`);
+      }
+      leaderRuntime = asObject(run.payload.leader_runtime) ?? {};
+      if (typeof leaderRuntime.adapter !== "string" || !leaderRuntime.adapter) {
+        throw new Error(`Worker ${targetId} run-scoped leader has no runtime adapter`);
+      }
+    } else {
+      const leader = this.store.getObject(leaderId);
+      if (!leader || leader.kind !== "bot" || leader.payload.status !== "active") throw new Error(`Worker ${targetId} has no active durable leader`);
+      if (leader.workspaceId !== object.workspaceId || run.workspaceId !== object.workspaceId) throw new Error(`Worker ${targetId} scope does not match its Team Run leader`);
+      leaderRuntime = asObject(leader.payload.runtime) ?? {};
+    }
     const workerRuntime = asObject(object.payload.runtime) ?? {};
     const runtime: JsonObject = { ...leaderRuntime, ...workerRuntime };
     const adapterId = typeof runtime.adapter === "string" ? runtime.adapter : "";
@@ -538,7 +554,7 @@ export class PrincipalRunner {
       principal: object,
       principalKind: "worker",
       bot: null,
-      leaderBot: leader as StoredObject<BotManifest>,
+      leaderId,
       run,
       runtime,
       adapterId,

@@ -148,9 +148,21 @@ class TeamRunGuardedRuntimeRegistry extends RuntimeRegistry {
           throw new Error(`Task ${context.task.id} does not preserve Team Run ${runId} root objective`);
         }
         const leaderId = String(run.payload.leader_id ?? "");
-        const leader = store.getObject(leaderId);
-        if (!leader || leader.kind !== "bot" || leader.payload.status !== "active" || leader.workspaceId !== run.workspaceId) {
-          throw new Error(`Team Run ${runId} has no active same-workspace durable leader`);
+        if (run.payload.leader_kind === "runtime") {
+          const leaderRuntime = asObject(run.payload.leader_runtime);
+          if (
+            !leaderId.startsWith("runtime_")
+            || run.payload.leader_lifecycle !== "run_scoped"
+            || typeof leaderRuntime.adapter !== "string"
+            || !leaderRuntime.adapter
+          ) {
+            throw new Error(`Team Run ${runId} has invalid run-scoped runtime leader metadata`);
+          }
+        } else {
+          const leader = store.getObject(leaderId);
+          if (!leader || leader.kind !== "bot" || leader.payload.status !== "active" || leader.workspaceId !== run.workspaceId) {
+            throw new Error(`Team Run ${runId} has no active same-workspace durable leader`);
+          }
         }
         const participants = stringArray(run.payload.participant_ids);
         if (context.principalKind === "bot" && context.principal.id !== leaderId && !participants.includes(context.principal.id)) {
