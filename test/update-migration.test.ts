@@ -232,7 +232,7 @@ test("Phase 5.7 standalone downgrade and unknown schema fail closed without muta
     writeFileSync(standaloneReceiptPath(installation.home), JSON.stringify({
       schema_version: STANDALONE_INSTALL_RECEIPT_SCHEMA,
       component_id: AI_VERSE_MULTIPLE_BOTS_EXTENSION_ID,
-      component_version: "0.1.0-alpha.9",
+      component_version: "0.1.0-beta.2",
       coordination_schema: "1",
       mode: "standalone"
     }, null, 2) + "\n", "utf8");
