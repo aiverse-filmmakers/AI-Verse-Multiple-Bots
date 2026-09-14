@@ -24,11 +24,11 @@ The target experience is inspired most strongly by xAI's Grok Bot persistent-tea
 
 **Phase 4: Runtime and Agent Interoperability: COMPLETE**
 
-**Phase 5: Product, Installer, Omnichannel and Dashboard: IN PROGRESS (13/14 slices implemented, Phase 5.13 acceptance pending CI)**
+**Phase 5: Product, Installer, Omnichannel and Dashboard: IN PROGRESS (13/14 slices COMPLETE)**
 
 Implemented Phase 5 product slices now include the installable package, standalone and AI-Verse OS setup, starter Bot/team templates, production doctor, safe update/migration, secure remote Gateway, Dashboard projections/control, Telegram/Discord/generic channel bridge contracts, operator approvals/attention, observability/usage views with AI-Verse Token ownership preserved, and packaged public-beta release docs/examples.
 
-Only **Phase 5.14, the full release acceptance suite**, remains after 5.13 acceptance.
+Only **Phase 5.14, the full release acceptance suite**, remains.
 
 ## Install
 
