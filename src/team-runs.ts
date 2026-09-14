@@ -57,6 +57,14 @@ export type WorkerStatus =
   | "canceled"
   | "expired";
 
+export interface RuntimeTeamLeader {
+  runtime: JsonObject;
+  allowedTools?: string[];
+  allowedConnections?: string[];
+  skillRefs?: string[];
+  canCreateWorkers?: boolean;
+}
+
 export interface CreateTeamRunInput {
   leaderId: string;
   workspaceId: string;
@@ -64,6 +72,7 @@ export interface CreateTeamRunInput {
   objective?: string;
   topology?: TeamRunTopology;
   budget?: BudgetEnvelope;
+  runtimeLeader?: RuntimeTeamLeader;
 }
 
 export interface CreateWorkerInput {
@@ -122,7 +131,43 @@ export class TeamRunCoordinator {
   constructor(readonly store: CoordinationStore) {}
 
   createRun(input: CreateTeamRunInput): { run: StoredObject; event: AppendedEvent } {
-    const leader = this.requireActiveLeader(input.leaderId, input.workspaceId);
+    const runtimeLeader = input.runtimeLeader;
+    let leaderId = input.leaderId;
+    let leaderKind: "bot" | "runtime" = "bot";
+    let leaderRuntime: JsonObject | null = null;
+    let leaderPermissions: JsonObject | null = null;
+    let leaderCapabilities: JsonObject | null = null;
+    let leaderPreconditions: Array<{ id: string; kind: "bot"; status: string }> = [];
+
+    if (runtimeLeader) {
+      if (!leaderId.startsWith("runtime_")) throw new Error("Run-scoped runtime leader ID must start with runtime_");
+      if ((input.topology ?? "manager") !== "manager") {
+        throw new Error("Run-scoped runtime leaders are limited to manager topology");
+      }
+      const runtime = asObject(runtimeLeader.runtime);
+      if (typeof runtime.adapter !== "string" || !runtime.adapter.trim()) {
+        throw new Error("Run-scoped runtime leader requires an explicit runtime adapter");
+      }
+      if (runtimeLeader.canCreateWorkers === false) {
+        throw new Error("Run-scoped runtime leader must be allowed to create the requested temporary Worker");
+      }
+      const allowedTools = [...new Set(runtimeLeader.allowedTools ?? [])];
+      const allowedConnections = [...new Set(runtimeLeader.allowedConnections ?? [])];
+      const skillRefs = [...new Set(runtimeLeader.skillRefs ?? [])];
+      leaderKind = "runtime";
+      leaderRuntime = runtime;
+      leaderPermissions = {
+        can_create_workers: true,
+        allowed_tools: allowedTools,
+        allowed_connections: allowedConnections
+      };
+      leaderCapabilities = { skill_refs: skillRefs };
+    } else {
+      const leader = this.requireActiveLeader(leaderId, input.workspaceId);
+      leaderId = leader.id;
+      leaderPreconditions = [{ id: leader.id, kind: "bot", status: "active" }];
+    }
+
     const budget = normalizeBudget(input.budget);
     if (budget.max_workers === 0) throw new BudgetError("INVALID_BUDGET", "max_workers must be at least 1 when configured");
     const runId = createId("run");
@@ -134,9 +179,16 @@ export class TeamRunCoordinator {
       workspace_id: input.workspaceId,
       root_objective_id: input.rootObjectiveId,
       objective: input.objective ?? null,
-      leader_id: leader.id,
-      participant_ids: [leader.id],
-      topology: input.topology ?? "dynamic_squad",
+      leader_id: leaderId,
+      leader_kind: leaderKind,
+      ...(leaderRuntime ? {
+        leader_runtime: leaderRuntime,
+        leader_permissions: leaderPermissions,
+        leader_capabilities: leaderCapabilities,
+        leader_lifecycle: "run_scoped"
+      } : {}),
+      participant_ids: [leaderId],
+      topology: runtimeLeader ? "manager" : (input.topology ?? "dynamic_squad"),
       status: "created",
       budget,
       created_at: timestamp,
@@ -144,14 +196,14 @@ export class TeamRunCoordinator {
     };
     const event = this.makeEvent({
       type: "team_run.created",
-      actorId: leader.id,
+      actorId: leaderId,
       workspaceId: input.workspaceId,
       runId,
       correlationId: input.rootObjectiveId,
-      summary: `Created Team Run ${runId} with leader ${leader.id}`
+      summary: `Created Team Run ${runId} with ${leaderKind === "runtime" ? "run-scoped runtime" : "durable"} leader ${leaderId}`
     });
     const result = this.store.atomicMutation({
-      preconditions: [{ id: leader.id, kind: "bot", status: "active" }],
+      preconditions: leaderPreconditions,
       objects: [{ kind: "team_run", payload: validateProtocolObject(run, "team_run") }],
       events: [event]
     });
@@ -186,15 +238,15 @@ export class TeamRunCoordinator {
 
     const leaderId = String(run.payload.leader_id ?? "");
     if (input.createdBy !== leaderId) throw new Error(`Only Team Run leader ${leaderId} can create temporary Workers for ${run.id}`);
-    const leader = this.requireActiveLeader(leaderId, String(run.payload.workspace_id));
-    if (asObject(leader.payload.permissions).can_create_workers === false) {
-      throw new Error(`Bot ${leader.id} is not allowed to create temporary Workers`);
+    const leader = this.requireRunLeader(run);
+    if (leader.permissions.can_create_workers === false) {
+      throw new Error(`Team Run leader ${leader.id} is not allowed to create temporary Workers`);
     }
     if (!input.roleTitle.trim()) throw new Error("Worker role title cannot be empty");
     if (!input.objective.trim()) throw new Error("Worker objective cannot be empty");
     const workspaceId = String(run.payload.workspace_id);
     const skillRefs = parseTaskSkillRefs(input.skillRefs, workspaceId);
-    const declaredSkills = new Set(stringArray(asObject(leader.payload.capabilities).skill_refs));
+    const declaredSkills = new Set(stringArray(leader.capabilities.skill_refs));
     for (const skillRef of skillRefs) {
       if (!declaredSkills.has(skillRef)) throw new Error(`Team Run leader ${leader.id} does not declare skill capability ${skillRef}`);
     }
@@ -255,7 +307,7 @@ export class TeamRunCoordinator {
     const result = this.store.atomicMutation({
       preconditions: [
         { id: run.id, kind: "team_run", status: runStatus },
-        { id: leader.id, kind: "bot", status: "active" }
+        ...(leader.kind === "bot" ? [{ id: leader.id, kind: "bot" as const, status: "active" }] : [])
       ],
       objects: [
         { kind: "team_run", payload: validateProtocolObject(updatedRun, "team_run") },
@@ -494,10 +546,42 @@ export class TeamRunCoordinator {
     return leader;
   }
 
+  private requireRunLeader(run: StoredObject): {
+    id: string;
+    kind: "bot" | "runtime";
+    runtime: JsonObject;
+    permissions: JsonObject;
+    capabilities: JsonObject;
+  } {
+    const leaderId = String(run.payload.leader_id ?? "");
+    const workspaceId = String(run.payload.workspace_id);
+    if (run.payload.leader_kind === "runtime") {
+      if (!leaderId.startsWith("runtime_")) throw new Error(`Team Run ${run.id} runtime leader identity is invalid`);
+      if (run.payload.leader_lifecycle !== "run_scoped") throw new Error(`Team Run ${run.id} runtime leader must be run-scoped`);
+      const runtime = asObject(run.payload.leader_runtime);
+      if (typeof runtime.adapter !== "string" || !runtime.adapter.trim()) throw new Error(`Team Run ${run.id} runtime leader has no adapter`);
+      return {
+        id: leaderId,
+        kind: "runtime",
+        runtime,
+        permissions: asObject(run.payload.leader_permissions),
+        capabilities: asObject(run.payload.leader_capabilities)
+      };
+    }
+    const leader = this.requireActiveLeader(leaderId, workspaceId);
+    return {
+      id: leader.id,
+      kind: "bot",
+      runtime: asObject(leader.payload.runtime),
+      permissions: asObject(leader.payload.permissions),
+      capabilities: asObject(leader.payload.capabilities)
+    };
+  }
+
   private assertLeaderActor(run: StoredObject, actorId: string): void {
     const leaderId = String(run.payload.leader_id ?? "");
     if (actorId !== leaderId) throw new Error(`Only Team Run leader ${leaderId} can mutate ${run.id}`);
-    this.requireActiveLeader(leaderId, String(run.payload.workspace_id));
+    this.requireRunLeader(run);
   }
 
   private requireWorkerTask(taskId: string, workerId: string, workspaceId: string): StoredObject {
