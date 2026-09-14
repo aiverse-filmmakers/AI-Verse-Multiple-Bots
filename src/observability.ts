@@ -5,12 +5,14 @@ import type { AppendedEvent, JsonObject, StoredObject } from "./types.js";
 
 export const OBSERVABILITY_SCHEMA = "1.0";
 export const OBSERVABILITY_PROVIDER = "ai-verse-multiple-bots/observability-v1";
+export const CANONICAL_TELEMETRY_OWNER = "ai-verse-token";
+export const CANONICAL_TOKEN_PROJECTION = "@ai-verse/token/gateway";
 
 type UsageTotals = {
   input_tokens: number;
   output_tokens: number;
   total_tokens: number;
-  cost: number;
+  runtime_reported_cost_evidence: number;
   actions: number;
 };
 
@@ -41,7 +43,7 @@ export interface TeamRunUsageView {
   };
   utilization_percent: {
     tokens: number | null;
-    cost: number | null;
+    runtime_reported_cost_evidence: number | null;
     actions: number | null;
   };
   updated_at: string;
@@ -49,6 +51,17 @@ export interface TeamRunUsageView {
 
 export interface ObservabilityUsageView {
   totals: UsageTotals;
+  authority: {
+    semantic: "execution-local operational evidence";
+    canonical_telemetry_owner: typeof CANONICAL_TELEMETRY_OWNER;
+    canonical_cost_truth_owner: typeof CANONICAL_TELEMETRY_OWNER;
+    canonical_cost_truth_states: string[];
+    token_projection_interface: typeof CANONICAL_TOKEN_PROJECTION;
+    prices_model_usage_here: false;
+    writes_token_telemetry_here: false;
+    runtime_usage_is_canonical_token_truth: false;
+    purpose: string;
+  };
   coverage: {
     total_tasks: number;
     completed_tasks: number;
@@ -71,6 +84,11 @@ export interface ObservabilitySnapshot {
   projection_only: true;
   canonical_owner: "ai-verse-multiple-bots";
   observability_owns_truth: false;
+  canonical_telemetry_owner: typeof CANONICAL_TELEMETRY_OWNER;
+  canonical_cost_truth_owner: typeof CANONICAL_TELEMETRY_OWNER;
+  token_projection_interface: typeof CANONICAL_TOKEN_PROJECTION;
+  runtime_usage_is_canonical_token_truth: false;
+  prices_model_usage_here: false;
   workspace_id: string;
   observed_at: string;
   event_cursor: number;
@@ -119,6 +137,11 @@ export interface ObservabilityUsageResponse {
   projection_only: true;
   canonical_owner: "ai-verse-multiple-bots";
   observability_owns_truth: false;
+  canonical_telemetry_owner: typeof CANONICAL_TELEMETRY_OWNER;
+  canonical_cost_truth_owner: typeof CANONICAL_TELEMETRY_OWNER;
+  token_projection_interface: typeof CANONICAL_TOKEN_PROJECTION;
+  runtime_usage_is_canonical_token_truth: false;
+  prices_model_usage_here: false;
   workspace_id: string;
   observed_at: string;
   event_cursor: number;
@@ -135,6 +158,11 @@ export interface ObservabilityTimelineResponse {
   projection_only: true;
   canonical_owner: "ai-verse-multiple-bots";
   observability_owns_truth: false;
+  canonical_telemetry_owner: typeof CANONICAL_TELEMETRY_OWNER;
+  canonical_cost_truth_owner: typeof CANONICAL_TELEMETRY_OWNER;
+  token_projection_interface: typeof CANONICAL_TOKEN_PROJECTION;
+  runtime_usage_is_canonical_token_truth: false;
+  prices_model_usage_here: false;
   workspace_id: string;
   observed_at: string;
   requested_after: number;
@@ -225,7 +253,7 @@ function readUsage(value: unknown, label = "usage"): UsageTotals {
     input_tokens: input,
     output_tokens: output,
     total_tokens: input + output,
-    cost: finiteNonNegative(source.cost, `${label}.cost`),
+    runtime_reported_cost_evidence: finiteNonNegative(source.cost, `${label}.cost`),
     actions: finiteNonNegative(source.actions, `${label}.actions`)
   };
 }
@@ -235,13 +263,13 @@ function addUsage(left: UsageTotals, right: UsageTotals): UsageTotals {
     input_tokens: left.input_tokens + right.input_tokens,
     output_tokens: left.output_tokens + right.output_tokens,
     total_tokens: left.total_tokens + right.total_tokens,
-    cost: left.cost + right.cost,
+    runtime_reported_cost_evidence: left.runtime_reported_cost_evidence + right.runtime_reported_cost_evidence,
     actions: left.actions + right.actions
   };
 }
 
 function emptyUsage(): UsageTotals {
-  return { input_tokens: 0, output_tokens: 0, total_tokens: 0, cost: 0, actions: 0 };
+  return { input_tokens: 0, output_tokens: 0, total_tokens: 0, runtime_reported_cost_evidence: 0, actions: 0 };
 }
 
 function terminalTask(status: string): boolean {
@@ -324,6 +352,11 @@ export class ObservabilityProjector {
       projection_only: true,
       canonical_owner: "ai-verse-multiple-bots",
       observability_owns_truth: false,
+      canonical_telemetry_owner: CANONICAL_TELEMETRY_OWNER,
+      canonical_cost_truth_owner: CANONICAL_TELEMETRY_OWNER,
+      token_projection_interface: CANONICAL_TOKEN_PROJECTION,
+      runtime_usage_is_canonical_token_truth: false,
+      prices_model_usage_here: false,
       workspace_id: workspaceId,
       queries: [
         "observability.snapshot",
@@ -339,9 +372,17 @@ export class ObservabilityProjector {
         "input_tokens",
         "output_tokens",
         "total_tokens",
-        "cost",
+        "runtime_reported_cost_evidence",
         "actions"
       ],
+      usage_semantics: "execution-local operational evidence",
+      canonical_telemetry_owner: CANONICAL_TELEMETRY_OWNER,
+      canonical_cost_truth_owner: CANONICAL_TELEMETRY_OWNER,
+      canonical_cost_truth_states: ["ACTUAL", "CALCULATED", "UNKNOWN"],
+      token_projection_interface: CANONICAL_TOKEN_PROJECTION,
+      prices_model_usage_here: false,
+      writes_token_telemetry_here: false,
+      runtime_usage_is_canonical_token_truth: false,
       timeline_source: "canonical-coordination-events",
       private_reasoning_exposed: false
     };
@@ -447,7 +488,7 @@ export class ObservabilityProjector {
         usage_consistent:
           computedUsage.input_tokens === canonicalUsage.input_tokens
           && computedUsage.output_tokens === canonicalUsage.output_tokens
-          && computedUsage.cost === canonicalUsage.cost
+          && computedUsage.runtime_reported_cost_evidence === canonicalUsage.runtime_reported_cost_evidence
           && computedUsage.actions === canonicalUsage.actions,
         budget: {
           token_limit: typeof budget.token_limit === "number" ? budget.token_limit : null,
@@ -456,7 +497,7 @@ export class ObservabilityProjector {
         },
         utilization_percent: {
           tokens: utilization(computedUsage.total_tokens, budget.token_limit),
-          cost: utilization(computedUsage.cost, budget.cost_limit),
+          runtime_reported_cost_evidence: utilization(computedUsage.runtime_reported_cost_evidence, budget.cost_limit),
           actions: utilization(computedUsage.actions, budget.max_actions)
         },
         updated_at: run.updatedAt
@@ -486,7 +527,7 @@ export class ObservabilityProjector {
         ...item,
         usage: {
           ...item.usage,
-          cost: rounded(item.usage.cost, 6)
+          runtime_reported_cost_evidence: rounded(item.usage.runtime_reported_cost_evidence, 6)
         }
       }))
       .sort((a, b) =>
@@ -501,6 +542,11 @@ export class ObservabilityProjector {
       projection_only: true,
       canonical_owner: "ai-verse-multiple-bots",
       observability_owns_truth: false,
+      canonical_telemetry_owner: CANONICAL_TELEMETRY_OWNER,
+      canonical_cost_truth_owner: CANONICAL_TELEMETRY_OWNER,
+      token_projection_interface: CANONICAL_TOKEN_PROJECTION,
+      runtime_usage_is_canonical_token_truth: false,
+      prices_model_usage_here: false,
       workspace_id: workspaceId,
       observed_at: new Date().toISOString(),
       event_cursor: this.store.latestEventSequence(),
@@ -536,13 +582,24 @@ export class ObservabilityProjector {
       usage: {
         totals: {
           ...workspaceUsage,
-          cost: rounded(workspaceUsage.cost, 6)
+          runtime_reported_cost_evidence: rounded(workspaceUsage.runtime_reported_cost_evidence, 6)
+        },
+        authority: {
+          semantic: "execution-local operational evidence",
+          canonical_telemetry_owner: CANONICAL_TELEMETRY_OWNER,
+          canonical_cost_truth_owner: CANONICAL_TELEMETRY_OWNER,
+          canonical_cost_truth_states: ["ACTUAL", "CALCULATED", "UNKNOWN"],
+          token_projection_interface: CANONICAL_TOKEN_PROJECTION,
+          prices_model_usage_here: false,
+          writes_token_telemetry_here: false,
+          runtime_usage_is_canonical_token_truth: false,
+          purpose: "coordination budgets, runtime settlement, limits and operational observability"
         },
         coverage: {
           total_tasks: tasks.length,
           completed_tasks: completedTasks,
           tasks_with_persisted_usage: tasksWithUsage,
-          note: "Usage totals include only usage persisted on canonical Tasks; provider-side charges from failed calls are not inferred."
+          note: "These are execution-local runtime usage receipts persisted on Multiple Bots Tasks. They support coordination budgets and operational observability only. Canonical historical/global telemetry and ACTUAL/CALCULATED/UNKNOWN monetary truth belong to AI-Verse Token."
         },
         by_principal: principals,
         by_team_run: runViews
@@ -600,6 +657,11 @@ export class ObservabilityProjector {
       projection_only: true,
       canonical_owner: "ai-verse-multiple-bots",
       observability_owns_truth: false,
+      canonical_telemetry_owner: CANONICAL_TELEMETRY_OWNER,
+      canonical_cost_truth_owner: CANONICAL_TELEMETRY_OWNER,
+      token_projection_interface: CANONICAL_TOKEN_PROJECTION,
+      runtime_usage_is_canonical_token_truth: false,
+      prices_model_usage_here: false,
       workspace_id: workspaceId,
       observed_at: new Date().toISOString(),
       requested_after: after,
