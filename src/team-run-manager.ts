@@ -55,7 +55,7 @@ export interface ManagedWorkerTaskResult {
 }
 
 /**
- * Host-neutral manager/supervisor topology for a durable Team Run leader.
+ * Host-neutral manager/supervisor topology for a durable or run-scoped Team Run leader.
  *
  * Manager topology deliberately permits only one live Worker Task at a time.
  * Parallel execution is reserved for the dedicated fan-out topology so its
@@ -74,8 +74,7 @@ export class TeamRunManager {
     const run = this.ensureRunning(input.runId, input.createdBy);
     const leaderId = String(run.payload.leader_id ?? "");
     if (leaderId !== input.createdBy) throw new Error(`Only Team Run leader ${leaderId} can create managed Worker Tasks`);
-    const leader = this.gateway.getBot(leaderId);
-    if (!leader || leader.payload.status !== "active") throw new Error(`Team Run leader ${leaderId} is not active`);
+    const leader = this.resolveLeaderAuthority(run);
     const workspaceId = String(run.payload.workspace_id);
     const skillRefs = parseTaskSkillRefs(input.skillRefs, workspaceId);
 
@@ -158,7 +157,9 @@ export class TeamRunManager {
         ...(skillRefs.length > 0 ? { skill_refs: skillRefs } : {}),
         lease_id: leaseId,
         environment_lease_id: null,
-        response_target: { kind: "bot", id: leaderId },
+        response_target: leader.kind === "bot"
+          ? { kind: "bot", id: leaderId }
+          : { kind: "operator", id: leaderId },
         deadline_at: prepared.deadlineAt,
         budget: prepared.budget,
         hop: prepared.hop,
@@ -263,8 +264,42 @@ export class TeamRunManager {
     }
   }
 
-  private assertLeaderAuthority(leader: StoredObject, tools: string[], connections: string[], skillRefs: string[] = []): void {
-    const permissions = asObject(leader.payload.permissions);
+  private resolveLeaderAuthority(run: StoredObject): {
+    id: string;
+    kind: "bot" | "runtime";
+    permissions: JsonObject;
+    capabilities: JsonObject;
+  } {
+    const leaderId = String(run.payload.leader_id ?? "");
+    if (run.payload.leader_kind === "runtime") {
+      if (!leaderId.startsWith("runtime_") || run.payload.leader_lifecycle !== "run_scoped") {
+        throw new Error(`Team Run ${run.id} has invalid run-scoped runtime leader metadata`);
+      }
+      return {
+        id: leaderId,
+        kind: "runtime",
+        permissions: asObject(run.payload.leader_permissions),
+        capabilities: asObject(run.payload.leader_capabilities)
+      };
+    }
+    const leader = this.gateway.getBot(leaderId);
+    if (!leader || leader.payload.status !== "active") throw new Error(`Team Run leader ${leaderId} is not active`);
+    if (leader.workspaceId !== run.workspaceId) throw new Error(`Team Run leader ${leaderId} is outside workspace ${String(run.workspaceId)}`);
+    return {
+      id: leaderId,
+      kind: "bot",
+      permissions: asObject(leader.payload.permissions),
+      capabilities: asObject(leader.payload.capabilities)
+    };
+  }
+
+  private assertLeaderAuthority(
+    leader: { id: string; kind: "bot" | "runtime"; permissions: JsonObject; capabilities: JsonObject },
+    tools: string[],
+    connections: string[],
+    skillRefs: string[] = []
+  ): void {
+    const permissions = leader.permissions;
     const allowedTools = Array.isArray(permissions.allowed_tools) ? stringArray(permissions.allowed_tools) : null;
     const allowedConnections = Array.isArray(permissions.allowed_connections) ? stringArray(permissions.allowed_connections) : null;
     if (allowedTools && !allowedTools.includes("*")) {
@@ -273,7 +308,7 @@ export class TeamRunManager {
     if (allowedConnections && !allowedConnections.includes("*")) {
       for (const connection of connections) if (!allowedConnections.includes(connection)) throw new Error(`Managed Worker cannot expand leader connection authority to ${connection}`);
     }
-    const declaredSkills = new Set(stringArray(asObject(leader.payload.capabilities).skill_refs));
+    const declaredSkills = new Set(stringArray(leader.capabilities.skill_refs));
     for (const skillRef of skillRefs) if (!declaredSkills.has(skillRef)) throw new Error(`Managed Worker cannot use undeclared leader skill capability ${skillRef}`);
   }
 
