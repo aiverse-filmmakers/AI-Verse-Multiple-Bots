@@ -6,7 +6,7 @@
 
 **Candidate package:** `@ai-verse/multiple-bots@0.1.0-beta.1`
 
-**Status:** IMPLEMENTATION COMPLETE, HOSTED ACCEPTANCE PENDING
+**Status:** ACCEPTED
 
 ## Purpose
 
@@ -253,3 +253,21 @@ New work belongs to the next release unless it demonstrates:
 - failed acceptance evidence.
 
 This is the component-level application of the AI-Verse public-beta stop rule.
+
+
+## Hosted acceptance evidence
+
+GitHub Actions **CI run 609 (`34816540056`)** accepted implementation head `4f2146f5a8876d1594cbb8f3904c59f7d6e55a57`.
+
+Evidence:
+
+- repository tests: **508/508 passed**
+- Phase 4 runtime compatibility: **5/5 passed**
+- clean packed beta.1 product gate: **passed**
+- package artifact: **234 files**
+- public-beta candidate package smoke: **passed**
+- dedicated release evaluation: **7/7 passed**
+- failures: **0**
+- skipped: **0**
+
+This acceptance establishes the Multiple Bots **component** public-beta candidate. It deliberately does not establish npm publication, immutable release tagging, whole-Agent composed acceptance, or Distribution Agent release-set promotion.
