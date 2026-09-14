@@ -18,10 +18,10 @@ Phase 1  Runnable Coordination Core     [COMPLETE]    100%
 Phase 2  Dynamic Multi-Agent Squads     [COMPLETE]    100%
 Phase 3  AI-Verse Native Integration    [COMPLETE]    100%
 Phase 4  Runtime / A2A Interoperability [COMPLETE]    100%
-Phase 5  Product + Install + Dashboard  [IN PROGRESS] ~80%
+Phase 5  Product + Install + Dashboard  [IN PROGRESS] ~95%
 ```
 
-**Directional overall first-release progress:** roughly 98% complete.
+**Directional overall first-release progress:** roughly 99% complete.
 
 That overall figure is intentionally approximate because later phases contain different amounts of work. Passed phase gates, not percentages, are authoritative.
 
@@ -779,7 +779,7 @@ See `docs/PHASE-4-COMPATIBILITY-EVALUATION.md`, `evals/phase-4-runtime-compatibi
 
 **Status:** IN PROGRESS
 
-**Directional phase progress:** approximately 80%
+**Directional phase progress:** approximately 95%
 
 Goal: turn the completed coordination/integration/interoperability layers into a member-installable product with health, onboarding, remote/channel access and observability.
 
@@ -797,8 +797,27 @@ Remaining major slices:
 10. Telegram/Discord/other channel bridge contracts - **COMPLETE**
 11. operator approvals/attention UX - **COMPLETE**
 12. observability/usage views - **COMPLETE**
-13. release docs/examples - **NEXT**
-14. full release acceptance suite - **NOT STARTED**
+13. release docs/examples - **COMPLETE**
+14. full release acceptance suite - **NEXT**
+
+### Phase 5.13 - release docs/examples
+
+Implemented:
+
+- packaged public-beta setup/use guide
+- packaged API quick reference
+- packaged troubleshooting guide
+- packaged runnable examples index
+- executable standalone quickstart example
+- executable operator Approval + observability example
+- executable verified-adapter channel bridge example
+- clean-package execution of all examples
+- release docs preserve AI-Verse Token telemetry/pricing ownership and secure remote/channel boundaries
+- README refreshed to current product state
+
+**Hosted acceptance:** GitHub Actions CI run 603 (`34811761570`) passed 497/497 tests, 5/5 Phase 4 compatibility tests, the complete package/install smoke gate, and clean-installed execution of all three packaged release examples with a 234-file artifact.
+
+See `docs/PUBLIC-BETA-GUIDE.md`, `docs/API-QUICK-REFERENCE.md`, `docs/TROUBLESHOOTING.md` and `examples/README.md`.
 
 ### Phase 5.12 - observability/usage views
 

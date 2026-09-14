@@ -24,9 +24,11 @@ The target experience is inspired most strongly by xAI's Grok Bot persistent-tea
 
 **Phase 4: Runtime and Agent Interoperability: COMPLETE**
 
-**Phase 5: Product, Installer, Omnichannel and Dashboard: IN PROGRESS (~45%)**
+**Phase 5: Product, Installer, Omnichannel and Dashboard: IN PROGRESS (13/14 slices COMPLETE)**
 
-Phase 5.1 provides the installable package surface, Phase 5.2 standalone mode, Phase 5.3 AI-Verse OS installation, Phase 5.4 setup/onboarding, Phase 5.5 reusable Bot/team templates, Phase 5.6 truthful production health/doctor, Phase 5.7 safe update/migration strategy, Phase 5.8 secure remote Gateway access, and Phase 5.9 Dashboard projections/control endpoints. The current verified implementation gate passes **476/476 repository tests**, **5/5 Phase 4 compatibility evaluations**, all prior package smokes, and the installed-package Dashboard projection/control smoke. Phase 5.10 channel bridge contracts is next.
+Implemented Phase 5 product slices now include the installable package, standalone and AI-Verse OS setup, starter Bot/team templates, production doctor, safe update/migration, secure remote Gateway, Dashboard projections/control, Telegram/Discord/generic channel bridge contracts, operator approvals/attention, observability/usage views with AI-Verse Token ownership preserved, and packaged public-beta release docs/examples.
+
+Only **Phase 5.14, the full release acceptance suite**, remains.
 
 ## Install
 
@@ -49,6 +51,26 @@ ai-verse-multiple-bots standalone doctor
 The package is configured for public scoped npm publication as `@ai-verse/multiple-bots`, but this repository does not claim that version `0.1.0-alpha.1` has already been published to the public npm registry.
 
 npm installation itself performs no hidden host configuration. Setup is always explicit.
+
+## Public-beta guide and runnable examples
+
+The package ships the member-facing release guide, API quick reference, troubleshooting guide, and executable local examples:
+
+- [`docs/PUBLIC-BETA-GUIDE.md`](docs/PUBLIC-BETA-GUIDE.md)
+- [`docs/API-QUICK-REFERENCE.md`](docs/API-QUICK-REFERENCE.md)
+- [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md)
+- [`examples/README.md`](examples/README.md)
+
+Runnable examples:
+
+```bash
+node examples/standalone-quickstart.mjs
+node examples/operator-observability.mjs
+node examples/channel-bridge.mjs
+```
+
+The package acceptance gate executes these examples from a clean installed tarball. They use local/in-memory deterministic paths and require no provider credentials.
+
 
 ## Setup
 
@@ -187,6 +209,56 @@ POST /v1/dashboard/control
 Current controls cover Bot lifecycle, Approval decisions, Task cancel/retry, and Team Run cancellation. Every mutation routes through the existing canonical owner and rejects cross-workspace targets. The projection explicitly reports `dashboard_owns_truth: false`.
 
 See [`docs/DASHBOARD-PROJECTION-CONTROL.md`](docs/DASHBOARD-PROJECTION-CONTROL.md).
+
+## Operator attention and approvals
+
+Operator-facing attention is a read-only projection over canonical Approval, Task, Handoff, execution and event state.
+
+```text
+GET /v1/operator/capabilities?workspace=<workspace-id>
+GET /v1/operator/attention?workspace=<workspace-id>&after=<cursor>
+GET /v1/operator/approvals?workspace=<workspace-id>&status=pending
+POST /v1/operator/approvals/:id/decision
+```
+
+Attention priority is `needs_approval -> needs_input -> blocked -> failed -> handoff_waiting -> unread_result`. Approval decisions route through the existing canonical Gateway lifecycle.
+
+See [`docs/OPERATOR-ATTENTION-UX.md`](docs/OPERATOR-ATTENTION-UX.md).
+
+## Observability and usage
+
+Operational observability is projection-only:
+
+```text
+GET /v1/observability/capabilities?workspace=<workspace-id>
+GET /v1/observability/snapshot?workspace=<workspace-id>
+GET /v1/observability/usage?workspace=<workspace-id>
+GET /v1/observability/timeline?workspace=<workspace-id>&after=<cursor>
+```
+
+Multiple Bots retains execution-local usage required for safe coordination, budgets and runtime settlement. Runtime monetary data is labeled `runtime_reported_cost_evidence`.
+
+**AI-Verse Token remains the canonical owner of normalized telemetry, immutable usage accounting, pricing evidence and ACTUAL/CALCULATED/UNKNOWN cost truth.** Canonical historical/global telemetry is consumed through `@ai-verse/token/gateway`, not repriced inside Multiple Bots.
+
+See [`docs/OBSERVABILITY-USAGE-VIEWS.md`](docs/OBSERVABILITY-USAGE-VIEWS.md).
+
+## Channel bridge
+
+Telegram, Discord and generic channel adapters route verified external messages into the existing canonical Gateway/Room coordination path.
+
+```text
+GET  /v1/channels/capabilities
+POST /v1/channels/ingress
+POST /v1/channels/telegram/ingress
+POST /v1/channels/discord/ingress
+POST /v1/channels/egress
+POST /v1/channels/egress/receipt
+```
+
+Provider credentials, webhook/socket authentication and actual network delivery remain adapter-owned.
+
+See [`docs/CHANNEL-BRIDGE-CONTRACTS.md`](docs/CHANNEL-BRIDGE-CONTRACTS.md).
+
 
 ## Starter Bot and team templates
 

@@ -82,7 +82,14 @@ try {
     "templates/room.yaml",
     "templates/starter-catalog.json",
     "integrations/ai-verse-os/INSTRUCTIONS.md",
-    "integrations/ai-verse-os/extension.json"
+    "integrations/ai-verse-os/extension.json",
+    "docs/PUBLIC-BETA-GUIDE.md",
+    "docs/API-QUICK-REFERENCE.md",
+    "docs/TROUBLESHOOTING.md",
+    "examples/README.md",
+    "examples/standalone-quickstart.mjs",
+    "examples/operator-observability.mjs",
+    "examples/channel-bridge.mjs"
   ]) {
     assert.equal(files.has(required), true, `packed artifact is missing ${required}`);
   }
@@ -113,6 +120,42 @@ try {
   const binName = process.platform === "win32" ? "ai-verse-multiple-bots.cmd" : "ai-verse-multiple-bots";
   const binPath = join(installDir, "node_modules", ".bin", binName);
   assert.equal(existsSync(binPath), true, "npm install did not expose the CLI bin");
+
+  const installedPackageRoot = join(installDir, "node_modules", "@ai-verse", "multiple-bots");
+  const standaloneExample = JSON.parse(run(
+    process.execPath,
+    [join(installedPackageRoot, "examples", "standalone-quickstart.mjs")],
+    { cwd: installDir }
+  ));
+  assert.equal(standaloneExample.example, "standalone-quickstart");
+  assert.equal(standaloneExample.setup_status, "ready");
+  assert.equal(standaloneExample.ready, true);
+  assert.equal(standaloneExample.template_id, "research-team");
+  assert.equal(standaloneExample.created_ids.length, 4);
+
+  const operatorExample = JSON.parse(run(
+    process.execPath,
+    [join(installedPackageRoot, "examples", "operator-observability.mjs")],
+    { cwd: installDir }
+  ));
+  assert.equal(operatorExample.example, "operator-observability");
+  assert.equal(operatorExample.attention_top, "needs_approval");
+  assert.equal(operatorExample.approval_status, "approved");
+  assert.equal(operatorExample.canonical_telemetry_owner, "ai-verse-token");
+  assert.equal(operatorExample.canonical_cost_truth_owner, "ai-verse-token");
+  assert.equal(operatorExample.token_projection_interface, "@ai-verse/token/gateway");
+  assert.equal(operatorExample.runtime_usage_is_canonical_token_truth, false);
+
+  const channelExample = JSON.parse(run(
+    process.execPath,
+    [join(installedPackageRoot, "examples", "channel-bridge.mjs")],
+    { cwd: installDir }
+  ));
+  assert.equal(channelExample.example, "channel-bridge");
+  assert.equal(channelExample.target_id, "bot_channel");
+  assert.equal(channelExample.external_recipient_id, "7001");
+  assert.equal(channelExample.transport_method, "sendMessage");
+  assert.equal(channelExample.channel_owns_truth, false);
 
   const setupModes = JSON.parse(run(binPath, ["setup", "modes"], { cwd: installDir }));
   assert.equal(setupModes.ok, true);
@@ -547,7 +590,8 @@ if (args[0] === "serve") {
     dashboard_projection_control_smoke: "passed",
     channel_bridge_smoke: "passed",
     operator_attention_smoke: "passed",
-    observability_usage_smoke: "passed"
+    observability_usage_smoke: "passed",
+    release_docs_examples_smoke: "passed"
   }, null, 2));
 } finally {
   rmSync(tempRoot, { recursive: true, force: true });
