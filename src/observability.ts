@@ -1,4 +1,4 @@
-import type { BudgetEnvelope, RuntimeUsage } from "./budget.js";
+import type { BudgetEnvelope } from "./budget.js";
 import type { ExecutionQueue, ExecutionRecord, ExecutionState } from "./execution-queue.js";
 import type { CoordinationStore } from "./store.js";
 import type { AppendedEvent, JsonObject, StoredObject } from "./types.js";
@@ -376,13 +376,8 @@ export class ObservabilityProjector {
         "actions"
       ],
       usage_semantics: "execution-local operational evidence",
-      canonical_telemetry_owner: CANONICAL_TELEMETRY_OWNER,
-      canonical_cost_truth_owner: CANONICAL_TELEMETRY_OWNER,
       canonical_cost_truth_states: ["ACTUAL", "CALCULATED", "UNKNOWN"],
-      token_projection_interface: CANONICAL_TOKEN_PROJECTION,
-      prices_model_usage_here: false,
       writes_token_telemetry_here: false,
-      runtime_usage_is_canonical_token_truth: false,
       timeline_source: "canonical-coordination-events",
       private_reasoning_exposed: false
     };
@@ -531,7 +526,7 @@ export class ObservabilityProjector {
         }
       }))
       .sort((a, b) =>
-        b.usage.cost - a.usage.cost
+        b.usage.runtime_reported_cost_evidence - a.usage.runtime_reported_cost_evidence
         || b.usage.total_tokens - a.usage.total_tokens
         || a.id.localeCompare(b.id)
       );
@@ -628,6 +623,11 @@ export class ObservabilityProjector {
       projection_only: true,
       canonical_owner: "ai-verse-multiple-bots",
       observability_owns_truth: false,
+      canonical_telemetry_owner: CANONICAL_TELEMETRY_OWNER,
+      canonical_cost_truth_owner: CANONICAL_TELEMETRY_OWNER,
+      token_projection_interface: CANONICAL_TOKEN_PROJECTION,
+      runtime_usage_is_canonical_token_truth: false,
+      prices_model_usage_here: false,
       workspace_id: snapshot.workspace_id,
       observed_at: snapshot.observed_at,
       event_cursor: snapshot.event_cursor,
