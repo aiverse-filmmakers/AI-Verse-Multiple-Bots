@@ -1,6 +1,6 @@
 {
   "name": "@ai-verse/multiple-bots",
-  "version": "0.1.0-alpha.1",
+  "version": "0.1.0-beta.1",
   "private": false,
   "description": "Runtime-neutral coordination core for persistent AI teammates and bounded multi-agent teams.",
   "type": "module",
