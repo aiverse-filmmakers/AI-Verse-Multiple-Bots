@@ -377,3 +377,58 @@ test("materialized OS engine can run one bounded temporary Worker without starti
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+
+test("materialized OS engine creates a canonical durable Bot through the existing registry owner", async () => {
+  const root = fixture();
+  try {
+    const result = installAiVerseOsExtension(root);
+    const engine: any = await import(pathToFileURL(result.engine_path).href);
+    assert.equal(typeof engine.createDurableBot, "function");
+
+    const created = await engine.createDurableBot({
+      schema_version: "1.0",
+      id: "bot_durable-reviewer",
+      name: "Durable Reviewer",
+      kind: "durable",
+      status: "active",
+      role: {
+        title: "Delivery Reviewer",
+        mission: "Review recurring delivery work within the assigned workspace."
+      },
+      runtime: { adapter: "deterministic" },
+      execution: { environment_policy: "shared_workspace" },
+      scope: { type: "workspace", workspace_id: "demo" },
+      capabilities: { skill_refs: [] },
+      permissions: {
+        policy_ref: "default-bot",
+        allowed_peers: [],
+        allowed_tools: [],
+        allowed_connections: [],
+        can_create_workers: false
+      },
+      coordination: { default_mode: "direct", max_parallel_workers: 0, max_hops: 0 }
+    });
+
+    assert.equal(created.id, "bot_durable-reviewer");
+    assert.equal(created.kind, "bot");
+    assert.equal(created.workspace_id, "demo");
+    assert.equal(created.payload.kind, "durable");
+    assert.equal(created.payload.status, "active");
+
+    const store = new (await import("../src/store.js")).CoordinationStore(
+      resolve(root, ...AI_VERSE_MULTIPLE_BOTS_COORDINATION_DB_PATH.split("/"))
+    );
+    try {
+      const bot = store.getObject("bot_durable-reviewer");
+      assert.equal(bot?.kind, "bot");
+      assert.equal(bot?.payload.kind, "durable");
+      assert.equal(bot?.payload.scope?.workspace_id, "demo");
+      assert.equal(store.listObjects("worker", "demo").length, 0);
+    } finally {
+      store.close();
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
