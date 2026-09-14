@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { BudgetEnvelope } from "./budget.js";
 import { BotRegistryRules, type BotLifecycleStatus, type ExternalManagedRebindInput } from "./bot-registry.js";
 import { constraintsDigest, normalizeConstraints } from "./constraints.js";
@@ -21,6 +22,24 @@ function objectValue(value: unknown): JsonObject {
 
 function stringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.map(String) : [];
+}
+
+function canonicalJson(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalJson);
+  if (typeof value === "object" && value !== null) {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, nested]) => [key, canonicalJson(nested)])
+    );
+  }
+  return value;
+}
+
+function messageMutationFingerprint(value: JsonObject): string {
+  return createHash("sha256")
+    .update(JSON.stringify(canonicalJson(value)))
+    .digest("hex");
 }
 
 export interface SendMessageInput {
@@ -858,27 +877,12 @@ export class CoordinationGateway {
     return { handoff: settledHandoff, task: settledTask, events: mutation.events };
   }
 
-  sendMessage(input: SendMessageInput): { message: StoredObject; delivery: DeliveryRecord; event: AppendedEvent } {
+  sendMessage(input: SendMessageInput): { message: StoredObject; delivery: DeliveryRecord; event: AppendedEvent; replayed: boolean } {
     if (input.targetKind === "bot") this.policy?.assertMessage(input.senderId, input.targetId, input.workspaceId);
 
     const messageId = input.messageId ?? createId("msg");
     const content = input.content ?? [{ kind: "text", text: input.text }];
     const provenance = input.provenance ?? { origin: "bot_generated", trusted_instruction: false };
-    const existing = this.store.getObject(messageId);
-    if (existing) {
-      const target = objectValue(existing.payload.target);
-      if (
-        existing.kind !== "message"
-        || String(existing.payload.sender_id ?? "") !== input.senderId
-        || existing.workspaceId !== input.workspaceId
-        || String(target.kind ?? "") !== input.targetKind
-        || String(target.id ?? "") !== input.targetId
-        || JSON.stringify(existing.payload.content ?? []) !== JSON.stringify(content)
-      ) {
-        throw new Error(`Message id ${messageId} was already used by another message payload`);
-      }
-    }
-
     const message: JsonObject = {
       schema_version: "1.0",
       id: messageId,
@@ -896,6 +900,74 @@ export class CoordinationGateway {
       provenance
     };
     validateProtocolObject(message, "message");
+
+    if (input.idempotencyKey) {
+      const timestamp = nowIso();
+      const mutation = this.store.commitMessageMutation({
+        operation: "sendMessage",
+        idempotencyKey: input.idempotencyKey,
+        fingerprint: messageMutationFingerprint({
+          sender_id: input.senderId,
+          target_kind: input.targetKind,
+          target_id: input.targetId,
+          workspace_id: input.workspaceId,
+          room_id: input.roomId ?? null,
+          thread_id: input.threadId ?? null,
+          reply_to_message_id: input.replyToMessageId ?? null,
+          correlation_id: input.correlationId ?? null,
+          explicit_message_id: input.messageId ?? null,
+          explicit_timestamp: input.timestamp ?? null,
+          content,
+          provenance
+        }),
+        message,
+        delivery: {
+          id: createId("delivery"),
+          messageId,
+          senderId: input.senderId,
+          targetKind: input.targetKind,
+          targetId: input.targetId,
+          workspaceId: input.workspaceId,
+          state: "queued",
+          createdAt: timestamp,
+          updatedAt: timestamp
+        },
+        event: this.buildEvent({
+          type: "message.queued",
+          actorId: input.senderId,
+          workspaceId: input.workspaceId,
+          roomId: input.roomId,
+          threadId: input.threadId,
+          correlationId: input.correlationId,
+          messageId,
+          summary: `Message queued for ${input.targetKind}:${input.targetId}`
+        })
+      });
+      if (!mutation.delivery) throw new Error(`Idempotent message ${messageId} committed without delivery`);
+      if (!mutation.replayed) this.publishCommitted([mutation.event]);
+      return {
+        message: mutation.message,
+        delivery: mutation.delivery,
+        event: mutation.event,
+        replayed: mutation.replayed
+      };
+    }
+
+    const existing = this.store.getObject(messageId);
+    if (existing) {
+      const target = objectValue(existing.payload.target);
+      if (
+        existing.kind !== "message"
+        || String(existing.payload.sender_id ?? "") !== input.senderId
+        || existing.workspaceId !== input.workspaceId
+        || String(target.kind ?? "") !== input.targetKind
+        || String(target.id ?? "") !== input.targetId
+        || JSON.stringify(existing.payload.content ?? []) !== JSON.stringify(content)
+      ) {
+        throw new Error(`Message id ${messageId} was already used by another message payload`);
+      }
+    }
+
     const stored = existing ?? this.store.putObject("message", message);
     const timestamp = nowIso();
     const delivery = this.store.enqueueDelivery({
@@ -917,13 +989,12 @@ export class CoordinationGateway {
       threadId: input.threadId,
       correlationId: input.correlationId,
       messageId,
-      summary: `Message queued for ${input.targetKind}:${input.targetId}`,
-      idempotencyKey: input.idempotencyKey
+      summary: `Message queued for ${input.targetKind}:${input.targetId}`
     });
-    return { message: stored, delivery, event };
+    return { message: stored, delivery, event, replayed: false };
   }
 
-  publishRoomMessage(input: PublishRoomMessageInput): { message: StoredObject; event: AppendedEvent } {
+  publishRoomMessage(input: PublishRoomMessageInput): { message: StoredObject; event: AppendedEvent; replayed: boolean } {
     const room = this.store.getObject(input.roomId);
     if (!room || room.kind !== "room") throw new Error(`Room ${input.roomId} not found`);
     if (room.payload.status !== "active") throw new Error(`Room ${input.roomId} is not active`);
@@ -983,6 +1054,56 @@ export class CoordinationGateway {
       origin: input.senderId.startsWith("bot_") ? "bot_generated" : input.senderId.startsWith("worker_") ? "worker_generated" : "operator_input",
       trusted_instruction: !input.senderId.startsWith("bot_") && !input.senderId.startsWith("worker_")
     };
+    if (input.idempotencyKey) {
+      const mutation = this.store.commitMessageMutation({
+        operation: "publishRoomMessage",
+        idempotencyKey: input.idempotencyKey,
+        fingerprint: messageMutationFingerprint({
+          sender_id: input.senderId,
+          room_id: input.roomId,
+          thread_id: input.threadId ?? null,
+          reply_to_message_id: input.replyToMessageId ?? null,
+          correlation_id: input.correlationId ?? null,
+          explicit_message_id: input.messageId ?? null,
+          explicit_timestamp: input.timestamp ?? null,
+          content,
+          mentions: input.mentions ?? [],
+          artifact_refs: input.artifactRefs ?? [],
+          provenance
+        }),
+        message: validateProtocolObject({
+          schema_version: "1.0",
+          id: messageId,
+          type: "message.chat",
+          timestamp: messageTimestamp,
+          sender_id: input.senderId,
+          target: { kind: input.threadId ? "thread" : "room", id: input.threadId ?? input.roomId },
+          workspace_id: input.workspaceId,
+          room_id: input.roomId,
+          thread_id: input.threadId ?? null,
+          reply_to_message_id: input.replyToMessageId ?? null,
+          correlation_id: input.correlationId ?? null,
+          delivery_state: "delivered",
+          content,
+          mentions: input.mentions ?? [],
+          artifact_refs: input.artifactRefs ?? [],
+          provenance
+        }, "message"),
+        event: this.buildEvent({
+          type: "room.message",
+          actorId: input.senderId,
+          workspaceId: input.workspaceId,
+          roomId: input.roomId,
+          threadId: input.threadId,
+          correlationId: input.correlationId,
+          messageId,
+          summary: input.text.length > 160 ? `${input.text.slice(0, 157)}...` : input.text
+        })
+      });
+      if (!mutation.replayed) this.publishCommitted([mutation.event]);
+      return { message: mutation.message, event: mutation.event, replayed: mutation.replayed };
+    }
+
     const existing = this.store.getObject(messageId);
     if (existing) {
       if (existing.kind !== "message") throw new Error(`Room message id ${messageId} already belongs to ${existing.kind}`);
@@ -1004,7 +1125,7 @@ export class CoordinationGateway {
         summary: input.text.length > 160 ? `${input.text.slice(0, 157)}...` : input.text,
         idempotencyKey: input.idempotencyKey
       });
-      return { message: existing, event };
+      return { message: existing, event, replayed: false };
     }
 
     const message: JsonObject = {
@@ -1037,7 +1158,7 @@ export class CoordinationGateway {
       summary: input.text.length > 160 ? `${input.text.slice(0, 157)}...` : input.text,
       idempotencyKey: input.idempotencyKey
     });
-    return { message: stored, event };
+    return { message: stored, event, replayed: false };
   }
 
   emit(input: EmitInput): AppendedEvent {
