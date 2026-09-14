@@ -11,7 +11,11 @@
     "dist/src",
     "schemas",
     "templates",
-    "integrations"
+    "integrations",
+    "examples",
+    "docs/PUBLIC-BETA-GUIDE.md",
+    "docs/API-QUICK-REFERENCE.md",
+    "docs/TROUBLESHOOTING.md"
   ],
   "engines": {
     "node": ">=22.5.0"
