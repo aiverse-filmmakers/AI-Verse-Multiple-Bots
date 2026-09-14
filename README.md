@@ -24,11 +24,9 @@ The target experience is inspired most strongly by xAI's Grok Bot persistent-tea
 
 **Phase 4: Runtime and Agent Interoperability: COMPLETE**
 
-**Phase 5: Product, Installer, Omnichannel and Dashboard: IN PROGRESS (13/14 slices COMPLETE)**
+**Phase 5: Product, Installer, Omnichannel and Dashboard: 14/14 IMPLEMENTED, FINAL HOSTED ACCEPTANCE PENDING**
 
-Implemented Phase 5 product slices now include the installable package, standalone and AI-Verse OS setup, starter Bot/team templates, production doctor, safe update/migration, secure remote Gateway, Dashboard projections/control, Telegram/Discord/generic channel bridge contracts, operator approvals/attention, observability/usage views with AI-Verse Token ownership preserved, and packaged public-beta release docs/examples.
-
-Only **Phase 5.14, the full release acceptance suite**, remains.
+All fourteen Phase 5 implementation slices are present, including the final machine-readable public-beta release contract, dedicated release evaluation, clean package gate, and whole-message idempotency repair. Phase 5 is marked COMPLETE only after the exact final PR head and post-merge `main` commit pass every hosted gate.
 
 ## Install
 
@@ -51,6 +49,35 @@ ai-verse-multiple-bots standalone doctor
 The package is configured for public scoped npm publication as `@ai-verse/multiple-bots`, but this repository does not claim that version `0.1.0-beta.1` has already been published to the public npm registry.
 
 npm installation itself performs no hidden host configuration. Setup is always explicit.
+
+## Public-beta candidate release gate
+
+The current source candidate is:
+
+```text
+@ai-verse/multiple-bots@0.1.0-beta.1
+```
+
+Run the complete component release gate locally:
+
+```bash
+npm run release:check
+```
+
+That composes:
+
+```text
+npm test
+npm run eval:phase4
+npm run pack:check
+npm run eval:release
+```
+
+The release acceptance contract is machine-readable at `evals/public-beta-release-acceptance.json`.
+
+See [`docs/PUBLIC-BETA-RELEASE-ACCEPTANCE.md`](docs/PUBLIC-BETA-RELEASE-ACCEPTANCE.md).
+
+This component gate does **not** claim that npm publication, an immutable Git release tag, the whole Agent profile, or the Distribution Agent release set have already passed their separate release operations.
 
 ## Public-beta guide and runnable examples
 
