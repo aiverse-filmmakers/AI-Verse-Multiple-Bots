@@ -76,6 +76,7 @@ try {
     "dist/src/dashboard-control.js",
     "dist/src/channel-bridge.js",
     "dist/src/operator-attention.js",
+    "dist/src/observability.js",
     "schemas/coordination-v1.schema.json",
     "templates/bot.yaml",
     "templates/room.yaml",
@@ -291,6 +292,18 @@ if (args[0] === "serve") {
   assert.equal(operatorAttentionSmoke.decision, "approve");
   assert.equal(operatorAttentionSmoke.approvalStatus, "approved");
   assert.equal(operatorAttentionSmoke.taskStatus, "assigned");
+
+  const observabilitySmoke = JSON.parse(run(process.execPath, [
+    "--input-type=module",
+    "--eval",
+    `const s=await import(${JSON.stringify(installedServerUrl)}); const service=s.createGatewayServer({dbPath:':memory:',port:0}); service.gateway.createBot({schema_version:'1.0',id:'bot_observe_package',name:'Observe Bot',kind:'durable',status:'active',role:{title:'Observer',mission:'Verify observability package surface'},runtime:{adapter:'deterministic'},execution:{environment_policy:'shared_workspace'},scope:{type:'workspace',workspace_id:'ws_observe_package'},permissions:{policy_ref:'default-bot',allowed_peers:['*']},coordination:{default_mode:'direct'}}); service.store.putObject('task',{schema_version:'1.0',id:'task_observe_package',type:'task.delegate',created_by:'operator_package',assignee_id:'bot_observe_package',owner_id:'bot_observe_package',workspace_id:'ws_observe_package',root_objective_id:'objective_observe_package',parent_task_id:null,reason:'Package observability smoke',objective:'Observe package usage',required_constraints:[],expected_output:{contract:'artifact'},lease_id:'lease_observe_package',environment_lease_id:null,deadline_at:null,budget:{},approval_id:null,hop:0,max_hops:6,status:'completed',completed_at:new Date().toISOString(),usage:{input_tokens:20,output_tokens:10,cost:0.02,actions:1}}); service.gateway.emit({type:'task.completed',actorId:'bot_observe_package',workspaceId:'ws_observe_package',taskId:'task_observe_package',summary:'Package observable result',attentionState:'unread_result'}); const a=await service.listen(); try { const base='http://127.0.0.1:'+a.port; const snapshot=await (await fetch(base+'/v1/observability/snapshot?workspace=ws_observe_package')).json(); const usage=await (await fetch(base+'/v1/observability/usage?workspace=ws_observe_package')).json(); const timeline=await (await fetch(base+'/v1/observability/timeline?workspace=ws_observe_package&after=0&limit=10')).json(); console.log(JSON.stringify({provider:snapshot.provider,ownsTruth:snapshot.observability_owns_truth,tokens:usage.usage.totals.total_tokens,cost:usage.usage.totals.cost,eventSummary:timeline.events.at(-1)?.summary,privateReasoning:snapshot.private_reasoning_exposed})); } finally { await service.close(); }`
+  ], { cwd: installDir }));
+  assert.equal(observabilitySmoke.provider, "ai-verse-multiple-bots/observability-v1");
+  assert.equal(observabilitySmoke.ownsTruth, false);
+  assert.equal(observabilitySmoke.tokens, 30);
+  assert.equal(observabilitySmoke.cost, 0.02);
+  assert.equal(observabilitySmoke.eventSummary, "Package observable result");
+  assert.equal(observabilitySmoke.privateReasoning, false);
 
   const standaloneConfigPath = join(setupStandaloneRoot, ".ai-verse-bots", "config.json");
   const standaloneReceiptPath = join(setupStandaloneRoot, ".ai-verse-bots", "install.json");
@@ -527,7 +540,8 @@ if (args[0] === "serve") {
     secure_remote_gateway_smoke: "passed",
     dashboard_projection_control_smoke: "passed",
     channel_bridge_smoke: "passed",
-    operator_attention_smoke: "passed"
+    operator_attention_smoke: "passed",
+    observability_usage_smoke: "passed"
   }, null, 2));
 } finally {
   rmSync(tempRoot, { recursive: true, force: true });
