@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { botRegistryAddresses, normalizeBotAddress } from "./bot-registry.js";
 import { createId } from "./id.js";
 import { CoordinationGateway } from "./gateway.js";
@@ -17,6 +18,10 @@ function positiveInteger(value: number | undefined, fallback: number, label: str
   const resolved = value ?? fallback;
   if (!Number.isInteger(resolved) || resolved < 1) throw new Error(`${label} must be a positive integer`);
   return resolved;
+}
+
+function idempotentRoomCorrelation(key: string): string {
+  return `corr_idem_${createHash("sha256").update(key).digest("hex").slice(0, 32)}`;
 }
 
 export interface CreateRoomInput {
@@ -54,6 +59,7 @@ export interface RoomSendResult {
   scheduledTaskIds: string[];
   correlationId: string;
   budgetExhausted?: "max_messages" | "max_rounds";
+  replayed?: boolean;
 }
 
 export interface SetRoomWorkOwnerInput {
@@ -212,7 +218,8 @@ export class RoomCoordinator {
       if (!resolvedMentions.includes(resolved)) resolvedMentions.push(resolved);
     }
 
-    const correlationId = input.correlationId ?? createId("corr");
+    const correlationId = input.correlationId
+      ?? (input.idempotencyKey ? idempotentRoomCorrelation(input.idempotencyKey) : createId("corr"));
     const published = this.gateway.publishRoomMessage({
       senderId: input.senderId,
       roomId: room.id,
@@ -228,6 +235,20 @@ export class RoomCoordinator {
       provenance: input.provenance,
       idempotencyKey: input.idempotencyKey
     });
+
+    const effectiveCorrelationId = typeof published.message.payload.correlation_id === "string"
+      ? published.message.payload.correlation_id
+      : correlationId;
+    if (published.replayed) {
+      return {
+        message: published.message,
+        event: published.event,
+        mentions: resolvedMentions,
+        scheduledTaskIds: [],
+        correlationId: effectiveCorrelationId,
+        replayed: true
+      };
+    }
 
     const scheduledTaskIds: string[] = [];
     let budgetExhausted: "max_messages" | "max_rounds" | undefined;
@@ -306,8 +327,9 @@ export class RoomCoordinator {
       event: published.event,
       mentions: resolvedMentions,
       scheduledTaskIds,
-      correlationId,
-      ...(budgetExhausted ? { budgetExhausted } : {})
+      correlationId: effectiveCorrelationId,
+      ...(budgetExhausted ? { budgetExhausted } : {}),
+      replayed: false
     };
   }
 
