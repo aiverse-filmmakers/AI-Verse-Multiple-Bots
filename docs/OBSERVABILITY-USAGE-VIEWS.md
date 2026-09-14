@@ -2,7 +2,7 @@
 
 **Phase:** 5.12
 
-**Status:** COMPLETE IMPLEMENTATION, ACCEPTANCE PENDING CI
+**Status:** COMPLETE
 
 ## Purpose
 
@@ -378,3 +378,18 @@ Phase 5.12 is accepted when:
 - invalid cursor/limit inputs fail closed;
 - installed-package observability smoke passes;
 - full repository and Phase 4 compatibility suites remain green.
+
+
+## Acceptance evidence
+
+GitHub Actions **CI run 597 (`34810524402`)** on Token-boundary-hardened implementation head `490868288a23a43323eefe1a1707e1a086eddfd8` passed:
+
+- **492/492** repository tests
+- **5/5** Phase 4 runtime compatibility tests
+- all package/install/setup/doctor/update/remote/Dashboard/channel/operator smokes
+- installed-package observability/usage smoke
+- explicit AI-Verse Token ownership/non-ownership assertions
+- **227-file** packed artifact
+- **0 failures, 0 canceled, 0 skipped**
+
+The acceptance suite verifies that the public observability projection labels runtime monetary data as `runtime_reported_cost_evidence`, names `ai-verse-token` as canonical telemetry and cost-truth owner, points canonical historical/global reads to `@ai-verse/token/gateway`, does not expose a canonical-looking `cost` field, and contains no pricing/tariff calculation path.
