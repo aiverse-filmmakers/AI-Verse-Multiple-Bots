@@ -154,13 +154,30 @@ export async function runScopedTemporaryWorker(input, options = {}) {
   }
 }
 
+export async function createDurableBot(manifest, options = {}) {
+  const service = createGateway(options);
+  await service.supervisor.stop();
+  try {
+    const stored = service.gateway.createBot(manifest);
+    return {
+      id: stored.id,
+      kind: stored.kind,
+      workspace_id: stored.workspaceId ?? null,
+      payload: stored.payload
+    };
+  } finally {
+    await service.close();
+  }
+}
+
 export default {
   id: "ai-verse-multiple-bots",
   version: packageVersion,
   root: aiVerseOsRoot,
   createGateway,
   startGateway,
-  runScopedTemporaryWorker
+  runScopedTemporaryWorker,
+  createDurableBot
 };
 `;
 }
