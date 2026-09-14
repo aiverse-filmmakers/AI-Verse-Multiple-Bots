@@ -319,3 +319,168 @@ test("stale retry-safe Worker execution recovers after store reopen and complete
     }
   }
 });
+
+
+function setupRunScoped(runtime: RuntimeAdapter) {
+  const store = new CoordinationStore(":memory:");
+  const queue = new ExecutionQueue(store.dbPath);
+  const policy = new CoordinationPolicy(store, { requireRegisteredBots: true });
+  const gateway = new CoordinationGateway(store, queue, policy);
+  const teams = new TeamRunCoordinator(store);
+  const runner = new BotRunner(
+    store,
+    gateway,
+    queue,
+    new RuntimeRegistry().register(runtime),
+    "runner_runtime_scoped",
+    2,
+    100
+  );
+  const manager = new TeamRunManager(teams, gateway, queue, runner);
+  return { store, queue, gateway, teams, runner, manager };
+}
+
+test("run-scoped automatic Worker completes and cleans up without creating a durable Bot", async () => {
+  const runtime = new DeterministicRuntimeAdapter();
+  const env = setupRunScoped(runtime);
+  try {
+    const result = await env.manager.runScopedTemporaryWorker({
+      leaderId: "runtime_gateway",
+      workspaceId: "ws_auto_worker",
+      rootObjectiveId: "obj_auto_worker",
+      objective: "Independently inspect the bounded work and return one result.",
+      roleTitle: "Temporary Reviewer",
+      reason: "A bounded parallel review improves the current user task.",
+      runtimeLeader: {
+        runtime: { adapter: runtime.id },
+        allowedTools: ["safe.tool"],
+        allowedConnections: [],
+        skillRefs: []
+      },
+      tools: ["safe.tool"],
+      runBudget: {
+        max_workers: 1,
+        max_tasks: 1,
+        max_actions: 2,
+        token_limit: 1000,
+        wall_clock_seconds: 60
+      },
+      workerBudget: {
+        max_actions: 1,
+        token_limit: 500,
+        wall_clock_seconds: 30
+      }
+    });
+
+    assert.equal(result.executionStatus, "completed");
+    assert.equal(result.run.payload.status, "completed");
+    assert.equal(result.run.payload.leader_kind, "runtime");
+    assert.equal(result.run.payload.leader_lifecycle, "run_scoped");
+    assert.equal(result.run.payload.leader_id, "runtime_gateway");
+    assert.equal(result.worker.payload.kind, "temporary");
+    assert.equal(result.worker.payload.status, "expired");
+    assert.equal(result.worker.payload.parent_owner_id, "runtime_gateway");
+    assert.equal(result.task.payload.status, "completed");
+    assert.equal(result.lease.payload.destructive_actions, "deny");
+    assert.equal(typeof result.lease.payload.cleanup_revoked_at, "string");
+    assert.ok(result.artifact);
+    assert.equal(result.artifact?.payload.created_by, result.worker.id);
+    assert.ok(result.cleanup.summary.worker_ids_expired.includes(result.worker.id));
+    assert.ok(result.cleanup.summary.capability_lease_ids_revoked.includes(result.lease.id));
+
+    assert.equal(env.store.listObjects("bot").length, 0);
+    assert.equal(env.gateway.getBot("runtime_gateway"), null);
+    assert.equal(env.gateway.getBot(result.worker.id), null);
+  } finally {
+    env.queue.close();
+    env.store.close();
+  }
+});
+
+test("run-scoped automatic Worker cannot widen runtime leader authority", async () => {
+  const runtime = new DeterministicRuntimeAdapter();
+  const env = setupRunScoped(runtime);
+  try {
+    await assert.rejects(
+      () => env.manager.runScopedTemporaryWorker({
+        leaderId: "runtime_gateway",
+        workspaceId: "ws_auto_worker",
+        rootObjectiveId: "obj_auto_worker_denied",
+        objective: "Attempt an overprivileged temporary review.",
+        roleTitle: "Temporary Reviewer",
+        reason: "Authority boundary test.",
+        runtimeLeader: {
+          runtime: { adapter: runtime.id },
+          allowedTools: ["safe.tool"],
+          allowedConnections: [],
+          skillRefs: []
+        },
+        tools: ["dangerous.tool"],
+        runBudget: { max_workers: 1, max_tasks: 1, max_actions: 1 }
+      }),
+      /cannot expand leader tool authority/
+    );
+    assert.equal(env.store.listObjects("bot").length, 0);
+    assert.equal(env.store.listObjects("worker", "ws_auto_worker").length, 0);
+    assert.equal(env.store.listObjects("task", "ws_auto_worker").length, 0);
+    const runs = env.store.listObjects("team_run", "ws_auto_worker");
+    assert.equal(runs.length, 1);
+    assert.equal(runs[0]?.payload.status, "failed");
+    assert.equal(runs[0]?.payload.leader_kind, "runtime");
+  } finally {
+    env.queue.close();
+    env.store.close();
+  }
+});
+
+test("run-scoped runtime leader cannot unlock broader Team Run topologies or undeclared Skills", () => {
+  const runtime = new DeterministicRuntimeAdapter();
+  const env = setupRunScoped(runtime);
+  try {
+    assert.throws(
+      () => env.teams.createRun({
+        leaderId: "runtime_gateway",
+        workspaceId: "ws_auto_worker",
+        rootObjectiveId: "obj_bad_topology",
+        objective: "Do not allow a durable-style topology.",
+        topology: "dynamic_squad",
+        runtimeLeader: {
+          runtime: { adapter: runtime.id },
+          allowedTools: [],
+          allowedConnections: [],
+          skillRefs: []
+        }
+      }),
+      /limited to manager topology/
+    );
+
+    const run = env.teams.createRun({
+      leaderId: "runtime_gateway",
+      workspaceId: "ws_auto_worker",
+      rootObjectiveId: "obj_skill_boundary",
+      objective: "Bound Skill authority.",
+      topology: "manager",
+      runtimeLeader: {
+        runtime: { adapter: runtime.id },
+        allowedTools: [],
+        allowedConnections: [],
+        skillRefs: []
+      }
+    }).run;
+    assert.throws(
+      () => env.manager.createWorkerTask({
+        runId: run.id,
+        createdBy: "runtime_gateway",
+        roleTitle: "Temporary Specialist",
+        objective: "Attempt undeclared Skill use.",
+        reason: "Skill boundary test.",
+        skillRefs: ["aiverse-skills:undeclared"]
+      }),
+      /does not declare skill capability|undeclared leader skill capability/
+    );
+    assert.equal(env.store.listObjects("bot").length, 0);
+  } finally {
+    env.queue.close();
+    env.store.close();
+  }
+});
