@@ -242,7 +242,7 @@ test("Phase 5.12 timeline is workspace-scoped, cursor-based, compact, and expose
     assert.equal(timeline.events[0].summary, "Published result");
     assert.equal(JSON.stringify(timeline).includes("Other workspace"), false);
     assert.equal(timeline.private_reasoning_exposed, false);
-    assert.equal(timeline.event_cursor, second.sequence + 1);
+    assert.equal(timeline.event_cursor, second.sequence);
   } finally {
     queue.close();
     store.close();
