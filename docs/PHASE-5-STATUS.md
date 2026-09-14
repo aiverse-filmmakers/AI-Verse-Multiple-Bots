@@ -1,12 +1,12 @@
 # Phase 5 Status - Product, Installer, Omnichannel and Dashboard
 
-**Updated:** 2026-09-13
+**Updated:** 2026-09-14
 
 **Phase:** 5
 
 **Overall status:** IN PROGRESS
 
-**Directional phase progress:** approximately 95%
+**Directional phase progress:** final acceptance pending
 
 This file is the implementation ledger for Phase 5. The canonical product roadmap remains `BUILD-MAP.md`.
 
@@ -29,7 +29,7 @@ Turn the completed coordination, AI-Verse integration and runtime-interoperabili
 11. operator approvals/attention UX - **COMPLETE**
 12. observability/usage views - **COMPLETE**
 13. release docs/examples - **COMPLETE**
-14. full release acceptance suite - **NEXT**
+14. full release acceptance suite - **COMPLETE IMPLEMENTATION, ACCEPTANCE PENDING CI**
 
 ## Slice 5.1 - simple install command/package
 
@@ -656,6 +656,36 @@ The corrected implementation head `2a6d35d8b971bd46207e06d87db27acd90f974c4` pas
 - packed artifact: **234 files**
 - **0 failures, 0 canceled and 0 skipped**
 
+## Slice 5.14 - full release acceptance suite
+
+**Implementation status:** COMPLETE IMPLEMENTATION, ACCEPTANCE PENDING CI
+
+Phase 5.14 is the final Multiple Bots component release gate.
+
+Implemented:
+
+- canonical machine-readable release contract at `evals/public-beta-release-acceptance.json`
+- dedicated `npm run eval:release` gate
+- complete local `npm run release:check` command
+- hosted CI now runs repository tests, Phase 4 compatibility, clean package verification and release evaluation as separate gates
+- package/extension candidate promoted consistently to `@ai-verse/multiple-bots@0.1.0-beta.1`
+- explicit distinction between this component release gate and the separate whole-Agent/Distribution composed acceptance gate
+- canonical owner inventory covering OS, Brain, Memory, Skills, Data, Connections, Automations, Dashboard and Token
+- AI-Verse Token telemetry/pricing non-ownership frozen into the release manifest
+- direct non-loopback/bearer/channel-adapter security laws frozen into the release manifest
+- final audit repair for whole logical Message idempotency
+- direct Message replay now atomically covers Message + delivery + Event + idempotency receipt
+- Room/Thread replay stops before speaker scheduling, preventing duplicate Task fan-out
+- semantic drift under one idempotency key fails closed
+- legacy alpha Event-only idempotency keys fail closed instead of guessing or duplicating work
+- new restart-safe direct/Room idempotency acceptance coverage
+- explicit release operations that remain unclaimed: npm publication, immutable Git tag, Agent composed acceptance and Distribution Agent promotion
+- component-level public-beta stop rule documented in `docs/PUBLIC-BETA-RELEASE-ACCEPTANCE.md`
+
+Hosted acceptance evidence will be recorded only after the exact PR head passes every gate.
+
+See `docs/PUBLIC-BETA-RELEASE-ACCEPTANCE.md`.
+
 ## Ownership boundary
 
 Phase 5.1 intentionally does not choose or configure an operating mode during npm installation.
@@ -667,6 +697,6 @@ Phase 5.1 intentionally does not choose or configure an operating mode during np
 
 ## Next gate
 
-**Phase 5.14 - full release acceptance suite.**
+**Final hosted Phase 5.14 acceptance.**
 
-Phase 5.13 is complete. The final slice is the complete public-beta release acceptance gate across packaging, lifecycle, security, integrations, examples and canonical cross-component boundaries.
+All fourteen Phase 5 implementation slices are present on the release branch. Phase 5 becomes COMPLETE only after the exact final PR head and post-merge `main` commit pass the full release gate.
