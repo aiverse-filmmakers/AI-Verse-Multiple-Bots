@@ -14,6 +14,138 @@ type UsageTotals = {
   actions: number;
 };
 
+export interface PrincipalUsageView {
+  id: string;
+  runtime_adapter: string | null;
+  tasks: number;
+  completed_tasks: number;
+  failed_tasks: number;
+  active_tasks: number;
+  usage: UsageTotals;
+}
+
+export interface TeamRunUsageView {
+  id: string;
+  status: string;
+  leader_id: string | null;
+  topology: string | null;
+  tasks: number;
+  workers: number;
+  usage: UsageTotals;
+  canonical_usage: UsageTotals;
+  usage_consistent: boolean;
+  budget: {
+    token_limit: number | null;
+    cost_limit: number | null;
+    max_actions: number | null;
+  };
+  utilization_percent: {
+    tokens: number | null;
+    cost: number | null;
+    actions: number | null;
+  };
+  updated_at: string;
+}
+
+export interface ObservabilityUsageView {
+  totals: UsageTotals;
+  coverage: {
+    total_tasks: number;
+    completed_tasks: number;
+    tasks_with_persisted_usage: number;
+    note: string;
+  };
+  by_principal: PrincipalUsageView[];
+  by_team_run: TeamRunUsageView[];
+}
+
+export interface ObservabilityTimelineView {
+  counts_by_type: Record<string, number>;
+  attention_counts: Record<string, number>;
+  events: JsonObject[];
+}
+
+export interface ObservabilitySnapshot {
+  schema_version: typeof OBSERVABILITY_SCHEMA;
+  provider: typeof OBSERVABILITY_PROVIDER;
+  projection_only: true;
+  canonical_owner: "ai-verse-multiple-bots";
+  observability_owns_truth: false;
+  workspace_id: string;
+  observed_at: string;
+  event_cursor: number;
+  window: {
+    after_event_sequence: number;
+    event_limit: number;
+    events_returned: number;
+  };
+  summary: {
+    bots: number;
+    team_runs: number;
+    workers: number;
+    tasks: number;
+    active_tasks: number;
+    completed_tasks: number;
+    failed_tasks: number;
+    dead_letters: number;
+    stale_executions: number;
+  };
+  outcomes: {
+    task_status_counts: Record<string, number>;
+    terminal_tasks: number;
+    success_rate_percent: number | null;
+  };
+  execution: {
+    state_counts: Record<string, number>;
+    dead_letters: number;
+    retryable_dead_letters: number;
+    stale_executions: number;
+  };
+  usage: ObservabilityUsageView;
+  latency: {
+    terminal_task_samples: number;
+    average_ms: number | null;
+    min_ms: number | null;
+    max_ms: number | null;
+  };
+  errors: ObservabilityErrorCounts;
+  timeline: ObservabilityTimelineView;
+  private_reasoning_exposed: false;
+}
+
+export interface ObservabilityUsageResponse {
+  schema_version: typeof OBSERVABILITY_SCHEMA;
+  provider: typeof OBSERVABILITY_PROVIDER;
+  projection_only: true;
+  canonical_owner: "ai-verse-multiple-bots";
+  observability_owns_truth: false;
+  workspace_id: string;
+  observed_at: string;
+  event_cursor: number;
+  usage: ObservabilityUsageView;
+  latency: ObservabilitySnapshot["latency"];
+  outcomes: ObservabilitySnapshot["outcomes"];
+  execution: ObservabilitySnapshot["execution"];
+  private_reasoning_exposed: false;
+}
+
+export interface ObservabilityTimelineResponse {
+  schema_version: typeof OBSERVABILITY_SCHEMA;
+  provider: typeof OBSERVABILITY_PROVIDER;
+  projection_only: true;
+  canonical_owner: "ai-verse-multiple-bots";
+  observability_owns_truth: false;
+  workspace_id: string;
+  observed_at: string;
+  requested_after: number;
+  event_cursor: number;
+  limit: number;
+  counts_by_type: Record<string, number>;
+  attention_counts: Record<string, number>;
+  events: JsonObject[];
+  private_reasoning_exposed: false;
+}
+
 export interface ObservabilityErrorCounts extends JsonObject {
   failed_tasks: number;
   dead_letters: number;
@@ -215,7 +347,7 @@ export class ObservabilityProjector {
     };
   }
 
-  snapshot(workspaceInput: string, afterInput = 0, limitInput = 100): JsonObject {
+  snapshot(workspaceInput: string, afterInput = 0, limitInput = 100): ObservabilitySnapshot {
     const workspaceId = requiredScope(workspaceInput);
     const after = boundedCursor(afterInput);
     const limit = boundedLimit(limitInput);
@@ -293,7 +425,7 @@ export class ObservabilityProjector {
       }
     }
 
-    const runViews = runs.map((run) => {
+    const runViews: TeamRunUsageView[] = runs.map((run) => {
       const runTasks = tasks.filter((task) => task.payload.run_id === run.id);
       let computedUsage = emptyUsage();
       for (const task of runTasks) {
@@ -349,7 +481,7 @@ export class ObservabilityProjector {
       attention_events: events.filter((event) => optionalString(event.event.attention_state) !== null).length
     };
 
-    const principals = [...principalUsage.values()]
+    const principals: PrincipalUsageView[] = [...principalUsage.values()]
       .map((item) => ({
         ...item,
         usage: {
@@ -431,7 +563,7 @@ export class ObservabilityProjector {
     };
   }
 
-  usage(workspaceInput: string): JsonObject {
+  usage(workspaceInput: string): ObservabilityUsageResponse {
     const snapshot = this.snapshot(workspaceInput, this.store.latestEventSequence(), 1);
     return {
       schema_version: OBSERVABILITY_SCHEMA,
@@ -450,7 +582,7 @@ export class ObservabilityProjector {
     };
   }
 
-  timeline(workspaceInput: string, afterInput = 0, limitInput = 100): JsonObject {
+  timeline(workspaceInput: string, afterInput = 0, limitInput = 100): ObservabilityTimelineResponse {
     const workspaceId = requiredScope(workspaceInput);
     const after = boundedCursor(afterInput);
     const limit = boundedLimit(limitInput);
