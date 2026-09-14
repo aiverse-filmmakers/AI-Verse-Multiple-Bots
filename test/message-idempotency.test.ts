@@ -231,3 +231,43 @@ test("Phase 5.14 Room idempotency never schedules a second Bot Task on replay", 
     rmSync(`${db}-wal`, { force: true });
   }
 });
+
+
+test("Phase 5.14 legacy alpha event-only idempotency keys fail closed instead of duplicating messages", () => {
+  const store = new CoordinationStore(":memory:");
+  const gateway = new CoordinationGateway(store);
+  try {
+    gateway.createBot(bot("bot_sender"));
+    gateway.createBot(bot("bot_target"));
+
+    gateway.emit({
+      type: "message.queued",
+      actorId: "bot_sender",
+      workspaceId: "ws_idem",
+      messageId: "msg_legacy_alpha",
+      summary: "Legacy event-only idempotency evidence",
+      idempotencyKey: "legacy-alpha-key"
+    });
+
+    const beforeMessages = store.listObjects("message", "ws_idem").length;
+    const beforeEvents = store.listEventsAfter(0, 100).length;
+
+    assert.throws(
+      () => gateway.sendMessage({
+        senderId: "bot_sender",
+        targetKind: "bot",
+        targetId: "bot_target",
+        workspaceId: "ws_idem",
+        text: "Do not duplicate under an unverifiable legacy key",
+        idempotencyKey: "legacy-alpha-key"
+      }),
+      /belongs to appendEvent, not sendMessage/
+    );
+
+    assert.equal(store.listObjects("message", "ws_idem").length, beforeMessages);
+    assert.equal(store.listEventsAfter(0, 100).length, beforeEvents);
+    assert.equal(store.listMailbox("bot_target").length, 0);
+  } finally {
+    store.close();
+  }
+});
