@@ -24,9 +24,11 @@ The target experience is inspired most strongly by xAI's Grok Bot persistent-tea
 
 **Phase 4: Runtime and Agent Interoperability: COMPLETE**
 
-**Phase 5: Product, Installer, Omnichannel and Dashboard: 14/14 IMPLEMENTED, FINAL HOSTED ACCEPTANCE PENDING**
+**Phase 5: Product, Installer, Omnichannel and Dashboard: COMPLETE (14/14)**
 
-All fourteen Phase 5 implementation slices are present, including the final machine-readable public-beta release contract, dedicated release evaluation, clean package gate, and whole-message idempotency repair. Phase 5 is marked COMPLETE only after the exact final PR head and post-merge `main` commit pass every hosted gate.
+All fourteen Phase 5 slices are implemented and the full component acceptance gate passed on CI run 609: **508/508 repository tests**, **5/5 Phase 4 compatibility tests**, **234-file beta.1 clean package**, and **7/7 dedicated release evaluations**.
+
+The current source candidate is `@ai-verse/multiple-bots@0.1.0-beta.1`. This repository still does not claim npm publication, immutable release tagging, whole-Agent composed acceptance, or Distribution Agent promotion until those separate release operations occur.
 
 ## Install
 
