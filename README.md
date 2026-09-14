@@ -837,6 +837,7 @@ Therefore the system selects the **smallest sufficient topology** and keeps mult
 - [`docs/DASHBOARD-PROJECTION-CONTROL.md`](docs/DASHBOARD-PROJECTION-CONTROL.md) - Phase 5.9 workspace-scoped Dashboard projection/control contract
 - [`docs/CHANNEL-BRIDGE-CONTRACTS.md`](docs/CHANNEL-BRIDGE-CONTRACTS.md) - Phase 5.10 Telegram/Discord/generic channel bridge contract
 - [`docs/OPERATOR-ATTENTION-UX.md`](docs/OPERATOR-ATTENTION-UX.md) - Phase 5.11 operator approvals and attention UX contract
+- [`docs/OBSERVABILITY-USAGE-VIEWS.md`](docs/OBSERVABILITY-USAGE-VIEWS.md) - Phase 5.12 operational observability and usage views
 - [`docs/AI-VERSE-OS-REGISTRATION-CONTRACT.md`](docs/AI-VERSE-OS-REGISTRATION-CONTRACT.md) - Phase 3.1 host contract
 - [`docs/AI-VERSE-BRAIN-OBJECTIVE-INGRESS.md`](docs/AI-VERSE-BRAIN-OBJECTIVE-INGRESS.md) - Phase 3.3 Brain ingress contract
 - [`docs/AI-VERSE-MEMORY-RECALL.md`](docs/AI-VERSE-MEMORY-RECALL.md) - Phase 3.4 Memory recall contract
@@ -858,7 +859,7 @@ Contracts are tightened through implementation/evaluation rather than treated as
 
 Phases 0 through 4 are complete. Phase 5 is in progress.
 
-Phase 5.1 package installation, Phase 5.2 standalone mode, Phase 5.3 AI-Verse OS install mode, Phase 5.4 setup/onboarding, Phase 5.5 Bot/team templates, Phase 5.6 production health/doctor, Phase 5.7 update/migration strategy, Phase 5.8 secure remote Gateway, Phase 5.9 Dashboard projections/control endpoints, and Phase 5.10 channel bridge contracts are complete. Phase 5.11 operator approvals/attention UX is complete. Remaining productization work starts with observability, followed by release documentation and the final release acceptance suite.
+Phase 5.1 package installation, Phase 5.2 standalone mode, Phase 5.3 AI-Verse OS install mode, Phase 5.4 setup/onboarding, Phase 5.5 Bot/team templates, Phase 5.6 production health/doctor, Phase 5.7 update/migration strategy, Phase 5.8 secure remote Gateway, Phase 5.9 Dashboard projections/control endpoints, and Phase 5.10 channel bridge contracts are complete. Phase 5.11 operator approvals/attention UX is complete. The Phase 5.12 observability/usage implementation is complete pending hosted acceptance. Remaining productization work is release documentation/examples and the final release acceptance suite.
 
 The visual Bot roster belongs in AI-Verse Dashboard. Multiple Bots remains the backend coordination authority for Bot identity, routing, Tasks, Handoffs, Rooms, Team Runs and runtime orchestration.
 
