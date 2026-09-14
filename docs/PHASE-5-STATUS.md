@@ -27,7 +27,7 @@ Turn the completed coordination, AI-Verse integration and runtime-interoperabili
 9. Dashboard projections/control endpoints - **COMPLETE**
 10. Telegram/Discord/other channel bridge contracts - **COMPLETE**
 11. operator approvals/attention UX - **COMPLETE**
-12. observability/usage views - **COMPLETE IMPLEMENTATION, ACCEPTANCE PENDING CI**
+12. observability/usage views - **COMPLETE**
 13. release docs/examples - **NEXT**
 14. full release acceptance suite - **NOT STARTED**
 
@@ -542,7 +542,7 @@ See `docs/OPERATOR-ATTENTION-UX.md`.
 
 ## Slice 5.12 - observability/usage views
 
-**Implementation status:** COMPLETE IMPLEMENTATION, ACCEPTANCE PENDING CI
+**Implementation status:** COMPLETE
 
 Phase 5.12 exposes truthful workspace-scoped operational and usage views over canonical coordination state without introducing a second telemetry or billing store.
 
@@ -576,7 +576,35 @@ Implemented:
 - no telemetry mutation, Token ledger mutation, pricing authority, retry authority or billing claim
 - installed-package observability/usage smoke coverage
 
-Acceptance proof will be recorded after hosted CI passes on the PR head.
+### 5.12 acceptance proof
+
+The Token-boundary-hardened implementation head `490868288a23a43323eefe1a1707e1a086eddfd8` passed GitHub Actions **CI run 597 (`34810524402`)**:
+
+- full repository suite: **492/492 tests passed**
+- Phase 4 compatibility suite: **5/5 tests passed**
+- package install smoke: **passed**
+- standalone install smoke: **passed**
+- AI-Verse OS install smoke: **passed**
+- materialized AI-Verse OS engine smoke: **passed**
+- setup/onboarding smoke: **passed**
+- starter-template smoke: **passed**
+- production-doctor smoke: **passed**
+- update/migration smoke: **passed**
+- secure-remote Gateway smoke: **passed**
+- Dashboard projection/control smoke: **passed**
+- channel bridge smoke: **passed**
+- operator attention/Approval smoke: **passed**
+- installed-package observability/usage smoke: **passed**
+- AI-Verse Token telemetry/pricing non-ownership assertions: **passed**
+- packed artifact: **227 files**
+- **0 failures, 0 canceled and 0 skipped**
+
+The accepted contract explicitly preserves:
+
+- Multiple Bots owns execution-local operational usage needed for coordination and budgets.
+- AI-Verse Token owns immutable normalized telemetry, pricing evidence, and ACTUAL/CALCULATED/UNKNOWN cost truth.
+- Multiple Bots does not price model usage, create Token telemetry, or expose runtime-reported monetary evidence as canonical Token cost.
+- canonical historical/global telemetry is delegated to the supported `@ai-verse/token/gateway` read surface.
 
 See `docs/OBSERVABILITY-USAGE-VIEWS.md`.
 
@@ -593,4 +621,4 @@ Phase 5.1 intentionally does not choose or configure an operating mode during np
 
 **Phase 5.13 - release docs/examples.**
 
-Phase 5.12 implementation is complete pending hosted acceptance. The next product slice is the final member-facing release documentation and runnable examples before full release acceptance.
+Phase 5.12 is complete. The next product slice is the final member-facing release documentation and runnable examples before full release acceptance.
