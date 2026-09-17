@@ -114,6 +114,29 @@ test("WSA-2026-022 host-bound authenticated operator session can perform operato
   }
 });
 
+test("WSA-2026-022 bound operator session rejects mismatched operator provenance", async () => {
+  const service = createGatewayServer({
+    dbPath: ":memory:",
+    port: 0,
+    inboundAuth: bindGatewayOperatorSession(transportAuth(), "operator_authenticated")
+  });
+  service.gateway.createBot(bot("bot_operator_mismatch"));
+  const address = await service.listen();
+  try {
+    const denied = await httpJson(
+      address.port,
+      "POST",
+      "/v1/bots/bot_operator_mismatch/disable",
+      { actorId: "operator_other" }
+    );
+    assert.equal(denied.status, 403, JSON.stringify(denied.body));
+    assert.equal(denied.body.error, "OPERATOR_PRINCIPAL_MISMATCH");
+    assert.equal(service.store.getObject("bot_operator_mismatch")?.payload.status, "active");
+  } finally {
+    await service.close();
+  }
+});
+
 test("WSA-2026-022 bearer transport cannot approve pending work by claiming operator provenance", async () => {
   const service = createGatewayServer({
     dbPath: ":memory:",
@@ -153,7 +176,7 @@ test("WSA-2026-022 bearer transport cannot approve pending work by claiming oper
   }
 });
 
-test("WSA-2026-022 bearer transport cannot cancel a Task by impersonating its canonical owner", async () => {
+test("WSA-2026-022 bearer transport cannot use the operator Task-cancel override", async () => {
   const service = createGatewayServer({
     dbPath: ":memory:",
     port: 0,
@@ -184,7 +207,7 @@ test("WSA-2026-022 bearer transport cannot cancel a Task by impersonating its ca
       address.port,
       "POST",
       `/v1/tasks/${delegated.task.id}/cancel`,
-      { actorId: "bot_cancel_source", reason: "Spoofed owner cancellation" }
+      { actorId: "operator_claimed", reason: "Spoofed operator cancellation" }
     );
     assert.equal(denied.status, 403, JSON.stringify(denied.body));
     assert.equal(denied.body.error, "OPERATOR_AUTHORITY_REQUIRED");
