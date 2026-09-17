@@ -166,14 +166,19 @@ test("WSA-2026-022 bearer transport cannot cancel a Task by impersonating its ca
     assigneeId: "bot_cancel_target",
     workspaceId: "ws_authority",
     rootObjectiveId: "objective_authority_cancel",
-    objective: "Remain queued until explicitly executed",
-    reason: "Cancellation authority regression"
+    objective: "Remain approval-gated until trusted control arrives",
+    reason: "Cancellation authority regression",
+    approval: {
+      required: true,
+      action: { kind: "publish.external", summary: "Hold Task for cancellation authority test" }
+    }
   });
+  if (!delegated.approval) throw new Error("Expected pending approval");
 
   const address = await service.listen();
   try {
-    const before = service.executionQueue.getByItem(delegated.task.id);
-    assert.equal(before?.state, "queued");
+    assert.equal(service.executionQueue.getByItem(delegated.task.id), null);
+    assert.equal(service.store.getObject(delegated.task.id)?.payload.status, "waiting_approval");
 
     const denied = await httpJson(
       address.port,
@@ -183,8 +188,9 @@ test("WSA-2026-022 bearer transport cannot cancel a Task by impersonating its ca
     );
     assert.equal(denied.status, 403, JSON.stringify(denied.body));
     assert.equal(denied.body.error, "OPERATOR_AUTHORITY_REQUIRED");
-    assert.equal(service.store.getObject(delegated.task.id)?.payload.status, "assigned");
-    assert.equal(service.executionQueue.getByItem(delegated.task.id)?.state, "queued");
+    assert.equal(service.store.getObject(delegated.task.id)?.payload.status, "waiting_approval");
+    assert.equal(service.store.getObject(delegated.approval.id)?.payload.status, "pending");
+    assert.equal(service.executionQueue.getByItem(delegated.task.id), null);
   } finally {
     await service.close();
   }
