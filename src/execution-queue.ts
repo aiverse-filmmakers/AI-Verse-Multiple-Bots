@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
+import { assertGatewayOperatorMutationAllowed } from "./gateway-security.js";
 
 export type ExecutionState = "queued" | "claimed" | "running" | "completed" | "failed" | "canceled" | "dead_letter";
 export type RecoveryPolicy = "manual" | "retry_safe";
@@ -310,6 +311,7 @@ export class ExecutionQueue {
   }
 
   retryDeadLetter(itemId: string, reason = "Operator authorized retry"): ExecutionRecord {
+    assertGatewayOperatorMutationAllowed();
     const timestamp = nowIso();
     const result = this.db.prepare(`
       UPDATE execution_queue
@@ -331,6 +333,7 @@ export class ExecutionQueue {
   }
 
   cancelByItem(itemId: string, reason = "canceled"): ExecutionRecord | null {
+    assertGatewayOperatorMutationAllowed();
     const timestamp = nowIso();
     this.db.prepare(`
       UPDATE execution_queue
