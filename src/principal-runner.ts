@@ -447,9 +447,15 @@ export class PrincipalRunner {
       const failurePreconditions: Array<{ id: string; kind: "task" | "worker"; status?: string; ownerId?: string }> = [
         { id: task.id, kind: "task", status: String(failureBase.payload.status), ownerId: targetId }
       ];
+      let failedWorker: StoredObject | null = null;
       if (resolved.principalKind === "worker") {
         const worker = this.store.getObject(targetId);
-        if (worker?.kind === "worker" && !TERMINAL_WORKER_STATES.has(String(worker.payload.status) as WorkerStatus)) {
+        if (
+          worker?.kind === "worker"
+          && this.workerScopeBoundToTask(worker, failureBase)
+          && !TERMINAL_WORKER_STATES.has(String(worker.payload.status) as WorkerStatus)
+        ) {
+          failedWorker = worker;
           failureObjects.push({ kind: "worker", payload: validateProtocolObject({ ...worker.payload, status: "failed", failed_at: nowIso(), terminal_at: nowIso(), status_reason: message, updated_at: nowIso() }, "worker") });
           failurePreconditions.push({ id: worker.id, kind: "worker", status: String(worker.payload.status) });
         }
@@ -476,7 +482,7 @@ export class PrincipalRunner {
       if (error instanceof BudgetError) this.gateway.emit({ type: "task.budget_exceeded", actorId: targetId, workspaceId: claimed.workspaceId, runId, taskId: task.id, correlationId: String(task.payload.root_objective_id), summary: message, attentionState: "failed" });
       if (error instanceof CoordinationLoopError) this.gateway.emit({ type: "task.no_progress", actorId: targetId, workspaceId: claimed.workspaceId, runId, taskId: task.id, correlationId: String(task.payload.root_objective_id), summary: message, attentionState: "failed" });
       this.gateway.emit({ type: "task.failed", actorId: targetId, workspaceId: claimed.workspaceId, runId, taskId: task.id, correlationId: String(task.payload.root_objective_id), summary: message, attentionState: "failed" });
-      if (resolved.principalKind === "worker") this.gateway.emit({ type: "worker.status_changed", actorId: targetId, workspaceId: claimed.workspaceId, runId, taskId: task.id, correlationId: String(task.payload.root_objective_id), summary: `${targetId} failed: ${message}` });
+      if (failedWorker) this.gateway.emit({ type: "worker.status_changed", actorId: targetId, workspaceId: failedWorker.workspaceId, runId, taskId: task.id, correlationId: String(task.payload.root_objective_id), summary: `${targetId} failed: ${message}` });
       const failureSettlement = resolved.principalKind === "bot" ? this.gateway.settleHandoffForTask(task.id, "failed", targetId) : null;
       failedTask = failureSettlement?.task ?? failedTask;
       if (error instanceof BudgetError && error.code.startsWith("TEAM_RUN_") && resolved.run) {
@@ -561,6 +567,25 @@ export class PrincipalRunner {
       adapterId,
       provenanceOrigin: "worker_generated"
     };
+  }
+
+  private workerScopeBoundToTask(worker: StoredObject, task: StoredObject): boolean {
+    if (worker.kind !== "worker") return false;
+    const runId = typeof worker.payload.run_id === "string" ? worker.payload.run_id : "";
+    const run = runId ? this.store.getObject(runId) : null;
+    if (!run || run.kind !== "team_run") return false;
+    return Boolean(
+      worker.workspaceId
+      && task.workspaceId
+      && worker.workspaceId === task.workspaceId
+      && run.workspaceId === worker.workspaceId
+      && String(task.payload.run_id ?? "") === run.id
+      && String(worker.payload.task_id ?? "") === task.id
+      && String(task.payload.assignee_id ?? "") === worker.id
+      && String(task.payload.owner_id ?? "") === worker.id
+      && Array.isArray(run.payload.participant_ids)
+      && run.payload.participant_ids.map(String).includes(worker.id)
+    );
   }
 
   private assertExecutableTask(resolved: ResolvedExecutionPrincipal, task: StoredObject, workspaceId: string): void {
@@ -733,6 +758,10 @@ export class PrincipalRunner {
     const current = this.store.getObject(task.id);
     if (!current || current.kind !== "task" || TERMINAL_TASK_STATES.has(String(current.payload.status))) return;
 
+    const ownerId = String(current.payload.owner_id ?? "");
+    const worker = ownerId.startsWith("worker_") ? this.store.getObject(ownerId) : null;
+    const workerScopeBound = worker?.kind === "worker" && this.workerScopeBoundToTask(worker, current);
+
     const active = this.active.get(task.id);
     if (active) {
       const cancellation = new TaskCancellationError("CANCELED", reason);
@@ -742,7 +771,11 @@ export class PrincipalRunner {
       const recoveryTargetId = typeof current.payload.assignee_id === "string"
         ? current.payload.assignee_id
         : String(current.payload.owner_id ?? "");
-      if (recoveryTargetId) await this.cancelRuntimeRecovery(task.id, recoveryTargetId);
+      if (recoveryTargetId) {
+        const recoveryTarget = recoveryTargetId.startsWith("worker_") ? this.store.getObject(recoveryTargetId) : null;
+        const recoveryScopeBound = recoveryTarget?.kind !== "worker" || this.workerScopeBoundToTask(recoveryTarget, current);
+        if (recoveryScopeBound) await this.cancelRuntimeRecovery(task.id, recoveryTargetId);
+      }
     }
 
     this.queue.cancelByItem(task.id, reason);
@@ -750,15 +783,13 @@ export class PrincipalRunner {
     const objects: Array<{ kind: "task" | "worker"; payload: JsonObject }> = [
       { kind: "task", payload: validateProtocolObject({ ...current.payload, status: "canceled", canceled_at: nowIso(), canceled_by: actorId, cancellation_reason: reason, cancellation_code: "CANCELED" }, "task") }
     ];
-    const ownerId = String(current.payload.owner_id ?? "");
-    const worker = ownerId.startsWith("worker_") ? this.store.getObject(ownerId) : null;
-    if (worker?.kind === "worker" && !TERMINAL_WORKER_STATES.has(String(worker.payload.status) as WorkerStatus)) {
+    if (workerScopeBound && worker?.kind === "worker" && !TERMINAL_WORKER_STATES.has(String(worker.payload.status) as WorkerStatus)) {
       objects.push({ kind: "worker", payload: validateProtocolObject({ ...worker.payload, status: "canceled", terminal_at: nowIso(), status_reason: reason, updated_at: nowIso() }, "worker") });
     }
     const mutation = this.store.atomicMutation({ objects, events: [] });
     let canceled = mutation.objects.find((object) => object.id === current.id) ?? current;
     const event = this.gateway.emit({ type: "task.canceled", actorId, workspaceId: current.workspaceId, runId, taskId: current.id, correlationId: String(current.payload.root_objective_id), summary: reason, attentionState: "canceled" });
-    if (worker?.kind === "worker") this.gateway.emit({ type: "worker.status_changed", actorId, workspaceId: current.workspaceId, runId, taskId: current.id, correlationId: String(current.payload.root_objective_id), summary: `${worker.id} canceled: ${reason}` });
+    if (workerScopeBound && worker?.kind === "worker") this.gateway.emit({ type: "worker.status_changed", actorId, workspaceId: worker.workspaceId, runId, taskId: current.id, correlationId: String(current.payload.root_objective_id), summary: `${worker.id} canceled: ${reason}` });
     const settlement = ownerId.startsWith("bot_") ? this.gateway.settleHandoffForTask(current.id, "canceled", actorId) : null;
     canceled = settlement?.task ?? canceled;
     if (active) await this.settleRuntime(active.adapter, current.id);
