@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { normalizeBudget, type BudgetEnvelope, type RuntimeUsage } from "./budget.js";
 import { ExecutionQueue } from "./execution-queue.js";
 import { CoordinationGateway } from "./gateway.js";
+import { assertGatewayOperatorMutationAllowed } from "./gateway-security.js";
 import { TeamRunCoordinator, type TeamRunStatus, type WorkerStatus } from "./team-runs.js";
 import type { JsonObject, StoredObject } from "./types.js";
 import { validateProtocolObject } from "./validator.js";
@@ -714,9 +715,12 @@ export class TeamRunControl {
 
   private assertTerminationActor(run: StoredObject, actorId: string): void {
     const leaderId = String(run.payload.leader_id ?? "");
-    if (actorId !== leaderId && !actorId.startsWith("operator_")) {
-      throw new Error(`Only Team Run leader ${leaderId} or an operator can terminate ${run.id}`);
+    if (actorId === leaderId) return;
+    if (actorId.startsWith("operator_")) {
+      assertGatewayOperatorMutationAllowed(actorId);
+      return;
     }
+    throw new Error(`Only Team Run leader ${leaderId} or an operator can terminate ${run.id}`);
   }
 
   private emitTerminationStarted(run: StoredObject, outcome: TeamRunTerminationOutcome, actorId: string, reason: string, triggerTaskId: string | null): void {
