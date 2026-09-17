@@ -13,6 +13,15 @@ declare module "node:crypto" {
     digest(encoding: "hex"): string;
   };
 }
+declare module "node:async_hooks" {
+  export class AsyncLocalStorage<T> {
+    constructor();
+    disable(): void;
+    getStore(): T | undefined;
+    enterWith(store: T): void;
+    run<R>(store: T, callback: (...args: any[]) => R, ...args: any[]): R;
+  }
+}
 declare module "node:child_process" {
   export function execFile(
     file: string,
