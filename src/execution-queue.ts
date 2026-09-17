@@ -333,7 +333,6 @@ export class ExecutionQueue {
   }
 
   cancelByItem(itemId: string, reason = "canceled"): ExecutionRecord | null {
-    assertGatewayOperatorMutationAllowed();
     const timestamp = nowIso();
     this.db.prepare(`
       UPDATE execution_queue
