@@ -4,6 +4,7 @@ import { BotRegistryRules, type BotLifecycleStatus, type ExternalManagedRebindIn
 import { constraintsDigest, normalizeConstraints } from "./constraints.js";
 import { createId } from "./id.js";
 import { ExecutionQueue } from "./execution-queue.js";
+import { assertGatewayOperatorMutationAllowed } from "./gateway-security.js";
 import { parseTaskMemoryRecallRequest } from "./memory-recall-runtime.js";
 import { CoordinationPolicy } from "./policy.js";
 import { parseTaskSkillRefs } from "./skills-capability-runtime.js";
@@ -784,6 +785,7 @@ export class CoordinationGateway {
     if (actorId !== targetId && !actorId.startsWith("operator_")) {
       throw new Error(`Only target Bot ${targetId} or an operator can reject Handoff ${handoffId}`);
     }
+    if (actorId.startsWith("operator_")) assertGatewayOperatorMutationAllowed(actorId);
     const taskId = String(handoff.payload.task_id ?? handoff.payload.work_item_id ?? "");
     const rejectedPayload: JsonObject = {
       ...handoff.payload,
@@ -1224,5 +1226,6 @@ export class CoordinationGateway {
 
   private assertOperatorDecision(actorId: string): void {
     if (!actorId.startsWith("operator_")) throw new Error(`Only an operator can decide approvals or Bot lifecycle changes; received ${actorId}`);
+    assertGatewayOperatorMutationAllowed(actorId);
   }
 }
