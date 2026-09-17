@@ -59,18 +59,7 @@ function assertSensitiveMutationAuthority(kind: ProtocolKind, value: JsonObject)
   }
 
   if (kind === "task") {
-    if (
-      typeof value.recovery_retry_authorized_by === "string"
-      || (value.status === "canceled" && typeof value.canceled_by === "string")
-    ) {
-      assertGatewayOperatorMutationAllowed();
-    }
-    return;
-  }
-
-  if (kind === "team_run") {
-    const termination = isObject(value.termination) ? value.termination : null;
-    if (value.status === "canceled" && termination && typeof termination.requested_by === "string") {
+    if (typeof value.recovery_retry_authorized_by === "string") {
       assertGatewayOperatorMutationAllowed();
     }
   }
