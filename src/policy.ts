@@ -21,6 +21,9 @@ const ACTIVE_TASK_STATES = new Set([
   "blocked"
 ]);
 
+const TERMINAL_WORKER_STATES = new Set(["completed", "failed", "canceled", "expired"]);
+const TERMINAL_TEAM_RUN_STATES = new Set(["completed", "failed", "canceled", "budget_exhausted"]);
+
 export class PolicyError extends Error {
   constructor(readonly code: string, message: string) {
     super(message);
@@ -218,15 +221,43 @@ export class CoordinationPolicy {
   }
 
   private assertPrincipalWorkspace(principalId: string, workspaceId: string, role: string): void {
-    if (!principalId.startsWith("bot_")) return;
+    const isBot = principalId.startsWith("bot_");
+    const isWorker = principalId.startsWith("worker_");
+    if (!isBot && !isWorker) return;
+
     const object = this.store.getObject(principalId);
-    if (!object || object.kind !== "bot") {
-      if (this.requireRegisteredBots) throw new PolicyError("NOT_FOUND", `${role} Bot ${principalId} is not registered`);
+    if (!object || (isBot ? object.kind !== "bot" : object.kind !== "worker")) {
+      if (this.requireRegisteredBots || isWorker) {
+        throw new PolicyError("NOT_FOUND", `${role} ${isWorker ? "Worker" : "Bot"} ${principalId} is not registered`);
+      }
       return;
     }
-    if (object.payload.status !== "active") throw new PolicyError("AGENT_UNAVAILABLE", `${role} Bot ${principalId} is not active`);
+
     if (object.workspaceId !== workspaceId) {
-      throw new PolicyError("WORKSPACE_DENIED", `${role} Bot ${principalId} is outside workspace ${workspaceId}`);
+      throw new PolicyError("WORKSPACE_DENIED", `${role} ${isWorker ? "Worker" : "Bot"} ${principalId} is outside workspace ${workspaceId}`);
+    }
+
+    if (object.kind === "bot") {
+      if (object.payload.status !== "active") {
+        throw new PolicyError("AGENT_UNAVAILABLE", `${role} Bot ${principalId} is not active`);
+      }
+      return;
+    }
+
+    if (TERMINAL_WORKER_STATES.has(String(object.payload.status))) {
+      throw new PolicyError("AGENT_UNAVAILABLE", `${role} Worker ${principalId} is not available from status ${String(object.payload.status)}`);
+    }
+
+    const runId = typeof object.payload.run_id === "string" ? object.payload.run_id : "";
+    const run = runId ? this.store.getObject(runId) : null;
+    if (!run || run.kind !== "team_run") {
+      throw new PolicyError("WORKSPACE_DENIED", `${role} Worker ${principalId} has no canonical Team Run scope`);
+    }
+    if (run.workspaceId !== workspaceId || run.workspaceId !== object.workspaceId) {
+      throw new PolicyError("WORKSPACE_DENIED", `${role} Worker ${principalId} is outside Team Run workspace ${workspaceId}`);
+    }
+    if (TERMINAL_TEAM_RUN_STATES.has(String(run.payload.status))) {
+      throw new PolicyError("AGENT_UNAVAILABLE", `${role} Worker ${principalId} belongs to terminal Team Run ${run.id}`);
     }
   }
 
