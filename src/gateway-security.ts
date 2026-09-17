@@ -205,7 +205,8 @@ export function currentGatewayRequestAuthority(): GatewayRequestAuthority | null
  * trusted host boundary; HTTP bearer callers must carry an explicit host-bound
  * operator session in the request authority context.
  */
-export function assertGatewayOperatorMutationAllowed(): GatewayRequestAuthority {
+export function assertGatewayOperatorMutationAllowed(actorId?: string): GatewayRequestAuthority {
+  const claimedOperator = actorId === undefined ? null : safeOperatorPrincipalId(actorId);
   const authority = currentGatewayRequestAuthority();
   if (!authority) {
     return {
@@ -220,6 +221,17 @@ export function assertGatewayOperatorMutationAllowed(): GatewayRequestAuthority 
     throw new GatewaySecurityError(
       "OPERATOR_AUTHORITY_REQUIRED",
       "Gateway transport access does not grant operator/domain mutation authority. Bind an authenticated operator session before using this control.",
+      403
+    );
+  }
+  if (
+    authority.boundary === "bearer-transport"
+    && claimedOperator !== null
+    && authority.operator_principal_id !== claimedOperator
+  ) {
+    throw new GatewaySecurityError(
+      "OPERATOR_PRINCIPAL_MISMATCH",
+      "Operator provenance must match the authenticated operator session principal.",
       403
     );
   }
