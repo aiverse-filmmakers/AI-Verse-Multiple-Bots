@@ -1,6 +1,7 @@
 import { createId } from "./id.js";
 import { ExecutionQueue, type ExecutionRecord, type StaleExecution } from "./execution-queue.js";
 import { CoordinationGateway } from "./gateway.js";
+import { assertGatewayOperatorMutationAllowed } from "./gateway-security.js";
 import { CoordinationStore } from "./store.js";
 import type { AppendedEvent, CoordinationEvent, JsonObject, StoredObject } from "./types.js";
 import { validateProtocolObject } from "./validator.js";
@@ -281,5 +282,6 @@ export class RecoveryCoordinator {
 
   private assertOperator(actorId: string): void {
     if (!actorId.startsWith("operator_")) throw new Error(`Only an operator can authorize dead-letter retry; got ${actorId}`);
+    assertGatewayOperatorMutationAllowed(actorId);
   }
 }
