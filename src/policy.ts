@@ -21,8 +21,6 @@ const ACTIVE_TASK_STATES = new Set([
   "blocked"
 ]);
 
-const TERMINAL_WORKER_STATES = new Set(["completed", "failed", "canceled", "expired"]);
-const TERMINAL_TEAM_RUN_STATES = new Set(["completed", "failed", "canceled", "budget_exhausted"]);
 
 export class PolicyError extends Error {
   constructor(readonly code: string, message: string) {
@@ -227,9 +225,11 @@ export class CoordinationPolicy {
 
     const object = this.store.getObject(principalId);
     if (!object || (isBot ? object.kind !== "bot" : object.kind !== "worker")) {
-      if (this.requireRegisteredBots || isWorker) {
-        throw new PolicyError("NOT_FOUND", `${role} ${isWorker ? "Worker" : "Bot"} ${principalId} is not registered`);
+      if (isBot && this.requireRegisteredBots) {
+        throw new PolicyError("NOT_FOUND", `${role} Bot ${principalId} is not registered`);
       }
+      // Team Run planners may reserve a worker_* identity before the Worker is
+      // persisted. There is no existing Worker scope to trust or corrupt yet.
       return;
     }
 
@@ -244,10 +244,9 @@ export class CoordinationPolicy {
       return;
     }
 
-    if (TERMINAL_WORKER_STATES.has(String(object.payload.status))) {
-      throw new PolicyError("AGENT_UNAVAILABLE", `${role} Worker ${principalId} is not available from status ${String(object.payload.status)}`);
-    }
-
+    // Worker lifecycle availability is owned by Team Run/runner state. Generic
+    // policy only proves scope here so terminal Workers may still publish their
+    // final result and pre-persistence fan-out planning stays valid.
     const runId = typeof object.payload.run_id === "string" ? object.payload.run_id : "";
     const run = runId ? this.store.getObject(runId) : null;
     if (!run || run.kind !== "team_run") {
@@ -255,9 +254,6 @@ export class CoordinationPolicy {
     }
     if (run.workspaceId !== workspaceId || run.workspaceId !== object.workspaceId) {
       throw new PolicyError("WORKSPACE_DENIED", `${role} Worker ${principalId} is outside Team Run workspace ${workspaceId}`);
-    }
-    if (TERMINAL_TEAM_RUN_STATES.has(String(run.payload.status))) {
-      throw new PolicyError("AGENT_UNAVAILABLE", `${role} Worker ${principalId} belongs to terminal Team Run ${run.id}`);
     }
   }
 
