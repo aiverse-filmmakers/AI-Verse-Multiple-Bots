@@ -2,6 +2,7 @@ import { assertUsageWithinBudget, BudgetError, effectiveDeadline, type RuntimeUs
 import { createId } from "./id.js";
 import { ExecutionOwnershipError, ExecutionQueue, type ExecutionRecord } from "./execution-queue.js";
 import { CoordinationGateway } from "./gateway.js";
+import { assertGatewayOperatorMutationAllowed } from "./gateway-security.js";
 import { CoordinationLoopError, progressFingerprint } from "./loop-guard.js";
 import { RuntimeRegistry, type ExecutionPrincipalKind, type RuntimeAdapter, type RuntimeExecutionContext, type RuntimeExecutionResult } from "./runtime.js";
 import { CoordinationStore } from "./store.js";
@@ -709,7 +710,10 @@ export class PrincipalRunner {
   }
 
   private assertCanCancel(task: StoredObject, actorId: string): void {
-    if (actorId.startsWith("operator_")) return;
+    if (actorId.startsWith("operator_")) {
+      assertGatewayOperatorMutationAllowed(actorId);
+      return;
+    }
     if (actorId === task.payload.created_by || actorId === task.payload.owner_id || actorId === task.payload.assignee_id) return;
     if (typeof task.payload.run_id === "string") {
       const run = this.store.getObject(task.payload.run_id);
