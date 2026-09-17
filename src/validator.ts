@@ -1,3 +1,4 @@
+import { assertGatewayOperatorMutationAllowed } from "./gateway-security.js";
 import type { BotManifest, JsonObject, ProtocolKind } from "./types.js";
 
 export class ProtocolValidationError extends Error {
@@ -35,6 +36,46 @@ function requiredObject(object: JsonObject, key: string, issues: string[]): Json
   return value;
 }
 
+function assertSensitiveMutationAuthority(kind: ProtocolKind, value: JsonObject): void {
+  if (kind === "bot") {
+    const lifecycle = isObject(value.lifecycle) ? value.lifecycle : null;
+    if (
+      lifecycle
+      && (
+        typeof lifecycle.previous_status === "string"
+        || typeof lifecycle.runtime_rebound_at === "string"
+      )
+    ) {
+      assertGatewayOperatorMutationAllowed();
+    }
+    return;
+  }
+
+  if (kind === "approval") {
+    if (value.status === "approved" || value.status === "denied") {
+      assertGatewayOperatorMutationAllowed();
+    }
+    return;
+  }
+
+  if (kind === "task") {
+    if (
+      typeof value.recovery_retry_authorized_by === "string"
+      || (value.status === "canceled" && typeof value.canceled_by === "string")
+    ) {
+      assertGatewayOperatorMutationAllowed();
+    }
+    return;
+  }
+
+  if (kind === "team_run") {
+    const termination = isObject(value.termination) ? value.termination : null;
+    if (value.status === "canceled" && termination && typeof termination.requested_by === "string") {
+      assertGatewayOperatorMutationAllowed();
+    }
+  }
+}
+
 export function inferProtocolKind(object: JsonObject): ProtocolKind {
   if (object.kind === "durable" && typeof object.role === "object") return "bot";
   if (object.type === "worker") return "worker";
@@ -66,6 +107,8 @@ export function validateProtocolObject(value: unknown, expectedKind?: ProtocolKi
     if (error instanceof ProtocolValidationError) issues.push(...error.issues);
     kind = expectedKind ?? "event";
   }
+
+  assertSensitiveMutationAuthority(kind, value);
 
   switch (kind) {
     case "bot": {
