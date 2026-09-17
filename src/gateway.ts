@@ -880,7 +880,9 @@ export class CoordinationGateway {
   }
 
   sendMessage(input: SendMessageInput): { message: StoredObject; delivery: DeliveryRecord; event: AppendedEvent; replayed: boolean } {
-    if (input.targetKind === "bot") this.policy?.assertMessage(input.senderId, input.targetId, input.workspaceId);
+    if (input.targetKind === "bot" || input.targetKind === "worker") {
+      this.policy?.assertMessage(input.senderId, input.targetId, input.workspaceId);
+    }
 
     const messageId = input.messageId ?? createId("msg");
     const content = input.content ?? [{ kind: "text", text: input.text }];
