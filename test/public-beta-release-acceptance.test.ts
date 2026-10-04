@@ -38,6 +38,14 @@ test("Phase 5.14 release manifest is complete, component-scoped, and version-ali
   assert.match(manifest.acceptance_scope.composed_agent_profile_owner, /System/i);
   assert.match(manifest.acceptance_scope.composed_agent_profile_owner, /distribution/i);
 
+  assert.deepEqual(manifest.acceptance_scope.profile_composition.agent, [
+    "OS", "Brain", "Memory", "Skills", "Data", "Multiple Bots", "Automations", "Gateway", "Token"
+  ]);
+  assert.deepEqual(manifest.acceptance_scope.profile_composition.full_additions, [
+    "Connections", "Dashboard", "Apps"
+  ]);
+  assert.doesNotMatch(read("docs/PUBLIC-BETA-RELEASE-ACCEPTANCE.md"), /composes Multiple Bots with .*Connections.*Automations/);
+
   assert.equal(manifest.phase_5_slices.length, 14);
   assert.equal(new Set(manifest.phase_5_slices).size, 14);
   assert.equal(manifest.phase_5_slices[0], "5.1-install-package");

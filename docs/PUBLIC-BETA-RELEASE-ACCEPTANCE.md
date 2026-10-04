@@ -80,7 +80,7 @@ The following remain separate release operations/gates:
 - whole Agent profile composed acceptance;
 - Distribution Agent release-set promotion.
 
-The full Agent profile is owned by AI-Verse System + Distribution acceptance because it composes Multiple Bots with OS, Brain, Memory, Skills, Data, Connections, Automations, Gateway and Token.
+The released Agent profile is owned by AI-Verse System + Distribution acceptance because it composes Multiple Bots with OS, Brain, Memory, Skills, Data, Automations, Gateway and Token. Connections, Dashboard and Apps are Full-profile additions and are not part of the Agent profile.
 
 A green Multiple Bots 5.14 result means:
 

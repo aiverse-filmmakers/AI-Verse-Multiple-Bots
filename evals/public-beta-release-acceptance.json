@@ -8,7 +8,25 @@
     "component_release_gate": "owned",
     "composed_agent_profile_gate": "delegated",
     "composed_agent_profile_owner": "AI-Verse-System + ai-verse-distribution",
-    "statement": "This gate certifies the Multiple Bots component. It does not claim the whole Agent profile or Distribution release set has passed composed acceptance."
+    "statement": "This gate certifies the Multiple Bots component. It does not claim the whole Agent profile or Distribution release set has passed composed acceptance.",
+    "profile_composition": {
+      "agent": [
+        "OS",
+        "Brain",
+        "Memory",
+        "Skills",
+        "Data",
+        "Multiple Bots",
+        "Automations",
+        "Gateway",
+        "Token"
+      ],
+      "full_additions": [
+        "Connections",
+        "Dashboard",
+        "Apps"
+      ]
+    }
   },
   "phase_5_slices": [
     "5.1-install-package",
