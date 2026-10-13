@@ -1,0 +1,24 @@
+{
+  "schema_version": "ai-verse.component-release/v1",
+  "component_id": "ai-verse-multiple-bots",
+  "version": "0.1.0-beta.1",
+  "revision": "ddf70ac19736f6ca7f8d604901c20af9e46614fe",
+  "release_status": "candidate",
+  "package": {
+    "repository": "aiverse-filmmakers/AI-Verse-Multiple-Bots",
+    "source_type": "git",
+    "package_name": "@ai-verse/multiple-bots",
+    "integrity": null
+  },
+  "supported_platforms": ["linux"],
+  "runtime_requirements": {"python": null, "node": ">=22.5.0", "other": []},
+  "lifecycle": {"install": true, "setup": false, "status": false, "doctor": true, "enable": false, "disable": false, "update": true, "uninstall": true},
+  "state": {"canonical_state_owned": true, "preserve_on_update": true, "preserve_on_uninstall": true, "preserve_unknown_user_files": true, "state_format": null},
+  "migration": {"change_classification": "non-breaking", "compatibility": "none-required", "from_versions": [], "requires_explicit_migration": false, "owner_controlled": true, "checkpoint_policy": "not-required"},
+  "authority": {"grants_permissions": false, "changes_direction_owner": false, "changes_scope": false, "enables_disabled_component": false, "exposes_remote_listener": false},
+  "evidence": {
+    "ci": [{"kind": "owner-native-ci", "status": "pass", "revision": "ddf70ac19736f6ca7f8d604901c20af9e46614fe", "run_id": "37240126310", "url": "https://github.com/aiverse-filmmakers/AI-Verse-Multiple-Bots/actions/runs/37240126310"}],
+    "acceptance": [{"kind": "owner-local-native-workflow-acceptance", "status": "pass", "revision": "ddf70ac19736f6ca7f8d604901c20af9e46614fe", "run_id": "37240126310", "url": "https://github.com/aiverse-filmmakers/AI-Verse-Multiple-Bots/actions/runs/37240126310"}]
+  },
+  "semantics": {"release_metadata_only": true, "live_health_truth": false}
+}
